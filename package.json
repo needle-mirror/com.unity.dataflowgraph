@@ -1,0 +1,35 @@
+{
+  "name": "com.unity.dataflowgraph",
+  "displayName": "Data Flow Graph",
+  "version": "0.11.6-preview",
+  "unity": "2019.3",
+  "description": "This package contains a framework for authoring composable nodes that form a processing graph.",
+  "keywords": [
+    "graph",
+    "processing"
+  ],
+  "dependencies": {
+    "com.unity.entities": "0.1.0-preview",
+    "com.unity.jobs": "0.1.0-preview",
+    "com.unity.collections": "0.1.0-preview",
+    "com.unity.mathematics": "1.1.0",
+    "com.unity.burst": "1.1.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git@github.cds.internal.unity3d.com:unity/com.unity.dataflowgraph.git",
+    "revision": "8a0bb129b9bd97b11c581149715ebb5a0311c1c1"
+  },
+  "samples": [
+    {
+      "displayName": "Examples",
+      "description": "Very basic framework usage/authoring example.",
+      "path": "Samples~/Example"
+    },
+    {
+      "displayName": "Guided Tour in Code",
+      "description": "A guided tour of the API via commented and runnable code examples.",
+      "path": "Samples~/Tour"
+    }
+  ]
+}

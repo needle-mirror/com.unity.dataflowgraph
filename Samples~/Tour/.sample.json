@@ -1,0 +1,5 @@
+{
+	"displayName": "Guided Tour in Code",
+	"description": "A guided tour of the API via commented and runnable code examples.",
+	"createSeparatePackage": false
+}
