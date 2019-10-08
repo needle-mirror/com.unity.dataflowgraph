@@ -1,0 +1,9 @@
+apiRules:
+  - exclude:
+      # inherited Object methods
+      uidRegex: ^Unity\.DataFlowGraph\..*Tests$
+      type: Namespace
+  - exclude:
+      hasAttribute:
+        uid: System.ObsoleteAttribute
+      type: Type

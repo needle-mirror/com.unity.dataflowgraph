@@ -32,11 +32,9 @@ This version of DataFlowGraph package is compatible with the following versions 
 
 ## Known limitations
 
-DataFlowGraph version 0.11.6 includes the following known limitations:
+DataFlowGraph version 0.11 includes the following known limitations:
 
 * The DataFlowGraph package is an experimental feature 
-* Non Bursted IL2CPP builds are not supported
-* Bursted IL2CPP builds are only supported if all Kernels are Burst compiled
 * This version of DataFlowGraph consists of features that mainly cater to the needs of DOTS Animation
 * _GetNodeData_ for incompatibly typed node handles may return incorrect results
 * Nested buffers in Ports inside nested structures will not be detected

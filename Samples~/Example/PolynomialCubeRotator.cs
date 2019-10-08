@@ -4,7 +4,7 @@ using Unity.Mathematics;
 using System.Collections.Generic;
 using System;
 
-namespace Unity.DataFlowGraph.Tour
+namespace Unity.DataFlowGraph.PolynomialCubeRotatorExample
 {
     /// <summary>
     /// This is a runnable example of analytical N-degree polynomial system for generating interesting animation patterns.

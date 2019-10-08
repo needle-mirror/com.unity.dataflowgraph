@@ -191,7 +191,7 @@ namespace Unity.DataFlowGraph.Tests
         {
             // Look for any one known sample Type and presume this indicates that they have been properly imported.
             bool sampleDetected =
-                AppDomain.CurrentDomain.GetAssemblies().Any(a => a.GetType("TimeExample.TimeExample") != null);
+                AppDomain.CurrentDomain.GetAssemblies().Any(a => a.GetType("Unity.DataFlowGraph.TimeExample.TimeExample") != null);
 
             if (ForceSamplesImport != null && (bool) ForceSamplesImport)
             {

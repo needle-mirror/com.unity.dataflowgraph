@@ -4,6 +4,10 @@ All notable changes to this package will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [0.11.7] - 2019-10-08
+### Changed
+- Removed Test classes from documentation
+
 ## [0.11.6] - 2019-09-20
 ### Added
 - Added a documented walkthrough of API and concepts of DataFlowGraph in a segmented, guided tour in code. You can find it inside /Samples/, or install it through the package manager. 

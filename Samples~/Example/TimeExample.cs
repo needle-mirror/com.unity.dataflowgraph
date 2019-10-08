@@ -1,48 +1,48 @@
 using System;
-using TimeStandards;
 using Unity.Collections;
 using Unity.Mathematics;
 using UnityEngine;
 using Unity.DataFlowGraph;
 
-using StreamType = Unity.Mathematics.float2;
-
-namespace TimeStandards
+namespace Unity.DataFlowGraph.TimeExample
 {
-    struct SeekMessage
+    using TimeStandards;
+    using StreamType = Unity.Mathematics.float2;
+
+    namespace TimeStandards
     {
-        public float Time;
+        struct SeekMessage
+        {
+            public float Time;
+        }
+
+        struct SpeedMessage
+        {
+            public float Scale;
+        }
+
+        struct PlayStateMessage
+        {
+            public bool ShouldPlay;
+        }
+
+        struct WeightMessage
+        {
+            public float Gradient;
+        }
+
+        struct TimeOffsetMessage
+        {
+            public float Origin;
+        }
+
+        interface ISeekable : ITaskPortMsgHandler<ISeekable, SeekMessage> { }
+        interface ISpeed : ITaskPortMsgHandler<ISpeed, SpeedMessage> { }
+        interface IPlayable : ITaskPortMsgHandler<IPlayable, PlayStateMessage> { }
+        interface IWeightable : ITaskPortMsgHandler<IWeightable, WeightMessage> { }
+        interface IOffsettable : ITaskPortMsgHandler<IOffsettable, TimeOffsetMessage> { }
     }
 
-    struct SpeedMessage
-    {
-        public float Scale;
-    }
-
-    struct PlayStateMessage
-    {
-        public bool ShouldPlay;
-    }
-
-    struct WeightMessage
-    {
-        public float Gradient;
-    }
-
-    struct TimeOffsetMessage
-    {
-        public float Origin;
-    }
-
-    interface ISeekable : ITaskPortMsgHandler<ISeekable, SeekMessage> { }
-    interface ISpeed : ITaskPortMsgHandler<ISpeed, SpeedMessage> { }
-    interface IPlayable : ITaskPortMsgHandler<IPlayable, PlayStateMessage> { }
-    interface IWeightable : ITaskPortMsgHandler<IWeightable, WeightMessage> { }
-    interface IOffsettable : ITaskPortMsgHandler<IOffsettable, TimeOffsetMessage> { }
-}
-
-namespace TimeExample
-{
     class Generator 
         : NodeDefinition<Generator.Data, Generator.SimPorts, Generator.KernelData, Generator.KernelDefs, Generator.Kernel>
         , ISeekable
