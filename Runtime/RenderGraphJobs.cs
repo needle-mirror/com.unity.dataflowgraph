@@ -385,18 +385,18 @@ namespace Unity.DataFlowGraph
 
         // TODO: With some considerations, we can change this into a IParallelForJob
         [BurstCompile]
-        struct ComputeValueChunkAndPatchPortsJob : IJob
+        struct ComputeValueChunkAndPatchPortsJob : IJobParallelForDefer
         {
             public TraversalCache Cache;
             public BlitList<KernelNode> Nodes;
             public SharedData Shared;
 
-            public unsafe void Execute()
+            public unsafe void Execute(int islandIndex)
             {
                 // It would make more sense to walk by node type, and batch all nodes for these types.
                 // Requires sorting or ECS/whatever firstly, though.
 
-                foreach (var nodeCache in new TopologyCacheWalker(Cache))
+                foreach (var nodeCache in new TopologyCacheWalker(Cache, Cache.Islands[islandIndex]))
                 {
                     var index = nodeCache.Handle.VHandle.Index;
                     ref var nodeKernel = ref Nodes[index];

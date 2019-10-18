@@ -470,7 +470,7 @@ namespace Unity.DataFlowGraph
                 job.Cache = m_Cache;
                 job.Nodes = m_Nodes;
                 job.Shared = m_SharedData;
-                return job.Schedule(input);
+                return job.Schedule(m_Cache.Islands, 1, input);
             }
 
             return input;

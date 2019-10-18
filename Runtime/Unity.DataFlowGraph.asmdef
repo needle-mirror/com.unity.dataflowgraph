@@ -4,7 +4,8 @@
         "Unity.Collections",
         "Unity.DataFlowGraph.Library",
         "Unity.Burst",
-        "Unity.Entities"
+        "Unity.Entities",
+        "Unity.Jobs"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
@@ -13,5 +14,6 @@
     "precompiledReferences": [],
     "autoReferenced": true,
     "defineConstraints": [],
-    "versionDefines": []
+    "versionDefines": [],
+    "noEngineReferences": false
 }
