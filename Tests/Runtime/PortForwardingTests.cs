@@ -566,7 +566,6 @@ namespace Unity.DataFlowGraph.Tests
 
         public class UberNodeThatSendsMessages_ThroughForwardingPorts
             : NodeDefinition<UberNodeThatSendsMessages_ThroughForwardingPorts.Data, UberNodeThatSendsMessages_ThroughForwardingPorts.SimPorts>
-                , IMsgHandler<Message>
         {
             public struct SimPorts : ISimulationPortDefinition
             {
@@ -594,8 +593,6 @@ namespace Unity.DataFlowGraph.Tests
             {
                 Set.Destroy(GetNodeData(handle).Child);
             }
-
-            public void HandleMessage(in MessageContext ctx, in Message msg) => throw new NotImplementedException();
         }
 
         [Test]
@@ -614,7 +611,6 @@ namespace Unity.DataFlowGraph.Tests
 
         public class UberNodeThatForwardsToNonExistingNode
             : NodeDefinition<UberNodeThatForwardsToNonExistingNode.Data, UberNodeThatForwardsToNonExistingNode.SimPorts>
-                , IMsgHandler<Message>
         {
             public struct SimPorts : ISimulationPortDefinition
             {
@@ -628,8 +624,6 @@ namespace Unity.DataFlowGraph.Tests
             {
                 ctx.ForwardOutput(SimulationPorts.ForwardedOutput, new NodeHandle<InOutTestNode>(), InOutTestNode.SimulationPorts.Output);
             }
-
-            public void HandleMessage(in MessageContext ctx, in Message msg) => throw new NotImplementedException();
         }
 
         [Test]

@@ -4,6 +4,14 @@ All notable changes to this package will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [0.11.9] - 2019-10-25
+### Added
+- Added warning in package description emphasizing that this is work-in-progress and should not be used in production.
+
+### Fixed
+- InitContext.ForwardOutput(MessageOutput<T>,...) no longer requires the destination node to implement IMsgHandler.
+- Fixed occasional native crash in Unity job scheduler, when used together with ECS (#329)
+
 ## [0.11.8] - 2019-10-18
 ### Fixed
 - Internally updating graph inputs on topology changes now runs in parallel

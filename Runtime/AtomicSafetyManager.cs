@@ -145,7 +145,7 @@ namespace Unity.DataFlowGraph
                 // Just to avoid Unity checks against null-pointer native arrays.
                 // We're never going to dereference it.
                 // Also add offset to avoid alias analysis issues.
-                var invalidMemory = (void*)(0xDEAD0000 + where * 0xF);
+                var invalidMemory = (void*)(0xDEAD0000 + where * 0x10);
                 Buffer0 = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<int>(invalidMemory, 0, Allocator.Invalid);
                 NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref Buffer0, handles[where].SafetyHandle);
             }

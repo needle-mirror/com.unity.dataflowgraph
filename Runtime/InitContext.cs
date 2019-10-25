@@ -95,8 +95,8 @@ namespace Unity.DataFlowGraph
         /// Sets up forwarding of the given output port to another output port on a different (sub) node.
         /// </summary>
         public void ForwardOutput<TDefinition, TForwardedDefinition, TMsg>(MessageOutput<TDefinition, TMsg> origin, NodeHandle<TForwardedDefinition> replacedNode, MessageOutput<TForwardedDefinition, TMsg> replacement)
-            where TDefinition : INodeDefinition, IMsgHandler<TMsg>, new()
-            where TForwardedDefinition : INodeDefinition, IMsgHandler<TMsg>
+            where TDefinition : INodeDefinition, new()
+            where TForwardedDefinition : INodeDefinition
         {
             CommonChecks<TDefinition>(replacedNode, (OutputPortID)origin);
             GetForwardingBuffer().Add(ForwardedPort.Output(origin.Port, replacedNode, replacement.Port));

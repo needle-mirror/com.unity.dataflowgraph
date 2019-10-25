@@ -1,9 +1,9 @@
 {
   "name": "com.unity.dataflowgraph",
   "displayName": "Data Flow Graph",
-  "version": "0.11.8-preview",
+  "version": "0.11.9-preview",
   "unity": "2019.3",
-  "description": "This package contains a framework for authoring composable nodes that form a processing graph.",
+  "description": "Data Flow Graph delivers DOTS-optimized code for graph-like problems, i.e., where order-of-execution is important.\n\nThis is a highly experimental package and should NOT be considered suitable for production situations.",
   "keywords": [
     "graph",
     "processing"
@@ -18,7 +18,7 @@
   "repository": {
     "type": "git",
     "url": "git@github.cds.internal.unity3d.com:unity/com.unity.dataflowgraph.git",
-    "revision": "6533886de559b1ad77a3981b0dcf4cc2108521ea"
+    "revision": "cd406036657764efa2fdd1d12cbd6f65424ca85f"
   },
   "samples": [
     {
