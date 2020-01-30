@@ -15,21 +15,14 @@ namespace Unity.DataFlowGraph.Tests
             Kernel
         }
 
-        public struct Node : INodeData
-        {
-            public int Contents;
-        }
-
         public struct Data : IKernelData
         {
             public int Contents;
         }
 
-        class NonKernelNode : NodeDefinition<Node>
-        {
-        }
+        class NonKernelNode : NodeDefinition<EmptyPorts> {}
 
-        class KernelNode : NodeDefinition<Node, Data, KernelNode.KernelDefs, KernelNode.Kernel>
+        class KernelNode : NodeDefinition<Data, KernelNode.KernelDefs, KernelNode.Kernel>
         {
             public struct KernelDefs : IKernelPortDefinition
             {
@@ -53,7 +46,7 @@ namespace Unity.DataFlowGraph.Tests
             using (var set = new NodeSet())
             {
                 NodeHandle node = set.Create<KernelNode>();
-                var internalData = set.GetInternalData()[node.VHandle.Index];
+                var internalData = set.GetNodeChecked(node);
 
                 unsafe
                 {
@@ -98,7 +91,7 @@ namespace Unity.DataFlowGraph.Tests
                     Assert.Zero(set.GetCurrentGraphDiff().DeletedNodes.Count);
 
                     for (int i = 0; i < numNodesToCreate; ++i)
-                        Assert.AreEqual(list[i], set.GetCurrentGraphDiff().CreatedNodes[i]);
+                        Assert.AreEqual(list[i], set.GetCurrentGraphDiff().CreatedNodes[i].ToPublicHandle());
 
                     for (int i = 0; i < numNodesToCreate; ++i)
                         set.Destroy(list[i]);
@@ -108,9 +101,9 @@ namespace Unity.DataFlowGraph.Tests
 
                     for (int i = 0; i < numNodesToCreate; ++i)
                     {
-                        Assert.AreEqual(list[i], set.GetCurrentGraphDiff().CreatedNodes[i]);
-                        Assert.AreEqual(list[i], set.GetCurrentGraphDiff().DeletedNodes[i].Handle);
-                        // TODO: Assert functionality index of deleted nodes
+                        Assert.AreEqual(list[i], set.GetCurrentGraphDiff().CreatedNodes[i].ToPublicHandle());
+                        Assert.AreEqual(list[i], set.GetCurrentGraphDiff().DeletedNodes[i].Handle.ToPublicHandle());
+                        // TODO: Assert definition index of deleted nodes
                     }
 
                     // TODO: Assert command queue integrity

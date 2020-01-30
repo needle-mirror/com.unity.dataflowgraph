@@ -3,9 +3,12 @@ using System.Reflection;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Collections;
 using System.Runtime.CompilerServices;
+using static Unity.DataFlowGraph.ReflectionTools;
 
 namespace Unity.DataFlowGraph
 {
+    using UntypedPortArray = PortArray<DataInput<InvalidDefinitionSlot, byte>>;
+
     public class InvalidNodeDefinitionException : ArgumentException
     {
         public InvalidNodeDefinitionException(string message) : base(message)
@@ -48,7 +51,7 @@ namespace Unity.DataFlowGraph
     {
         public const int k_MaxInputSize = 1 << 16;
 
-        public readonly struct InputDeclaration
+        public unsafe readonly struct InputDeclaration
         {
             public readonly SimpleType Type;
             /// <summary>
@@ -67,39 +70,99 @@ namespace Unity.DataFlowGraph
                 PortNumber = portNumber;
                 IsArray = isArray;
             }
+
+            /// <summary>
+            /// Returns a pointer to the <see cref="DataInput{TDefinition, TType}.Ptr"/> field,
+            /// that this port declaration represents.
+            /// </summary>
+            public void** GetPointerToPatch(RenderKernelFunction.BasePort* ports)
+            {
+                return (void**)((byte*)ports + PatchOffset);
+            }
+
+            /// <summary>
+            /// If this port declaration is a port array, return the appropriate patch location inside
+            /// the port array's nth port (using the potential array index)
+            /// Otherwise, <see cref="GetPointerToPatch(RenderKernelFunction.BasePort*)"/>
+            /// </summary>
+            public void** GetPointerToPatch(RenderKernelFunction.BasePort* ports, ushort potentialArrayIndex)
+            {
+                if (!IsArray)
+                    return (void**)((byte*)ports + PatchOffset);
+
+                return AsPortArray(ports).NthInputPortPointer(potentialArrayIndex);
+            }
+
+            public ref UntypedPortArray AsPortArray(RenderKernelFunction.BasePort* ports)
+            {
+                // Assert IsArray ?
+                return ref Unsafe.AsRef<UntypedPortArray>((byte*)ports + PatchOffset);
+            }
         }
 
-        public readonly struct OutputDeclaration
+        /// <summary>
+        /// Low level information about an instance of a <see cref="DataOutput{TDefinition, TType}"/> contained
+        /// in a <see cref="IKernelPortDefinition"/> implementation.
+        /// </summary>
+        public unsafe readonly struct OutputDeclaration
         {
-            public readonly SimpleType Type;
             /// <summary>
-            /// The offset for the actual storage in case of an DataOutput{,}
+            /// The simple type of the element of a nested <see cref="Buffer{T}"/> inside a <see cref="DataOutput{TDefinition, TType}"/>,
+            /// or just the equivalent representation of the entire contained non-special cased TType.
+            /// </summary>
+            public readonly SimpleType ElementOrType;
+            /// <summary>
+            /// The offset for the actual storage in case of an <see cref="DataOutput{TDefinition, TType}"/>
             /// </summary>
             public readonly int PatchOffset;
 
             public readonly OutputPortID PortNumber;
 
-            public OutputDeclaration(SimpleType type, int patchOffset, OutputPortID portNumber)
+            public OutputDeclaration(SimpleType typeOrElement, int patchOffset, OutputPortID portNumber)
             {
-                Type = type;
+                ElementOrType = typeOrElement;
                 PatchOffset = patchOffset;
                 PortNumber = portNumber;
+            }
+
+            public void* Resolve(RenderKernelFunction.BasePort* ports)
+            {
+                return (byte*)ports + PatchOffset;
+            }
+
+            public ref BufferDescription GetAggregateBufferAt(RenderKernelFunction.BasePort* ports, int byteOffset)
+            {
+                return ref *(BufferDescription*)((byte*)ports + PatchOffset + byteOffset);
             }
         }
 
         internal readonly BlitList<InputDeclaration> Inputs;
         internal readonly BlitList<OutputDeclaration> Outputs;
+
+        public unsafe readonly struct BufferOffset
+        {
+            internal readonly int Offset;
+
+            public BufferOffset(int offset)
+            {
+                Offset = offset;
+            }
+
+            public ref BufferDescription AsUntyped(RenderKernelFunction.BasePort* kernelPorts)
+                => ref *(BufferDescription*)((byte*)kernelPorts + Offset);
+        }
+
         /// <summary>
         /// List of offsets of all Buffer<T> instances relative to the beginning of the IKernelDataPorts structure.
         /// </summary>
-        internal readonly BlitList<int> OutputBufferOffsets;
+        internal readonly BlitList<BufferOffset> OutputBufferOffsets;
 
         public DataPortDeclarations(Type definitionType, Type kernelPortType)
         {
             (Inputs, Outputs, OutputBufferOffsets) = GenerateDataPortDeclarations(definitionType, kernelPortType);
         }
 
-        static (BlitList<InputDeclaration> inputs, BlitList<OutputDeclaration> outputs, BlitList<int> outputBufferOffsets)
+        static (BlitList<InputDeclaration> inputs, BlitList<OutputDeclaration> outputs, BlitList<BufferOffset> outputBufferOffsets)
         GenerateDataPortDeclarations(Type definitionType, Type kernelPortType)
         {
             // Offset from the start of the field of the data port to the pointer. A bit of a hack.
@@ -107,7 +170,7 @@ namespace Unity.DataFlowGraph
 
             var inputs = new BlitList<InputDeclaration>(0);
             var outputs = new BlitList<OutputDeclaration>(0);
-            var outputBufferOffsets = new BlitList<int>(0);
+            var outputBufferOffsets = new BlitList<BufferOffset>(0);
 
             try
             {
@@ -167,28 +230,30 @@ namespace Unity.DataFlowGraph
                     }
                     else if (genericPortType == typeof(DataOutput<,>))
                     {
+                        SimpleType type;
+
+                        if (IsBufferDefinition(dataType))
+                        {
+                            // Compute the simple type of an element inside a buffer if possible
+                            type = new SimpleType(dataType.GetGenericArguments()[0]);
+                            outputBufferOffsets.Add(new BufferOffset(offsetOfWholePortDeclaration));
+                        }
+                        else
+                        {
+                            // otherwise the entire value (breaks for aggregates)
+                            type = new SimpleType(dataType);
+
+                            foreach (var field in WalkTypeInstanceFields(dataType, BindingFlags.Public, IsBufferDefinition))
+                                outputBufferOffsets.Add(new BufferOffset(offsetOfWholePortDeclaration + UnsafeUtility.GetFieldOffset(field)));
+                        }
+
                         outputs.Add(
                             new OutputDeclaration(
-                                new SimpleType(dataType),
+                                type,
                                 offsetOfWholePortDeclaration + k_PtrOffset,
                                 (OutputPortID)assignedPortNumberField.GetValue(portValue)
                             )
                         );
-
-                        if (dataType.IsConstructedGenericType && dataType.GetGenericTypeDefinition() == typeof(Buffer<>))
-                        {
-                            outputBufferOffsets.Add(offsetOfWholePortDeclaration);
-                        }
-                        else
-                        {
-                            foreach (var fieldInfo in dataType.GetFields(BindingFlags.Instance | BindingFlags.Public))
-                            {
-                                if (fieldInfo.FieldType.IsConstructedGenericType && fieldInfo.FieldType.GetGenericTypeDefinition() == typeof(Buffer<>))
-                                {
-                                    outputBufferOffsets.Add(offsetOfWholePortDeclaration + UnsafeUtility.GetFieldOffset(fieldInfo));
-                                }
-                            }
-                        }
                     }
                     else
                     {
@@ -231,6 +296,34 @@ namespace Unity.DataFlowGraph
         {
             if (!UnsafeUtility.IsUnmanaged(internalPortType))
                 throw new InvalidNodeDefinitionException($"Data port type {internalPortType} in {port} is not unmanaged");
+        }
+
+        public ref /*readonly */ OutputDeclaration FindOutputDataPort(OutputPortID port)
+            => ref Outputs[FindOutputDataPortNumber(port)];
+
+        public ref /*readonly */ InputDeclaration FindInputDataPort(InputPortID port)
+            => ref Inputs[FindInputDataPortNumber(port)];
+
+        public int FindOutputDataPortNumber(OutputPortID port)
+        {
+            for (int p = 0; p < Outputs.Count; ++p)
+            {
+                if (Outputs[p].PortNumber == port)
+                    return p;
+            }
+
+            throw new InternalException("Matching output port not found");
+        }
+
+        public int FindInputDataPortNumber(InputPortID port)
+        {
+            for (int p = 0; p < Inputs.Count; ++p)
+            {
+                if (Inputs[p].PortNumber == port)
+                    return p;
+            }
+
+            throw new InternalException("Matching input port not found");
         }
     }
 
@@ -278,6 +371,8 @@ namespace Unity.DataFlowGraph
 
     struct LowLevelNodeTraits : IDisposable
     {
+        static IntPtr s_PureInvocation = PureVirtualFunction.GetReflectionData();
+
         public struct VirtualTable
         {
             public RenderKernelFunction KernelFunction;
@@ -285,32 +380,37 @@ namespace Unity.DataFlowGraph
             public static VirtualTable Create()
             {
                 VirtualTable ret;
-                ret.KernelFunction = RenderKernelFunction.PureVirtual;
+                ret.KernelFunction = RenderKernelFunction.Pure<PureVirtualFunction>(s_PureInvocation);
                 return ret;
             }
+
+            public static bool IsMethodImplemented<TFunction>(in TFunction function)
+                where TFunction : IVirtualFunctionDeclaration => function.ReflectionData != s_PureInvocation;
         }
 
         public struct StorageDefinition
         {
             public readonly SimpleType NodeData, KernelData, Kernel, KernelPorts, SimPorts;
-            public readonly bool NodeDataIsManaged;
+            public readonly bool NodeDataIsManaged, IsComponentNode;
 
-            internal StorageDefinition(bool nodeDataIsManaged, SimpleType nodeData, SimpleType simPorts, SimpleType kernelData, SimpleType kernelPorts, SimpleType kernel)
+            internal StorageDefinition(bool nodeDataIsManaged, bool isComponentNode, SimpleType nodeData, SimpleType simPorts, SimpleType kernelData, SimpleType kernelPorts, SimpleType kernel)
             {
-                NodeDataIsManaged = nodeDataIsManaged;
                 NodeData = nodeData;
                 SimPorts = simPorts;
                 KernelData = kernelData;
                 Kernel = kernel;
                 KernelPorts = kernelPorts;
+                NodeDataIsManaged = nodeDataIsManaged;
+                IsComponentNode = isComponentNode;
             }
         }
 
-        public readonly StorageDefinition Storage;
         public readonly VirtualTable VTable;
+        public readonly StorageDefinition Storage;
         public readonly DataPortDeclarations DataPorts;
+        public readonly KernelLayout KernelLayout;
 
-        public bool HasKernelData => !VTable.KernelFunction.IsPureVirtual;
+        public bool HasKernelData => VirtualTable.IsMethodImplemented(VTable.KernelFunction);
 
         public bool IsCreated { get; private set; }
 
@@ -324,12 +424,13 @@ namespace Unity.DataFlowGraph
             IsCreated = false;
         }
 
-        internal LowLevelNodeTraits(StorageDefinition def, VirtualTable table, DataPortDeclarations portDeclarations)
+        internal LowLevelNodeTraits(StorageDefinition def, VirtualTable table, DataPortDeclarations portDeclarations, KernelLayout kernelLayout)
         {
             IsCreated = true;
             Storage = def;
             VTable = table;
             DataPorts = portDeclarations;
+            KernelLayout = kernelLayout;
         }
 
         internal LowLevelNodeTraits(StorageDefinition def, VirtualTable table)
@@ -338,6 +439,7 @@ namespace Unity.DataFlowGraph
             Storage = def;
             VTable = table;
             DataPorts = new DataPortDeclarations();
+            KernelLayout = default;
         }
 
     }

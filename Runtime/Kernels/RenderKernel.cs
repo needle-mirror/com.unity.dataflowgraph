@@ -45,13 +45,10 @@ namespace Unity.DataFlowGraph
 
     unsafe struct RenderKernelFunction : IVirtualFunctionDeclaration
     {
-        internal delegate void InvokeDelegate(ref RenderContext ctx, BaseKernel* kernel, BaseData* data, BasePort* ports);
+        internal delegate void InvokeDelegate(ref RenderContext ctx, in KernelLayout.Pointers instance);
         public IntPtr ReflectionData => JobData;
         internal readonly IntPtr JobData;
         internal readonly FunctionPointer<InvokeDelegate> FunctionPointer;
-        static InvokeDelegate s_PureVirtualInvocation = InvokePure;
-
-        public bool IsPureVirtual => ReflectionData == PureVirtual.ReflectionData;
 
         internal struct BaseData { }
         internal struct BaseKernel { }
@@ -91,10 +88,16 @@ namespace Unity.DataFlowGraph
             return new RenderKernelFunction(reflectionData, new FunctionPointer<InvokeDelegate>(functionPointer));
         }
 
-        internal static readonly RenderKernelFunction PureVirtual =
-            new RenderKernelFunction(
-                PureVirtualFunction.GetReflectionData(),
-                new FunctionPointer<InvokeDelegate>(Marshal.GetFunctionPointerForDelegate(s_PureVirtualInvocation)));
+        internal static RenderKernelFunction Pure<TPureKernel>(IntPtr pureJobReflectionData)
+            where TPureKernel : struct, IGraphNodeExecutor
+        {
+            var functionPointer = Marshal.GetFunctionPointerForDelegate(PureCallRetainer<TPureKernel>.RetainedInvocation);
+
+            return new RenderKernelFunction(
+                pureJobReflectionData,
+                new FunctionPointer<InvokeDelegate>(functionPointer)
+            );
+        }
 
         RenderKernelFunction(IntPtr jobReflectionData, FunctionPointer<InvokeDelegate> functionPointer)
         {
@@ -104,29 +107,34 @@ namespace Unity.DataFlowGraph
 
         internal struct AliasedJobDefinition
         {
-            public BaseKernel* Kernel;
-            public BaseData* NodeData;
-            public BasePort* KernelPorts;
+            public KernelLayout.Pointers Instance;
             public RenderContext RenderContext;
             public FunctionPointer<InvokeDelegate> Function;
         }
 
-        internal JobHandle Schedule(JobHandle inputDependencies, in RenderContext ctx, BaseKernel* kernel, BaseData* data, BasePort* ports)
+        internal JobHandle Schedule(JobHandle inputDependencies, in RenderContext ctx, in KernelLayout.Pointers instance)
         {
-            var job = new AliasedJobDefinition { Kernel = kernel, NodeData = data, KernelPorts = ports, RenderContext = ctx, Function = FunctionPointer };
+            var job = new AliasedJobDefinition { Instance = instance, RenderContext = ctx, Function = FunctionPointer };
             var scheduleParams = new JobsUtility.JobScheduleParameters(UnsafeUtility.AddressOf(ref job), JobData, inputDependencies, ScheduleMode.Batched);
             return JobsUtility.Schedule(ref scheduleParams);
         }
 
-        internal void Invoke(RenderContext ctx, BaseKernel* kernel, BaseData* data, BasePort* ports)
+        internal void Invoke(RenderContext ctx, in KernelLayout.Pointers instance)
         {
-            FunctionPointer.Invoke(ref ctx, kernel, data, ports);
+            FunctionPointer.Invoke(ref ctx, instance);
+        }
+
+        struct PureCallRetainer<TPure>
+            where TPure : struct, IGraphNodeExecutor
+        {
+            public static InvokeDelegate RetainedInvocation = Pure<TPure>;
         }
 
         [AOT.MonoPInvokeCallback (typeof(InvokeDelegate))]
-        static void InvokePure(ref RenderContext ctx, BaseKernel* kernel, BaseData* data, BasePort* ports)
+        static void Pure<TPure>(ref RenderContext ctx, in KernelLayout.Pointers instance)
+            where TPure : struct, IGraphNodeExecutor
         {
-            new PureVirtualFunction().Execute();
+            new TPure().Execute();
         }
     }
 
@@ -140,9 +148,9 @@ namespace Unity.DataFlowGraph
 
         [BurstCompile]
         [AOT.MonoPInvokeCallback (typeof(RenderKernelFunction.InvokeDelegate))]
-        public static void Execute(ref RenderContext ctx, RenderKernelFunction.BaseKernel* kernel, RenderKernelFunction.BaseData* data, RenderKernelFunction.BasePort* ports)
+        public static void Execute(ref RenderContext ctx, in KernelLayout.Pointers instance)
         {
-            Unsafe.AsRef<TUserKernel>(kernel).Execute(ctx, Unsafe.AsRef<TKernelData>(data), ref Unsafe.AsRef<TKernelPortDefinition>(ports));
+            Unsafe.AsRef<TUserKernel>(instance.Kernel).Execute(ctx, Unsafe.AsRef<TKernelData>(instance.Data), ref Unsafe.AsRef<TKernelPortDefinition>(instance.Ports));
         }
 
         /* TODO: Uncomment once issue #229 is fixed
@@ -179,34 +187,22 @@ namespace Unity.DataFlowGraph
 
     unsafe struct ManagedKernelWrapper : IGraphNodeExecutor
     {
-        [NativeDisableUnsafePtrRestriction]
-        public RenderKernelFunction.BaseKernel* m_Kernel;
-        [NativeDisableUnsafePtrRestriction]
-        public RenderKernelFunction.BaseData* m_Data;
-        [NativeDisableUnsafePtrRestriction]
-        public RenderKernelFunction.BasePort* m_Ports;
-
+        public KernelLayout.Pointers Instance;
         public RenderContext m_RenderContext;
 
         FunctionPointer<RenderKernelFunction.InvokeDelegate> Function;
 
-        public void Execute() => Function.Invoke(ref m_RenderContext, m_Kernel, m_Data, m_Ports);
+        public void Execute() => Function.Invoke(ref m_RenderContext, Instance);
     }
 
     [BurstCompile]
     unsafe struct BurstedKernelWrapper : IGraphNodeExecutor
     {
-        [NativeDisableUnsafePtrRestriction]
-        public RenderKernelFunction.BaseKernel* m_Kernel;
-        [NativeDisableUnsafePtrRestriction]
-        public RenderKernelFunction.BaseData* m_Data;
-        [NativeDisableUnsafePtrRestriction]
-        public RenderKernelFunction.BasePort* m_Ports;
-
+        public KernelLayout.Pointers Instance;
         public RenderContext m_RenderContext;
 
         FunctionPointer<RenderKernelFunction.InvokeDelegate> Function;
 
-        public void Execute() => Function.Invoke(ref m_RenderContext, m_Kernel, m_Data, m_Ports);
+        public void Execute() => Function.Invoke(ref m_RenderContext, Instance);
     }
 }

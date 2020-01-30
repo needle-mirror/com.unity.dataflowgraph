@@ -3,15 +3,18 @@ using System.Runtime.CompilerServices;
 using NUnit.Framework;
 using Unity.Burst;
 using Unity.Collections;
+using static Unity.DataFlowGraph.Tests.ComponentNodeSetTests;
 
 namespace Unity.DataFlowGraph.Tests
 {
-    using UntypedPortArray = PortArray<DataInput<InvalidFunctionalitySlot, byte>>;
+    using UntypedPortArray = PortArray<DataInput<InvalidDefinitionSlot, byte>>;
 
     public class PortArrayTests
     {
-        public class ArrayIONode : NodeDefinition<Node, ArrayIONode.SimPorts, Data, ArrayIONode.KernelDefs, ArrayIONode.Kernel>, IMsgHandler<int>
+        public class ArrayIONode : NodeDefinition<ArrayIONode.EmptyData, ArrayIONode.SimPorts, EmptyKernelData, ArrayIONode.KernelDefs, ArrayIONode.Kernel>, IMsgHandler<int>
         {
+            public struct EmptyData : INodeData {}
+
             public struct SimPorts : ISimulationPortDefinition
             {
 #pragma warning disable 649  // Assigned through internal DataFlowGraph reflection
@@ -39,9 +42,9 @@ namespace Unity.DataFlowGraph.Tests
             }
 
             [BurstCompile(CompileSynchronously = true)]
-            public struct Kernel : IGraphKernel<Data, KernelDefs>
+            public struct Kernel : IGraphKernel<EmptyKernelData, KernelDefs>
             {
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, EmptyKernelData data, ref KernelDefs ports)
                 {
                     ref var outInt = ref ctx.Resolve(ref ports.SumInt);
                     outInt = 0;
@@ -290,7 +293,7 @@ namespace Unity.DataFlowGraph.Tests
         {
             ushort arrayIndex;
             InputPortArrayID id = new InputPortArrayID(portId: default);
-            MessageContext context = new MessageContext(handle: default, id);
+            MessageContext context = MessageContext.CreateUnverified(null, handle: default, id);
 
             Assert.Throws<InvalidOperationException>(() => arrayIndex = context.ArrayIndex);
         }
@@ -318,15 +321,28 @@ namespace Unity.DataFlowGraph.Tests
         [Test]
         public unsafe void CannotSizeAPortArray_ToMaxSize()
         {
+#if DFG_ASSERTIONS
             using (var sd = new RenderGraph.SharedData(16))
             {
                 var array = new UntypedPortArray();
 
-                Assert.Throws<ArgumentException>(
+                Assert.Throws<AssertionException>(
                     () => UntypedPortArray.Resize(ref array, UntypedPortArray.MaxSize, sd.BlankPage, Allocator.Temp)
                 );
 
                 UntypedPortArray.Free(ref array, Allocator.Temp);
+            }
+#endif
+
+            using (var set = new NodeSet())
+            {
+                var node = set.Create<ArrayIONode>();
+
+                Assert.Throws<ArgumentException>(
+                    () => set.SetPortArraySize(node, ArrayIONode.KernelPorts.InputInt, UntypedPortArray.MaxSize)
+                );
+
+                set.Destroy(node);
             }
         }
 
@@ -379,10 +395,10 @@ namespace Unity.DataFlowGraph.Tests
         [Test]
         public unsafe void CanResizePortArray_ThroughAlias()
         {
-            var original = new PortArray<DataInput<InvalidFunctionalitySlot, double>>();
+            var original = new PortArray<DataInput<InvalidDefinitionSlot, double>>();
             void* blank = (void*)0x13;
 
-            PortArray<DataInput<InvalidFunctionalitySlot, double>>.Resize(ref original, 27, blank, Allocator.Temp);
+            PortArray<DataInput<InvalidDefinitionSlot, double>>.Resize(ref original, 27, blank, Allocator.Temp);
 
             Assert.AreEqual(27, original.Size);
 
@@ -401,12 +417,12 @@ namespace Unity.DataFlowGraph.Tests
         [Test]
         public unsafe void ResizingPortArray_ToSameSize_DoesNotReallocate()
         {
-            var array = new PortArray<DataInput<InvalidFunctionalitySlot, double>>();
+            var array = new PortArray<DataInput<InvalidDefinitionSlot, double>>();
             void* blank = (void*)0x13;
 
-            PortArray<DataInput<InvalidFunctionalitySlot, double>>.Resize(ref array, 27, blank, Allocator.Temp);
+            PortArray<DataInput<InvalidDefinitionSlot, double>>.Resize(ref array, 27, blank, Allocator.Temp);
             var oldPtr = array.Ptr;
-            PortArray<DataInput<InvalidFunctionalitySlot, double>>.Resize(ref array, 27, blank, Allocator.Temp);
+            PortArray<DataInput<InvalidDefinitionSlot, double>>.Resize(ref array, 27, blank, Allocator.Temp);
             Assert.IsTrue(oldPtr == array.Ptr);
 
             UntypedPortArray.Free(ref array, Allocator.Temp);
@@ -447,7 +463,7 @@ namespace Unity.DataFlowGraph.Tests
                 }
             }
 
-            public override void Init(InitContext ctx)
+            protected internal override void Init(InitContext ctx)
             {
                 ref var data = ref GetNodeData(ctx.Handle);
                 data.Child = Set.Create<ArrayIONode>();
@@ -457,7 +473,7 @@ namespace Unity.DataFlowGraph.Tests
                 ctx.ForwardOutput(KernelPorts.ForwardedDataOutputSum, data.Child, ArrayIONode.KernelPorts.SumInt);
             }
 
-            public override void Destroy(NodeHandle handle)
+            protected internal override void Destroy(NodeHandle handle)
             {
                 Set.Destroy(GetNodeData(handle).Child);
             }
@@ -505,6 +521,32 @@ namespace Unity.DataFlowGraph.Tests
                 set.ReleaseGraphValue(result);
 
                 set.Destroy(uber);
+            }
+        }
+
+        [Test]
+        public void CanConnectEntityNode_ToPortArray()
+        {
+            using (var f = new Fixture<UpdateSystem>())
+            {
+                var entity = f.EM.CreateEntity(typeof(ECSInt));
+                var entityNode = f.Set.CreateComponentNode(entity);
+                var sumNode = f.Set.Create<KernelSumNode>();
+                var gv = f.Set.CreateGraphValue(sumNode, KernelSumNode.KernelPorts.Output);
+
+                for(int i = 1; i < 10; ++i)
+                {
+                    f.Set.SetPortArraySize(sumNode, KernelSumNode.KernelPorts.Inputs, (ushort)i);
+                    f.EM.SetComponentData(entity, (ECSInt)i);
+                    f.Set.Connect(entityNode, ComponentNode.Output<ECSInt>(), sumNode, KernelSumNode.KernelPorts.Inputs, i - 1);
+
+                    f.System.Update();
+
+                    Assert.AreEqual(i * i, f.Set.GetValueBlocking(gv).Value);
+                }
+
+                f.Set.Destroy(entityNode, sumNode);
+                f.Set.ReleaseGraphValue(gv);
             }
         }
     }

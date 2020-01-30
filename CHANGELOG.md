@@ -4,6 +4,86 @@ All notable changes to this package will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [0.12.0-preview.6] - 2020-01-30
+### Fixed
+- Trying to use a NodeHandle in a NodeSet other than the one in which it was created is now detected and throws an exception.
+- Performance regression where topology would be computed outside of Burst
+
+## [0.12.0-preview.5] - 2019-12-19
+### Added
+- ComponentNode as an intrinsic node allowing reading & writing from ECS component data and buffers in the rendering graph. See documentation for an in depth description.
+- Strong and weak versions of ComponentNode.Input/Output() for creating data ports and port IDs referring to ECS component types.
+- NodeSet.CreateComponentNode(Entity) for creating ComponentNodes. They otherwise function as normal nodes.
+- New constructor for NodeSet(JobComponentSystem) which ties together a NodeSet and a JobComponentSystem to allow creation of ComponentNodes (see above)
+- JobHandle NodeSet.Update(JobHandle) to be called inside a JobComponentSystem for updating a NodeSet with simple input / output dependencies
+
+### Changed
+- NodeSet.SetPortArraySize now takes an int size argument instead of ushort; maximum remains PortArray.MaxSize and will throw if exceeded.
+
+### Fixed
+- Nested Buffer<T> definitions are now properly picked up
+
+## [0.12.0-preview.4] - 2019-11-22
+### Added
+- Support for feedback connections which allow information to feed back to parent nodes without introducing cycles (see ConnectionType in Connect() APIs)
+
+### Changed
+- virtual NodeDefinition.OnUpdate() now receives an UpdateContext argument (which is used to retrieve the node's handle).
+- NodeDefinition.EmitMessage moved to MessageContext.EmitMessage/UpdateContext.EmitMessage.
+- public APIs which took ushort port array indices now take an int port array index; maximum remains PortArray.MaxSize and will throw if exceeded.
+
+### Fixed
+- Cycles are now detected in the rendering graph, and produce a deferred error message - as long as the graph contains a cycle, the rendergraph won't execute (#17)
+- Proper handling of port forwarding to a node which is subsequently destroyed during Init()
+- Fixed double fault when failing to instantiate node definitions inside NodeSet.Create<T>()
+
+## [0.12.0-preview.3] - 2019-11-15
+### Fixed
+- Error when a buffer was resized on a node in the same Update() as it was destroyed.
+- Silenced some compiler warnings
+
+## [0.12.0-preview.2] - 2019-11-11
+### Added
+- NodeDefinition.HasStaticPortDescription.
+- NodeDefinition.GetStaticPortDescription().
+- More profiler markers with new style API, that can assist in performance measurements.
+
+### Changed
+- Refactored internal topology tools, including generalizing data types.
+- NodeDefinition.GetPortDescription() will throw if given a NodeHandle which does not match the NodeDefinition type.
+- Reduced per kernel node allocations by 3x, and optimized memory layouts
+
+### Fixed
+- Unity scene for Sample Tour section P_Usage_PortForwarding references the right script.
+- Could not create multiple GraphValueResolvers in the same NodeSet.Update()
+
+## [0.12.0-preview.1] - 2019-09-30
+### Added
+- Strong API support for mapping ECS dynamic buffers directly to data inputs of buffers. See MemoryInputSystem<Tag, Buffer>.
+- Added a mass scaling tweening example of cube positions being animated in different directions.
+
+### Changed
+- Moved enum Unity.DataFlowGraph.Usage to Unity.DataFlowGraph.PortDescription.Category
+- NodeDefinition.GetPortDescription() is no longer virtual
+- Renamed InputPort/OutputPort.PortUsage to Input/OutputPort.Category
+- Moved enum Unity.DataFlowGraph.RenderExecutionModel to Unity.DataFlowGraph.NodeSet.RenderExecutionModel
+- Added a generic parameter for NodeMemoryInput. It is now necessary to also specify the buffer type being moved (matches MemoryInputSystem<Tag, Buffer>).
+- Renamed base class NodeFunctionality to NodeDefinition or SimulationNodeDefinition / KernelNodeDefinition / SimulationKernelNodeDefinition
+- Removed INodeDefinition and INodeFunctionality, merged them into NodeDefinition
+- NodeDefinition no longer publicly implements IDisposable
+- Renamed NodeSet.GetFunctionality() -> NodeSet.GetDefinition()
+- The following interface functions from INodeFunctionality have changed to be virtual protected members on NodeDefinition:
+	- public BaseTraits -> protected
+	- public Destroy -> protected
+	- public Init -> protected
+	- public OnUpdate -> protected
+	- public Set -> protected
+	- public Dispose -> protected
+- The following interface functions/properties from INodeFunctionality/NodeDefinition are no longer accessible:
+	- OnMessage<T>
+	- GeneratePortDescriptions
+	- AutoPorts
+
 ## [0.11.10] - 2019-11-25
 ### Changed
 - Upgraded dependency "com.unity.entities" to 0.3.0-preview.4

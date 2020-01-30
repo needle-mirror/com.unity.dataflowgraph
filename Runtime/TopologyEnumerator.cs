@@ -1,353 +1,187 @@
 ﻿using System;
-using System.Collections;
-using System.Collections.Generic;
 
 namespace Unity.DataFlowGraph
 {
-    public partial class NodeSet
+    static partial class TopologyAPI<TVertex, TInputPort, TOutputPort>
+        where TVertex : unmanaged, IEquatable<TVertex>
+        where TInputPort : unmanaged, IEquatable<TInputPort>
+        where TOutputPort : unmanaged, IEquatable<TOutputPort>
     {
-        internal struct NodeEnumerator<TPortID, TTopologyEnumerator> : IEnumerator<NodeHandle>, IEnumerable<NodeHandle>
-            where TPortID : IPortID
-            where TTopologyEnumerator : ITopologyEnumerator<TPortID>
+        public partial struct Database
         {
-            internal NodeEnumerator(TTopologyEnumerator parent, TPortID port)
+            internal interface IMoveable
             {
-                this.parent = parent;
-                this.port = port;
-                index = 0;
-                Count = parent.Connections(port);
+                bool MoveNext();
             }
 
-            TTopologyEnumerator parent;
-            TPortID port;
-            int index;
-
-            public int Count { get; private set; }
-
-            public NodeHandle Current => parent[port, index - 1];
-
-            public NodeHandle this[int userIndex] => parent[port, userIndex];
-
-            object IEnumerator.Current => null;
-
-            public void Dispose() { }
-
-            public bool MoveNext()
+            internal struct InputTopologyEnumerable /* : IEnumerable<ConnectionWalker> */
             {
-                index++;
-                return (index - 1) < Count;
-            }
-
-            public void Reset()
-            {
-                index = 0;
-            }
-
-            public NodeEnumerator<TPortID, TTopologyEnumerator> GetEnumerator()
-            {
-                return this;
-            }
-
-            IEnumerator<NodeHandle> IEnumerable<NodeHandle>.GetEnumerator()
-            {
-                return GetEnumerator();
-            }
-
-            IEnumerator IEnumerable.GetEnumerator()
-            {
-                return GetEnumerator();
-            }
-        }
-
-        internal struct InputPortEnumerator : IEnumerator<NodeEnumerator<InputPortID, InputTopologyEnumerator>>, IEnumerable<NodeHandle>
-        {
-            internal InputPortEnumerator(InputTopologyEnumerator parent)
-            {
-                this.parent = parent;
-                port = new InputPortID(0);
-            }
-
-            InputTopologyEnumerator parent;
-            InputPortID port;
-
-            public NodeEnumerator<InputPortID, InputTopologyEnumerator> Current => new NodeEnumerator<InputPortID, InputTopologyEnumerator>(parent, new InputPortID((ushort)(port.Port - 1)));
-            public NodeEnumerator<InputPortID, InputTopologyEnumerator> this[InputPortID port] => new NodeEnumerator<InputPortID, InputTopologyEnumerator>(parent, port);
-
-            object IEnumerator.Current => null;
-
-            public void Dispose() { }
-
-            public bool MoveNext()
-            {
-                port = new InputPortID((ushort)(port.Port + 1));
-                return (port.Port - 1) < parent.Count;
-            }
-
-            public void Reset()
-            {
-                port = new InputPortID(0);
-            }
-
-            public IEnumerator<NodeHandle> GetEnumerator()
-            {
-                return new NodeEnumerator<InputPortID, InputTopologyEnumerator>(parent, new InputPortID((ushort)(port.Port - 1)));
-            }
-
-            IEnumerator IEnumerable.GetEnumerator()
-            {
-                return GetEnumerator();
-            }
-        }
-
-        internal struct OutputPortEnumerator : IEnumerator<NodeEnumerator<OutputPortID, OutputTopologyEnumerator>>, IEnumerable<NodeHandle>
-        {
-            internal OutputPortEnumerator(OutputTopologyEnumerator parent)
-            {
-                this.parent = parent;
-                port = new OutputPortID { Port = 0 };
-            }
-
-            OutputTopologyEnumerator parent;
-            OutputPortID port;
-
-            public NodeEnumerator<OutputPortID, OutputTopologyEnumerator> Current => new NodeEnumerator<OutputPortID, OutputTopologyEnumerator>(parent, new OutputPortID { Port = (ushort)(port.Port - 1) });
-            public NodeEnumerator<OutputPortID, OutputTopologyEnumerator> this[OutputPortID port] => new NodeEnumerator<OutputPortID, OutputTopologyEnumerator>(parent, port);
-
-            object IEnumerator.Current => null;
-
-            public void Dispose() { }
-
-            public bool MoveNext()
-            {
-                port.Port++;
-                return (port.Port - 1) < parent.Count;
-            }
-
-            public void Reset()
-            {
-                port.Port = 0;
-            }
-
-            public IEnumerator<NodeHandle> GetEnumerator()
-            {
-                return new NodeEnumerator<OutputPortID, OutputTopologyEnumerator>(parent, new OutputPortID { Port = (ushort)(port.Port - 1) });
-            }
-
-            IEnumerator IEnumerable.GetEnumerator()
-            {
-                return GetEnumerator();
-            }
-        }
-
-        internal interface ITopologyEnumerator<TPortID>
-            where TPortID : IPortID
-        {
-            NodeHandle this[TPortID port, int index] { get; }
-            int Count { get; }
-            int Connections(TPortID port);
-        }
-
-        internal struct InputTopologyEnumerator : IReadOnlyCollection<NodeEnumerator<InputPortID, InputTopologyEnumerator>>, ITopologyEnumerator<InputPortID>
-        {
-            internal InputTopologyEnumerator(NodeSet manager, ref TopologyIndex index)
-            {
-                m_TopologyIndex = index;
-                m_Set = manager;
-            }
-
-            NodeSet m_Set;
-            TopologyIndex m_TopologyIndex;
-
-            public NodeHandle this[InputPortID port, int index]
-            {
-                get
+                public struct ConnectionEnumerator : IMoveable
                 {
-                    if (port.Port >= m_TopologyIndex.InputPortCount)
-                        throw new IndexOutOfRangeException("Port index is out of range of port count");
-
-                    var currIndex = 0;
-                    var it = m_TopologyIndex.InputHeadConnection;
-                    while (true)
+                    public struct NodeEnumeratorByPort : IMoveable
                     {
-                        ref var connection = ref m_Set.m_Topology.Connections[it];
+                        public NodeEnumeratorByPort GetEnumerator() => this;
+                        public TVertex Current => m_Walker.Current.Source;
+                        public ref readonly Connection Connection => ref m_Walker.Current;
 
-                        if (!connection.Valid)
-                            break;
 
-                        if (connection.DestinationInputPort.PortID == port)
+                        ConnectionEnumerator m_Walker;
+                        TInputPort m_Filter;
+
+                        internal NodeEnumeratorByPort(ConnectionEnumerator parent, TInputPort filter)
                         {
-                            if (currIndex == index)
-                                return connection.SourceHandle;
-
-                            currIndex++;
+                            m_Walker = parent;
+                            m_Filter = filter;
                         }
 
-                        it = connection.NextInputConnection;
+                        public bool MoveNext()
+                        {
+                            while (m_Walker.MoveNext())
+                            {
+                                if (m_Walker.Current.DestinationInputPort.Equals(m_Filter))
+                                    return true;
+                            }
+
+                            return false;
+                        }
                     }
 
-                    throw new IndexOutOfRangeException("Index of connection or port does not exist");
-                }
-            }
+                    public ref readonly Connection Current => ref m_Database.IndexConnectionInternal(m_It);
+                    public ConnectionEnumerator GetEnumerator() => this;
 
-            public NodeEnumerator<InputPortID, InputTopologyEnumerator> this[InputPortID port]
-            {
-                get
-                {
-                    if (port.Port >= Count)
-                        throw new IndexOutOfRangeException();
+                    Database m_Database;
+                    ConnectionHandle m_It;
+                    bool m_PastOne;
 
-                    return new NodeEnumerator<InputPortID, InputTopologyEnumerator>(this, port);
-                }
-            }
-
-            public int Count => (int)m_TopologyIndex.InputPortCount;
-
-            public int Connections(InputPortID port)
-            {
-                var indexCount = 0;
-                var it = m_TopologyIndex.InputHeadConnection;
-
-                while (true)
-                {
-                    ref var connection = ref m_Set.m_Topology.Connections[it];
-
-                    if (!connection.Valid)
-                        break;
-
-                    if (connection.DestinationInputPort.PortID == port)
-                        indexCount++;
-
-                    it = connection.NextInputConnection;
-                }
-
-                return indexCount;
-            }
-
-            public InputPortEnumerator GetEnumerator()
-            {
-                return new InputPortEnumerator(this);
-            }
-
-            IEnumerator<NodeEnumerator<InputPortID, InputTopologyEnumerator>> IEnumerable<NodeEnumerator<InputPortID, InputTopologyEnumerator>>.GetEnumerator()
-            {
-                return GetEnumerator();
-            }
-
-            IEnumerator IEnumerable.GetEnumerator()
-            {
-                return GetEnumerator();
-            }
-        }
-
-        internal struct OutputTopologyEnumerator : IReadOnlyCollection<NodeEnumerator<OutputPortID, OutputTopologyEnumerator>>, ITopologyEnumerator<OutputPortID>
-        {
-            internal OutputTopologyEnumerator(NodeSet manager, ref TopologyIndex index)
-            {
-                m_TopologyIndex = index;
-                m_Set = manager;
-            }
-
-            NodeSet m_Set;
-            TopologyIndex m_TopologyIndex;
-
-            public NodeHandle this[OutputPortID port, int index]
-            {
-                get
-                {
-                    if (port.Port >= m_TopologyIndex.OutputPortCount)
-                        throw new IndexOutOfRangeException("Port index is out of range of port count");
-
-                    //Outputs
-                    var currIndex = 0;
-                    var it = m_TopologyIndex.OutputHeadConnection;
-
-                    while (true)
+                    public ConnectionEnumerator(in Database database, ConnectionHandle startingConnection)
                     {
-                        ref var connection = ref m_Set.m_Topology.Connections[it];
+                        m_Database = database;
+                        m_It = startingConnection;
+                        m_PastOne = false;
+                    }
 
-                        if (!connection.Valid)
-                            break;
-
-                        if (connection.SourceOutputPort == port)
+                    public bool MoveNext()
+                    {
+                        if (!m_PastOne)
                         {
-                            if (currIndex == index)
-                                return connection.DestinationHandle;
-
-                            currIndex++;
+                            m_PastOne = true;
+                            return m_It != InvalidConnection;
                         }
 
-                        it = connection.NextOutputConnection;
+                        m_It = Current.NextInputConnection;
+                        return m_It != InvalidConnection;
+                    }
+                }
+
+                internal InputTopologyEnumerable(Database database, in TopologyIndex index)
+                {
+                    m_TopologyIndex = index;
+                    m_Database = database;
+                }
+
+                Database m_Database;
+                TopologyIndex m_TopologyIndex;
+
+                /// <summary>
+                /// Returns a filtered vertex/connection enumerator connected to this vertex'
+                /// input port.
+                /// </summary>
+                public ConnectionEnumerator.NodeEnumeratorByPort this[TInputPort port]
+                    => new ConnectionEnumerator.NodeEnumeratorByPort(GetEnumerator(), port);
+
+                public ConnectionEnumerator GetEnumerator()
+                    => new ConnectionEnumerator(m_Database, m_TopologyIndex.InputHeadConnection);
+            }
+
+            internal struct OutputTopologyEnumerable /* : IEnumerable<ConnectionWalker> */
+            {
+                internal struct ConnectionEnumerator : IMoveable
+                {
+                    internal struct NodeEnumeratorByPort : IMoveable
+                    {
+                        public NodeEnumeratorByPort GetEnumerator() => this;
+                        public TVertex Current => m_Walker.Current.Destination;
+                        public ref readonly Connection Connection => ref m_Walker.Current;
+
+                        ConnectionEnumerator m_Walker;
+                        TOutputPort m_Filter;
+
+                        internal NodeEnumeratorByPort(ConnectionEnumerator parent, TOutputPort filter)
+                        {
+                            m_Walker = parent;
+                            m_Filter = filter;
+                        }
+
+                        public bool MoveNext()
+                        {
+                            while (m_Walker.MoveNext())
+                            {
+                                if (m_Walker.Current.SourceOutputPort.Equals(m_Filter))
+                                    return true;
+                            }
+
+                            return false;
+                        }
                     }
 
-                    throw new IndexOutOfRangeException("Index of connection or port does not exist");
-                }
-            }
+                    public ref readonly Connection Current => ref m_Database.IndexConnectionInternal(m_It);
+                    public ConnectionEnumerator GetEnumerator() => this;
 
-            public NodeEnumerator<OutputPortID, OutputTopologyEnumerator> this[OutputPortID port]
-            {
-                get
+                    // TODO: Would be nice to only copy the connection list, not entire database
+                    Database m_Database;
+                    ConnectionHandle m_It;
+                    bool m_PastOne;
+
+                    public ConnectionEnumerator(in Database database, ConnectionHandle startingConnection)
+                    {
+                        m_Database = database;
+                        m_It = startingConnection;
+                        m_PastOne = false;
+                    }
+
+                    public bool MoveNext()
+                    {
+                        if (!m_PastOne)
+                        {
+                            m_PastOne = true;
+                            return m_It != InvalidConnection;
+                        }
+
+                        m_It = Current.NextOutputConnection;
+
+                        return m_It != InvalidConnection;
+                    }
+                }
+
+                internal OutputTopologyEnumerable(Database database, in TopologyIndex index)
                 {
-                    if (port.Port >= Count)
-                        throw new IndexOutOfRangeException();
-
-                    return new NodeEnumerator<OutputPortID, OutputTopologyEnumerator>(this, port);
-                }
-            }
-
-            public int Count => (int)m_TopologyIndex.OutputPortCount;
-
-            public int Connections(OutputPortID port)
-            {
-                var indexCount = 0;
-                var it = m_TopologyIndex.OutputHeadConnection;
-                while (true)
-                {
-                    ref var connection = ref m_Set.m_Topology.Connections[it];
-
-                    if (!connection.Valid)
-                        break;
-
-                    if (connection.SourceOutputPort == port)
-                        indexCount++;
-
-                    it = connection.NextOutputConnection;
+                    m_TopologyIndex = index;
+                    m_Database = database;
                 }
 
-                return indexCount;
+                Database m_Database;
+                TopologyIndex m_TopologyIndex;
+
+                /// <summary>
+                /// Returns a filtered vertex/connection enumerator connected to this vertex'
+                /// output port.
+                /// </summary>
+                public ConnectionEnumerator.NodeEnumeratorByPort this[TOutputPort port]
+                    => new ConnectionEnumerator.NodeEnumeratorByPort(GetEnumerator(), port);
+
+                public ConnectionEnumerator GetEnumerator()
+                    => new ConnectionEnumerator(m_Database, m_TopologyIndex.OutputHeadConnection);
             }
 
-            public OutputPortEnumerator GetEnumerator()
+            internal InputTopologyEnumerable GetInputs(in TopologyIndex topologyIndex)
             {
-                return new OutputPortEnumerator(this);
+                return new InputTopologyEnumerable(this, topologyIndex);
             }
 
-            IEnumerator<NodeEnumerator<OutputPortID, OutputTopologyEnumerator>> IEnumerable<NodeEnumerator<OutputPortID, OutputTopologyEnumerator>>.GetEnumerator()
+            internal OutputTopologyEnumerable GetOutputs(in TopologyIndex topologyIndex)
             {
-                return GetEnumerator();
+                return new OutputTopologyEnumerable(this, topologyIndex);
             }
-
-            IEnumerator IEnumerable.GetEnumerator()
-            {
-                return GetEnumerator();
-            }
-        }
-
-        internal InputTopologyEnumerator GetInputs(NodeHandle handle)
-        {
-            NodeVersionCheck(handle.VHandle);
-
-            // TODO: Here we leak internal relocatable members out into the wild. Should probably either 
-            // protect the walker through topology version or make it use handles instead.
-            return new InputTopologyEnumerator(this, ref m_Topology.Indexes[handle.VHandle.Index]);
-        }
-
-        internal OutputTopologyEnumerator GetOutputs(NodeHandle handle)
-        {
-            NodeVersionCheck(handle.VHandle);
-
-            // TODO: Here we leak internal relocatable members out into the wild. Should probably either 
-            // protect the walker through topology version or make it use handles instead.
-            return new OutputTopologyEnumerator(this, ref m_Topology.Indexes[handle.VHandle.Index]);
         }
     }
 

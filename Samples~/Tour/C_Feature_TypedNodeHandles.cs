@@ -4,14 +4,14 @@ namespace Unity.DataFlowGraph.Tour
 {
     public class C_Feature_TypedNodeHandles : MonoBehaviour
     {
-        class MyNode : NodeDefinition<MyNode.MyInstanceData>
+        class MyNode : NodeDefinition<MyNode.MyPorts>
         {
-            public struct MyInstanceData : INodeData { }
+            public struct MyPorts : ISimulationPortDefinition { }
         }
 
-        class MyOtherNode : NodeDefinition<MyOtherNode.MyInstanceData>
+        class MyOtherNode : NodeDefinition<MyOtherNode.MyPorts>
         {
-            public struct MyInstanceData : INodeData { }
+            public struct MyPorts : ISimulationPortDefinition { }
         }
 
         void Start()

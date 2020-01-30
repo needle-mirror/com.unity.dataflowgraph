@@ -24,36 +24,36 @@ namespace Unity.DataFlowGraph
 
         public struct DeletedTuple
         {
-            public NodeHandle Handle;
+            public ValidatedHandle Handle;
             public int Class;
         }
 
         public struct BufferResizedTuple
         {
-            public NodeHandle handle;
-            public OutputPortID port;
-            public int BufferOffset;
+            public OutputPair Source;
+            /// <summary>
+            /// Local offset from start of the port.
+            /// </summary>
+            public int LocalBufferOffset;
             public int NewSize;
             public SimpleType ItemType;
         }
 
         public struct PortArrayResizedTuple
         {
-            public NodeHandle handle;
-            public InputPortID port;
+            public InputPair Destination;
             public ushort NewSize;
         }
 
         unsafe public struct DataPortMessageTuple
         {
-            public NodeHandle handle;
-            public InputPortArrayID port;
+            public InputPair Destination;
             // optional message: null indicates that the port should retain its current value
             public void* msg;
         }
 
         public BlitList<CommandTuple> Commands;
-        public BlitList<NodeHandle> CreatedNodes;
+        public BlitList<ValidatedHandle> CreatedNodes;
         public BlitList<DeletedTuple> DeletedNodes;
         public BlitList<BufferResizedTuple> ResizedDataBuffers;
         public BlitList<PortArrayResizedTuple> ResizedPortArrays;
@@ -65,7 +65,7 @@ namespace Unity.DataFlowGraph
 
         public GraphDiff(Allocator allocator)
         {
-            CreatedNodes = new BlitList<NodeHandle>(0, allocator);
+            CreatedNodes = new BlitList<ValidatedHandle>(0, allocator);
             DeletedNodes = new BlitList<DeletedTuple>(0, allocator);
             Commands = new BlitList<CommandTuple>(0, allocator);
             ResizedDataBuffers = new BlitList<BufferResizedTuple>(0, allocator);
@@ -73,40 +73,40 @@ namespace Unity.DataFlowGraph
             MessagesArrivingAtDataPorts = new BlitList<DataPortMessageTuple>(0, allocator);
         }
 
-        public void NodeCreated(NodeHandle handle)
+        public void NodeCreated(ValidatedHandle handle)
         {
             Commands.Add(new CommandTuple { command = Command.Create, ContainerIndex = CreatedNodes.Count });
             CreatedNodes.Add(handle);
         }
 
-        public void NodeDeleted(NodeHandle handle, int functionalityIndex)
+        public void NodeDeleted(ValidatedHandle handle, int definitionIndex)
         {
             Commands.Add(new CommandTuple { command = Command.Destroy, ContainerIndex = DeletedNodes.Count });
-            DeletedNodes.Add(new DeletedTuple { Handle = handle, Class = functionalityIndex });
+            DeletedNodes.Add(new DeletedTuple { Handle = handle, Class = definitionIndex });
         }
 
-        public void NodeBufferResized(NodeHandle handle, OutputPortID port, int bufferOffset, int size, SimpleType itemType)
+        public void NodeBufferResized(in OutputPair source, int bufferOffset, int size, SimpleType itemType)
         {
             Commands.Add(new CommandTuple { command = Command.ResizeBuffer, ContainerIndex = ResizedDataBuffers.Count });
-            ResizedDataBuffers.Add(new BufferResizedTuple { handle = handle, port = port, BufferOffset = bufferOffset, NewSize = size, ItemType = itemType });
+            ResizedDataBuffers.Add(new BufferResizedTuple { Source = source, LocalBufferOffset = bufferOffset, NewSize = size, ItemType = itemType });
         }
 
-        public void PortArrayResized(NodeHandle handle, InputPortID port, ushort size)
+        public void PortArrayResized(in InputPair dest, ushort size)
         {
             Commands.Add(new CommandTuple { command = Command.ResizePortArray, ContainerIndex = ResizedPortArrays.Count });
-            ResizedPortArrays.Add(new PortArrayResizedTuple { handle = handle, port = port, NewSize = size });
+            ResizedPortArrays.Add(new PortArrayResizedTuple { Destination = dest, NewSize = size });
         }
 
-        public unsafe void SetData(NodeHandle handle, InputPortArrayID port, void* msg)
+        public unsafe void SetData(in InputPair dest, void* msg)
         {
             Commands.Add(new CommandTuple { command = Command.MessageToData, ContainerIndex = MessagesArrivingAtDataPorts.Count });
-            MessagesArrivingAtDataPorts.Add(new DataPortMessageTuple { handle = handle, port = port, msg = msg });
+            MessagesArrivingAtDataPorts.Add(new DataPortMessageTuple { Destination = dest, msg = msg });
         }
 
-        public unsafe void RetainData(NodeHandle handle, InputPortArrayID port)
+        public unsafe void RetainData(in InputPair dest)
         {
             Commands.Add(new CommandTuple { command = Command.MessageToData, ContainerIndex = MessagesArrivingAtDataPorts.Count });
-            MessagesArrivingAtDataPorts.Add(new DataPortMessageTuple { handle = handle, port = port, msg = null });
+            MessagesArrivingAtDataPorts.Add(new DataPortMessageTuple { Destination = dest, msg = null });
         }
 
         public void Dispose()

@@ -36,7 +36,14 @@ In all cases above, if you want to be able to run the DataFlowGraph tests within
      ]
 ```
 
-#
+# Repository CI summary - master
+
+[![](https://badges.cds.internal.unity3d.com/packages/com.unity.dataflowgraph/build-badge.svg?branch=master)](https://badges.cds.internal.unity3d.com/packages/com.unity.dataflowgraph/build-info?branch=master) [![](https://badges.cds.internal.unity3d.com/packages/com.unity.dataflowgraph/dependencies-badge.svg?branch=master)](https://badges.cds.internal.unity3d.com/packages/com.unity.dataflowgraph/dependencies-info?branch=master) [![](https://badges.cds.internal.unity3d.com/packages/com.unity.dataflowgraph/dependants-badge.svg)](https://badges.cds.internal.unity3d.com/packages/com.unity.dataflowgraph/dependants-info) [![](https://badges.cds.internal.unity3d.com/packages/com.unity.dataflowgraph/warnings-badge.svg?branch=master)](https://badges.cds.internal.unity3d.com/packages/com.unity.dataflowgraph/warnings-info?branch=master) 
+![ReleaseBadge](https://badges.cds.internal.unity3d.com/packages/com.unity.dataflowgraph/release-badge.svg) ![ReleaseBadge](https://badges.cds.internal.unity3d.com/packages/com.unity.dataflowgraph/candidates-badge.svg)
+
+# Bleeding edge / staging summary
+
+[![](https://badges.cds.internal.unity3d.com/packages/com.unity.dataflowgraph/build-badge.svg?branch=staging)](https://badges.cds.internal.unity3d.com/packages/com.unity.dataflowgraph/build-info?branch=staging) [![](https://badges.cds.internal.unity3d.com/packages/com.unity.dataflowgraph/dependencies-badge.svg?branch=staging)](https://badges.cds.internal.unity3d.com/packages/com.unity.dataflowgraph/dependencies-info?branch=staging) [![](https://badges.cds.internal.unity3d.com/packages/com.unity.dataflowgraph/dependants-badge.svg)](https://badges.cds.internal.unity3d.com/packages/com.unity.dataflowgraph/dependants-info) [![](https://badges.cds.internal.unity3d.com/packages/com.unity.dataflowgraph/warnings-badge.svg?branch=staging)](https://badges.cds.internal.unity3d.com/packages/com.unity.dataflowgraph/warnings-info?branch=staging) 
 
 #
 

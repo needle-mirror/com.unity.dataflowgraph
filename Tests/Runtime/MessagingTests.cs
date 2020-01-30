@@ -16,10 +16,8 @@ namespace Unity.DataFlowGraph.Tests
         {
             public struct SimPorts : ISimulationPortDefinition
             {
-#pragma warning disable 649  // Assigned through internal DataFlowGraph reflection
                 public MessageInput<SimpleMessageNode, Message> Input;
                 public MessageOutput<SimpleMessageNode, Message> Output;
-#pragma warning restore 649
             }
 
             public void HandleMessage(in MessageContext ctx, in Message msg)
@@ -28,10 +26,16 @@ namespace Unity.DataFlowGraph.Tests
 
                 Assert.That(ctx.Port == SimulationPorts.Input);
                 data.Contents = msg.Contents;
-                EmitMessage(ctx.Handle, SimulationPorts.Output, new Message(30));
+                ctx.EmitMessage(SimulationPorts.Output, new Message(data.Contents + 20));
+            }
+
+            protected internal override void OnUpdate(in UpdateContext ctx)
+            {
+                ref var data = ref GetNodeData(ctx.Handle);
+                data.Contents += 1;
+                ctx.EmitMessage(SimulationPorts.Output, new Message(data.Contents + 20));
             }
         }
-
 
         [Test]
         public void TestSimpleMessageSending()
@@ -52,6 +56,62 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
+        [Test]
+        public void TestSimpleMessageEmitting_OnUpdate()
+        {
+            using (var set = new NodeSet())
+            {
+                NodeHandle<SimpleMessageNode>
+                    a = set.Create<SimpleMessageNode>(),
+                    b = set.Create<SimpleMessageNode>();
+
+                set.Connect(a, SimpleMessageNode.SimulationPorts.Output, b, SimpleMessageNode.SimulationPorts.Input);
+                set.SendMessage(a, SimpleMessageNode.SimulationPorts.Input, new Message(10));
+
+                for (var i = 1; i < 10; ++i)
+                {
+                    set.Update();
+                    Assert.AreEqual(10 + i, set.GetNodeData<Node>(a).Contents);
+                    Assert.AreEqual(30 + i + 1, set.GetNodeData<Node>(b).Contents);
+                }
+
+                set.Destroy(a, b);
+            }
+        }
+
+        [Test]
+        public void EmitMessage_OnHandleMessage_AfterDestroy_Throws()
+        {
+            using (var set = new NodeSet())
+            {
+                var node = set.Create<DelegateMessageIONode>(
+                    (in MessageContext ctx, in Message msg) =>
+                    {
+                        set.Destroy(ctx.Handle);
+                        ctx.EmitMessage(DelegateMessageIONode.SimulationPorts.Output, msg);
+                    }
+                );
+                Assert.Throws<InvalidOperationException>(
+                    () => set.SendMessage(node, DelegateMessageIONode.SimulationPorts.Input, new Message()));
+            }
+        }
+
+        [Test]
+        public void EmitMessage_OnUpdate_AfterDestroy_Throws()
+        {
+            using (var set = new NodeSet())
+            {
+                set.Create<DelegateMessageIONode>(
+                    (in UpdateContext ctx) =>
+                    {
+                        set.Destroy(ctx.Handle);
+                        ctx.EmitMessage(DelegateMessageIONode.SimulationPorts.Output, new Message());
+                    }
+                );
+                Assert.Throws<InvalidOperationException>(() => set.Update());
+            }
+        }
+
         class SimpleMessageArrayNode : NodeDefinition<Node, SimpleMessageArrayNode.SimPorts>, IMsgHandler<int>
         {
             public struct SimPorts : ISimulationPortDefinition
@@ -69,7 +129,7 @@ namespace Unity.DataFlowGraph.Tests
                 Assert.That(ctx.Port == SimulationPorts.Inputs);
                 ushort index = ctx.ArrayIndex;
                 data.Contents = msg + index;
-                EmitMessage(ctx.Handle, SimulationPorts.Output, index + 30);
+                ctx.EmitMessage(SimulationPorts.Output, index + 30);
             }
         }
 
@@ -95,29 +155,13 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        public class AccumulatorNode : NodeDefinition<Node, AccumulatorNode.SimPorts>, IMsgHandler<Message>
-        {
-            public struct SimPorts : ISimulationPortDefinition
-            {
-                public MessageInput<AccumulatorNode, Message> Input;
-                public MessageOutput<AccumulatorNode, Message> Output;
-            }
-
-            public void HandleMessage(in MessageContext ctx, in Message msg)
-            {
-                ref var data = ref GetNodeData(ctx.Handle);
-
-                Assert.That(ctx.Port == SimulationPorts.Input);
-                data.Contents += msg.Contents;
-            }
-        }
-
         [Test]
         public void CanEnqueueMultipleMessagesAndConsumeInSteps()
         {
             using (var set = new NodeSet())
             {
-                var node = set.Create<AccumulatorNode>();
+                var node = set.Create<DelegateMessageIONode<Node>, Node>(
+                    (in MessageContext ctx, in Message msg) => set.GetNodeData<Node>(ctx.Handle).Contents += msg.Contents);
 
                 Assert.AreEqual(0, set.GetNodeData<Node>(node).Contents);
 
@@ -125,7 +169,7 @@ namespace Unity.DataFlowGraph.Tests
                 {
                     for (int i = 0; i < 10; ++i)
                     {
-                        set.SendMessage(node, AccumulatorNode.SimulationPorts.Input, new Message(10));
+                        set.SendMessage(node, DelegateMessageIONode<Node>.SimulationPorts.Input, new Message(10));
                     }
 
                     var contents = set.GetNodeData<Node>(node).Contents;
@@ -150,7 +194,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 Assert.That(ctx.Port == SimulationPorts.Input1 || ctx.Port == SimulationPorts.Input2);
                 data.Contents += msg.Contents;
-                EmitMessage(ctx.Handle, SimulationPorts.Output1, new Message(data.Contents + 1));
+                ctx.EmitMessage(SimulationPorts.Output1, new Message(data.Contents + 1));
             }
         }
 
@@ -253,8 +297,7 @@ namespace Unity.DataFlowGraph.Tests
                      ctx.Port == SimulationPorts.Input5 ? 4 :
                      ctx.Port == SimulationPorts.Input6 ? 5 :
                      ctx.Port == SimulationPorts.Input7 ? 6 : 7);
-                EmitMessage(
-                    ctx.Handle,
+                ctx.EmitMessage(
                     ctx.Port == SimulationPorts.Input1 ? SimulationPorts.Output2 :
                     ctx.Port == SimulationPorts.Input2 ? SimulationPorts.Output3 :
                     ctx.Port == SimulationPorts.Input3 ? SimulationPorts.Output4 :

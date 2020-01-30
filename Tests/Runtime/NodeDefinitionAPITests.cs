@@ -10,7 +10,7 @@ namespace Unity.DataFlowGraph.Tests
     {
         public struct KernelPorts : IKernelPortDefinition { }
 
-        class ParametricNode<T> : NodeDefinition<ParametricNode<T>.Node>
+        class ParametricNode<T> : NodeDefinition<ParametricNode<T>.Node, EmptyPorts>
         {
             public struct Node : INodeData
             {
@@ -137,7 +137,7 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        class NodeWithManagedDataTypeWithoutAttribute : NodeDefinition<NodeWithManagedDataTypeWithoutAttribute.Data>
+        class NodeWithManagedDataTypeWithoutAttribute : NodeDefinition<NodeWithManagedDataTypeWithoutAttribute.Data, EmptyPorts>
         {
             public struct Data : INodeData
             {
@@ -167,7 +167,7 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        class NodeWithManagedData : NodeDefinition<NodeWithManagedData.Data>
+        class NodeWithManagedData : NodeDefinition<NodeWithManagedData.Data, EmptyPorts>
         {
             [Managed]
             public struct Data : INodeData

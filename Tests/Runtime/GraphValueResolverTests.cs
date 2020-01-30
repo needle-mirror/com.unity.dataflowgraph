@@ -24,8 +24,8 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        [TestCase(RenderExecutionModel.Synchronous), TestCase(RenderExecutionModel.MaximallyParallel), TestCase(RenderExecutionModel.Islands)]
-        public void CanUseGraphValueResolver_ToResolveValues_InAJob(RenderExecutionModel computeType)
+        [TestCase(NodeSet.RenderExecutionModel.Synchronous), TestCase(NodeSet.RenderExecutionModel.MaximallyParallel), TestCase(NodeSet.RenderExecutionModel.Islands)]
+        public void CanUseGraphValueResolver_ToResolveValues_InAJob(NodeSet.RenderExecutionModel computeType)
         {
             using (var results = new NativeArray<float>(1, Allocator.Persistent))
             using (var set = new RenderGraphTests.PotentiallyJobifiedNodeSet(computeType))
@@ -67,12 +67,8 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         public class RenderPipeAggregate
-            : NodeDefinition<Node, RenderPipeAggregate.SimPorts, RenderPipeAggregate.KernelData, RenderPipeAggregate.Ports, RenderPipeAggregate.Kernel>
+            : NodeDefinition<RenderPipeAggregate.KernelData, RenderPipeAggregate.Ports, RenderPipeAggregate.Kernel>
         {
-            public struct SimPorts : ISimulationPortDefinition
-            {
-            }
-
             public struct Ports : IKernelPortDefinition
             {
                 public DataInput<RenderPipeAggregate, int> Input;
@@ -123,7 +119,7 @@ namespace Unity.DataFlowGraph.Tests
         public void CanUseGraphValueResolver_ToResolveAggregate_WithBuffers_InAJob(int bufferLength)
         {
             using (var results = new NativeArray<int>(bufferLength + 1, Allocator.Persistent))
-            using (var set = new RenderGraphTests.PotentiallyJobifiedNodeSet(RenderExecutionModel.MaximallyParallel))
+            using (var set = new RenderGraphTests.PotentiallyJobifiedNodeSet(NodeSet.RenderExecutionModel.MaximallyParallel))
             {
                 var root = set.Create<RenderPipeAggregate>();
 
@@ -178,7 +174,7 @@ namespace Unity.DataFlowGraph.Tests
             const int k_MaxBufferLength = 20;
 
             using (var results = new NativeArray<int>(1, Allocator.Persistent))
-            using (var set = new RenderGraphTests.PotentiallyJobifiedNodeSet(RenderExecutionModel.MaximallyParallel))
+            using (var set = new RenderGraphTests.PotentiallyJobifiedNodeSet(NodeSet.RenderExecutionModel.MaximallyParallel))
             {
                 var root = set.Create<RenderPipeAggregate>();
 
@@ -245,7 +241,7 @@ namespace Unity.DataFlowGraph.Tests
         public void ResolvedGraphBuffers_AreReadOnly()
         {
             using (var results = new NativeArray<int>(1, Allocator.Persistent))
-            using (var set = new RenderGraphTests.PotentiallyJobifiedNodeSet(RenderExecutionModel.MaximallyParallel))
+            using (var set = new RenderGraphTests.PotentiallyJobifiedNodeSet(NodeSet.RenderExecutionModel.MaximallyParallel))
             {
                 var root = set.Create<RenderPipeAggregate>();
 
@@ -274,13 +270,12 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-
         [Test]
         public void CanResolveGraphValues_OnMainThread_AfterFencing_ResolverDependencies()
         {
             const int k_BufferSize = 5;
 
-            using (var set = new RenderGraphTests.PotentiallyJobifiedNodeSet(RenderExecutionModel.MaximallyParallel))
+            using (var set = new RenderGraphTests.PotentiallyJobifiedNodeSet(NodeSet.RenderExecutionModel.MaximallyParallel))
             {
                 var root = set.Create<RenderPipeAggregate>();
 
@@ -315,13 +310,11 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         public class StallingAggregateNode
-            : NodeDefinition<Node, StallingAggregateNode.SimPorts, StallingAggregateNode.KernelData, StallingAggregateNode.Ports, StallingAggregateNode.Kernel>
+            : NodeDefinition<StallingAggregateNode.KernelData, StallingAggregateNode.Ports, StallingAggregateNode.Kernel>
         {
             public static bool Wait { get => WaitingStaticFlagStructure.Wait; set => WaitingStaticFlagStructure.Wait = value; }
             public static bool Done { get => WaitingStaticFlagStructure.Done; set => WaitingStaticFlagStructure.Done = value; }
             public static void Reset() => WaitingStaticFlagStructure.Reset();
-
-            public struct SimPorts : ISimulationPortDefinition { }
 
             public struct Ports : IKernelPortDefinition
             {
@@ -339,6 +332,43 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
+        [Test]
+        public void CanResolveMultipleGraphValues_InSameNodeSetUpdate()
+        {
+            StallingAggregateNode.Reset();
+
+            using (var set = new RenderGraphTests.PotentiallyJobifiedNodeSet(NodeSet.RenderExecutionModel.MaximallyParallel))
+            {
+                var node1 = set.Create<StallingAggregateNode>();
+                var node2 = set.Create<StallingAggregateNode>();
+
+                GraphValue<Aggregate> gv1 = set.CreateGraphValue(node1, StallingAggregateNode.KernelPorts.Output);
+                GraphValue<Aggregate> gv2 = set.CreateGraphValue(node1, StallingAggregateNode.KernelPorts.Output);
+
+                set.Update();
+                Assume.That(StallingAggregateNode.Done, Is.False);
+
+                var job1 =
+                    new NullJob { Resolver = set.GetGraphValueResolver(out var valueResolverDependency1) }
+                        .Schedule(valueResolverDependency1);
+                set.InjectDependencyFromConsumer(job1);
+
+                var job2 =
+                    new NullJob { Resolver = set.GetGraphValueResolver(out var valueResolverDependency2) }
+                        .Schedule(valueResolverDependency2);
+                set.InjectDependencyFromConsumer(job2);
+
+                StallingAggregateNode.Wait = false;
+                set.Update();
+                Assert.True(StallingAggregateNode.Done);
+
+                set.Destroy(node1);
+                set.Destroy(node2);
+                set.ReleaseGraphValue(gv1);
+                set.ReleaseGraphValue(gv2);
+            }
+        }
+
         public enum GraphValueResolverCreation
         {
             ImmediateAcquireAndReadOnMainThread,
@@ -346,16 +376,12 @@ namespace Unity.DataFlowGraph.Tests
             NonInitialized
         }
 
-        [
-            TestCase(GraphValueResolverCreation.ImmediateAcquireAndReadOnMainThread),
-            TestCase(GraphValueResolverCreation.NonInitialized),
-            TestCase(GraphValueResolverCreation.OneFrameStale)
-        ]
-        public void CannotResolveCreatedGraphValue_UsingGraphValueResolver_InEdgeCases(GraphValueResolverCreation creationMode)
+        [Test]
+        public void CannotResolveCreatedGraphValue_UsingGraphValueResolver_InEdgeCases([Values] GraphValueResolverCreation creationMode)
         {
             StallingAggregateNode.Reset();
 
-            using (var set = new RenderGraphTests.PotentiallyJobifiedNodeSet(RenderExecutionModel.MaximallyParallel))
+            using (var set = new RenderGraphTests.PotentiallyJobifiedNodeSet(NodeSet.RenderExecutionModel.MaximallyParallel))
             {
                 var root = set.Create<StallingAggregateNode>();
                 GraphValue<Aggregate> rootValue = set.CreateGraphValue(root, StallingAggregateNode.KernelPorts.Output);
@@ -452,7 +478,7 @@ namespace Unity.DataFlowGraph.Tests
         {
             StallJob.Reset();
 
-            using (var set = new RenderGraphTests.PotentiallyJobifiedNodeSet(RenderExecutionModel.MaximallyParallel))
+            using (var set = new RenderGraphTests.PotentiallyJobifiedNodeSet(NodeSet.RenderExecutionModel.MaximallyParallel))
             {
                 var root = set.Create<RenderPipeAggregate>();
 
@@ -502,7 +528,7 @@ namespace Unity.DataFlowGraph.Tests
         {
             StallingAggregateNode.Reset();
 
-            using (var set = new RenderGraphTests.PotentiallyJobifiedNodeSet(RenderExecutionModel.MaximallyParallel))
+            using (var set = new RenderGraphTests.PotentiallyJobifiedNodeSet(NodeSet.RenderExecutionModel.MaximallyParallel))
             {
                 var root = set.Create<StallingAggregateNode>();
 
@@ -576,7 +602,7 @@ namespace Unity.DataFlowGraph.Tests
         public void GraphValuesCreatedPostRender_DoNotResolveAfterScheduling_InTheSameFrame()
         {
             using (var results = new NativeArray<InvalidGraphValueResult>(1, Allocator.Persistent))
-            using (var set = new RenderGraphTests.PotentiallyJobifiedNodeSet(RenderExecutionModel.MaximallyParallel))
+            using (var set = new RenderGraphTests.PotentiallyJobifiedNodeSet(NodeSet.RenderExecutionModel.MaximallyParallel))
             {
                 var root = set.Create<RenderPipeAggregate>();
 
@@ -606,7 +632,7 @@ namespace Unity.DataFlowGraph.Tests
         public void PostUpdateDisposedGraphValue_FailsToResolveInSimulation_ButStillResolves_InRenderGraph_ForOneFrame()
         {
             using (var results = new NativeArray<InvalidGraphValueResult>(1, Allocator.Persistent))
-            using (var set = new RenderGraphTests.PotentiallyJobifiedNodeSet(RenderExecutionModel.MaximallyParallel))
+            using (var set = new RenderGraphTests.PotentiallyJobifiedNodeSet(NodeSet.RenderExecutionModel.MaximallyParallel))
             {
                 var root = set.Create<RenderPipeAggregate>();
                 // Create before update - it is valid
@@ -652,7 +678,7 @@ namespace Unity.DataFlowGraph.Tests
         public void PostDeletedGraphValueTargetNode_FailsToResolveInSimulation_ButStillResolves_InRenderGraph_ForOneFrame()
         {
             using (var results = new NativeArray<InvalidGraphValueResult>(1, Allocator.Persistent))
-            using (var set = new RenderGraphTests.PotentiallyJobifiedNodeSet(RenderExecutionModel.MaximallyParallel))
+            using (var set = new RenderGraphTests.PotentiallyJobifiedNodeSet(NodeSet.RenderExecutionModel.MaximallyParallel))
             {
                 var root = set.Create<RenderPipeAggregate>();
                 // Create before update - it is valid

@@ -26,26 +26,53 @@ namespace Unity.DataFlowGraph
 
     struct ForwardedPort
     {
-        public NodeHandle Replacement;
+        public struct Unchecked
+        {
+            public readonly NodeHandle Replacement;
+            internal readonly PortStorage ReplacedPortID;
+            internal readonly ushort OriginPortID;
+            public readonly bool IsInput;
+
+            public static Unchecked Input(InputPortID originPortID, NodeHandle replacement, InputPortID replacedPortID)
+            {
+                return new Unchecked(true, originPortID.Port, replacement, replacedPortID.Storage);
+            }
+
+            public static Unchecked Output(OutputPortID originPortID, NodeHandle replacement, OutputPortID replacedPortID)
+            {
+                return new Unchecked(false, originPortID.Port, replacement, replacedPortID.Storage);
+            }
+
+            public ForwardedPort CheckAndConvert(NodeSet set)
+            {
+                return new ForwardedPort(IsInput, OriginPortID, set.Validate(Replacement), ReplacedPortID);
+            }
+
+            public ushort GetOriginPortCounter()
+            {
+                return OriginPortID;
+            }
+
+            Unchecked(bool isInput, ushort originPortId, NodeHandle replacement, PortStorage replacementPortId)
+            {
+                IsInput = isInput;
+                Replacement = replacement;
+                OriginPortID = originPortId;
+                ReplacedPortID = replacementPortId;
+            }
+        }
+
+        public ValidatedHandle Replacement;
         // Forward linked list
         public ForwardPortHandle NextIndex;
-        ushort m_OriginPortID, m_ReplacedPortID;
+        public PortStorage m_ReplacedPortID;
+        public ushort m_OriginPortID;
 
         public readonly bool IsInput;
 
-        public static ForwardedPort Input(InputPortID originPortID, NodeHandle replacement, InputPortID replacedPortID)
-        {
-            return new ForwardedPort(true, originPortID.Port, replacement, replacedPortID.Port);
-        }
-
-        public static ForwardedPort Output(OutputPortID originPortID, NodeHandle replacement, OutputPortID replacedPortID)
-        {
-            return new ForwardedPort(false, originPortID.Port, replacement, replacedPortID.Port);
-        }
-
         public bool SimplifyNestedForwardedPort(in ForwardedPort other)
         {
-            if (IsInput == other.IsInput && m_ReplacedPortID == other.m_OriginPortID)
+            if (IsInput == other.IsInput && !m_ReplacedPortID.IsECSPort && m_ReplacedPortID.DFGPortIndex == other.m_OriginPortID)
             {
                 Replacement = other.Replacement;
                 m_ReplacedPortID = other.m_ReplacedPortID;
@@ -62,37 +89,45 @@ namespace Unity.DataFlowGraph
 
         public InputPortID GetOriginInputPortID()
         {
+#if DFG_ASSERTIONS
             if (!IsInput)
-                throw new InvalidOperationException("Assertion error: Forwarded port does not represent an input");
+                throw new AssertionException("Forwarded port does not represent an input");
+#endif
 
-            return new InputPortID(m_OriginPortID);
+            return new InputPortID(new PortStorage(m_OriginPortID));
         }
 
         public OutputPortID GetOriginOutputPortID()
         {
+#if DFG_ASSERTIONS
             if (IsInput)
-                throw new InvalidOperationException("Assertion error: Forwarded port does not represent an output");
+                throw new AssertionException("Forwarded port does not represent an output");
+#endif
 
-            return new OutputPortID { Port = m_OriginPortID };
+            return new OutputPortID (new PortStorage(m_OriginPortID));
         }
 
         public InputPortID GetReplacedInputPortID()
         {
+#if DFG_ASSERTIONS
             if (!IsInput)
-                throw new InvalidOperationException("Assertion error: Forwarded port does not represent an input");
+                throw new AssertionException("Forwarded port does not represent an input");
+#endif
 
             return new InputPortID(m_ReplacedPortID);
         }
 
         public OutputPortID GetReplacedOutputPortID()
         {
+#if DFG_ASSERTIONS
             if (IsInput)
-                throw new InvalidOperationException("Assertion error: Forwarded port does not represent an output");
+                throw new AssertionException("Forwarded port does not represent an output");
+#endif
 
-            return new OutputPortID { Port = m_ReplacedPortID };
+            return new OutputPortID (m_ReplacedPortID);
         }
 
-        ForwardedPort(bool isInput, ushort originPortId, NodeHandle replacement, ushort replacementPortId)
+        ForwardedPort(bool isInput, ushort originPortId, ValidatedHandle replacement, PortStorage replacementPortId)
         {
             IsInput = isInput;
             Replacement = replacement;
@@ -104,31 +139,30 @@ namespace Unity.DataFlowGraph
 
     public partial class NodeSet
     {
-        BlitList<int> m_FreeForwardingTables = new BlitList<int>(0, Allocator.Persistent);
-        BlitList<ForwardedPort> m_ForwardingTable = new BlitList<ForwardedPort>(0, Allocator.Persistent);
+        FreeList<ForwardedPort> m_ForwardingTable = new FreeList<ForwardedPort>(Allocator.Persistent);
 
-        void MergeForwardConnectionsToTable(ref InternalNodeData node, /* in */ BlitList<ForwardedPort> forwardedConnections)
+        /// <summary>
+        /// Input list is assumed to have at least one entry.
+        /// </summary>
+        void MergeForwardConnectionsToTable(ref InternalNodeData node, /* in */ BlitList<ForwardedPort.Unchecked> forwardedConnections)
         {
-            var currentIndex = AllocateForwardConnection();
+            // TODO: FOld?
+            var @checked = forwardedConnections[0].CheckAndConvert(this);
+            var currentIndex = m_ForwardingTable.Allocate();
             node.ForwardedPortHead = currentIndex;
-            ref ForwardedPort root = ref m_ForwardingTable[currentIndex];
-            root = forwardedConnections[0];
-
-            if (!Exists(forwardedConnections[0].Replacement))
-                throw new ArgumentException($"Replacement node on forward request 0 doesn't exist");
+            m_ForwardingTable[currentIndex] = @checked;
 
             // Merge temporary forwarded connections into forwarding table
             for (int i = 1; i < forwardedConnections.Count; ++i)
             {
-                if (!Exists(forwardedConnections[i].Replacement))
-                    throw new ArgumentException($"Replacement node on forward request {i} doesn't exist");
+                @checked = forwardedConnections[i].CheckAndConvert(this);
 
-                var next = AllocateForwardConnection();
+                var next = m_ForwardingTable.Allocate();
 
                 m_ForwardingTable[currentIndex].NextIndex = next;
                 currentIndex = next;
 
-                m_ForwardingTable[currentIndex] = forwardedConnections[i];
+                m_ForwardingTable[currentIndex] = @checked;
             }
 
             // resolve recursive list of forwarded connections (done in separate loop to simplify initial construction of list),
@@ -143,7 +177,7 @@ namespace Unity.DataFlowGraph
             {
                 ref var originForward = ref m_ForwardingTable[currentCandidateHandle];
 
-                ref var nodeBeingForwadedTo = ref m_Nodes[originForward.Replacement.VHandle.Index];
+                ref var nodeBeingForwadedTo = ref GetNode(originForward.Replacement);
 
                 for (var fH = nodeBeingForwadedTo.ForwardedPortHead; fH != ForwardPortHandle.Invalid; fH = m_ForwardingTable[fH].NextIndex)
                 {
@@ -169,35 +203,14 @@ namespace Unity.DataFlowGraph
             while (current != ForwardPortHandle.Invalid)
             {
                 var next = m_ForwardingTable[current].NextIndex;
-                ReleaseForwardConnection(current);
+                m_ForwardingTable.Release(current);
                 current = next;
             }
 
             node.ForwardedPortHead = ForwardPortHandle.Invalid;
         }
 
-        ForwardPortHandle AllocateForwardConnection()
-        {
-            if (m_FreeForwardingTables.Count > 0)
-            {
-                var index = m_FreeForwardingTables[m_FreeForwardingTables.Count - 1];
-                m_FreeForwardingTables.PopBack();
-                return index;
-            }
-
-            var value = new ForwardedPort();
-            m_ForwardingTable.Add(value);
-
-            return m_ForwardingTable.Count - 1;
-        }
-
-        void ReleaseForwardConnection(ForwardPortHandle handle)
-        {
-            m_FreeForwardingTables.Add(handle.Index);
-        }
-
         // Testing.
-        internal BlitList<int> GetFreeForwardingTables() => m_FreeForwardingTables;
-        internal BlitList<ForwardedPort> GetForwardingTable() => m_ForwardingTable;
+        internal FreeList<ForwardedPort> GetForwardingTable() => m_ForwardingTable;
     }
 }

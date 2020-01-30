@@ -4,6 +4,7 @@ using System.Linq;
 using System.Runtime.CompilerServices;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
+using Unity.Profiling;
 using UnityEngine;
 using UnityEngine.Profiling;
 
@@ -16,19 +17,26 @@ namespace Unity.DataFlowGraph
     /// execution pattern is defined from the connections you establish.
     /// <seealso cref="NodeDefinition{TNodeData}"/>
     /// <seealso cref="Create{TDefinition}"/>
-    /// <seealso cref="Connect(NodeHandle, OutputPortID, NodeHandle, InputPortID)"/>
+    /// <seealso cref="Connect(NodeHandle, OutputPortID, NodeHandle, InputPortID, ConnectionType)"/>
     /// <seealso cref="Update"/>
     /// </summary>
     public partial class NodeSet
     {
+        static ProfilerMarker m_CopyWorldsProfilerMarker = new ProfilerMarker("NodeSet.CopyWorlds");
+        static ProfilerMarker m_FenceOutputConsumerProfilerMarker = new ProfilerMarker("NodeSet.FenceOutputConsumers");
+        static ProfilerMarker m_SimulateProfilerMarker = new ProfilerMarker("NodeSet.Simulate");
+        static ProfilerMarker m_SwapGraphValuesProfilerMarker = new ProfilerMarker("NodeSet.SwapGraphValues");
+        
+
         internal RenderGraph DataGraph => m_RenderGraph;
 
-        static InvalidFunctionalitySlot m_InvalidFunctionalitySlot = new InvalidFunctionalitySlot();
+        static InvalidDefinitionSlot s_InvalidDefinitionSlot = new InvalidDefinitionSlot();
 
-        List<INodeDefinition> m_NodeFunctionalities = new List<INodeDefinition>();
+        List<NodeDefinition> m_NodeDefinitions = new List<NodeDefinition>();
 
         // IWBN if nodes+topologies were in a SOA array, they follow exactly the
         // same array structure
+        // TODO: Rework to new indexers
         BlitList<InternalNodeData> m_Nodes = new BlitList<InternalNodeData>(0);
         BlitList<int> m_FreeNodes = new BlitList<int>(0);
 
@@ -39,6 +47,12 @@ namespace Unity.DataFlowGraph
 
         RenderGraph m_RenderGraph;
 
+        /// <summary>
+        /// Unique ID for this particular instance.
+        /// </summary>
+        readonly internal ushort NodeSetID;
+        static ushort s_NodeSetCounter;
+
         bool m_IsDisposed;
 
         /// <summary>
@@ -47,19 +61,23 @@ namespace Unity.DataFlowGraph
         /// </summary>
         public NodeSet()
         {
-            m_NodeFunctionalities.Add(m_InvalidFunctionalitySlot);
+            m_NodeDefinitions.Add(s_InvalidDefinitionSlot);
 
             var defaultTraits = LLTraitsHandle.Create();
             // stuff that needs the first slot to be invalid
             defaultTraits.Resolve() = new LowLevelNodeTraits();
             m_Traits.Add(defaultTraits);
-            m_ForwardingTable.Add(new ForwardedPort());
+            m_ForwardingTable.Allocate();
             m_ArraySizes.Allocate();
             m_ManagedAllocators.Add(new ManagedMemoryAllocator());
             // (we don't need a zeroth invalid index for nodes, because they are versioned)
 
             RendererModel = RenderExecutionModel.MaximallyParallel;
             m_RenderGraph = new RenderGraph(this);
+            NodeSetID = ++s_NodeSetCounter;
+
+            m_Batches = new VersionedList<InputBatch>(Allocator.Persistent, NodeSetID);
+            m_GraphValues = new VersionedList<DataOutputValue>(Allocator.Persistent, NodeSetID);
         }
 
         /// <summary>
@@ -84,23 +102,22 @@ namespace Unity.DataFlowGraph
         /// node definition.
         /// </exception>
         public NodeHandle<TDefinition> Create<TDefinition>()
-            where TDefinition : INodeDefinition, new()
+            where TDefinition : NodeDefinition, new()
         {
             var def = LookupDefinition<TDefinition>();
 
-            NodeHandle handle;
+            ValidatedHandle handle;
             {
                 ref var node = ref AllocateData();
                 node.TraitsIndex = def.Index;
-                handle = new NodeHandle<TDefinition>(node.VHandle);
+                handle = node.Self;
 
                 SetupNodeMemory(ref m_Traits[def.Index].Resolve(), ref node);
-                // TODO: Doesn't look right.
-                SetupInitialTopology(def.Functionality, handle, ref m_Topology.Indexes[node.VHandle.Index]);
+
+                m_Topology.GetRef(handle) = new TopologyIndex();
             }
 
-
-            BlitList<ForwardedPort> forwardedConnections = default;
+            BlitList<ForwardedPort.Unchecked> forwardedConnections = default;
             var context = new InitContext(handle, def.Index, ref forwardedConnections);
 
             try
@@ -108,17 +125,17 @@ namespace Unity.DataFlowGraph
                 // To ensure consistency with Destroy(, false)
                 m_Diff.NodeCreated(handle);
 
-                def.Functionality.Init(context);
+                def.Definition.Init(context);
 
-                if (forwardedConnections.IsCreated && forwardedConnections.Count > 0)
-                    MergeForwardConnectionsToTable(ref m_Nodes[handle.VHandle.Index], forwardedConnections);
+                if (StillExists(handle) && forwardedConnections.IsCreated && forwardedConnections.Count > 0)
+                    MergeForwardConnectionsToTable(ref GetNode(handle), forwardedConnections);
 
                 SignalTopologyChanged();
             }
             catch
             {
                 Debug.LogError("Throwing exceptions from constructors is undefined behaviour");
-                Destroy(ref m_Nodes[handle.VHandle.Index], false);
+                Destroy(ref GetNode(handle), false);
                 throw;
             }
             finally
@@ -132,7 +149,7 @@ namespace Unity.DataFlowGraph
 
         /// <summary>
         /// Destroys a node, identified by the handle.
-        /// This invokes <see cref="INodeFunctionality.Destroy(NodeHandle)"/>
+        /// This invokes <see cref="NodeDefinition.Destroy(NodeHandle)"/>
         /// if implemented.
         /// </summary>
         /// <exception cref="ArgumentException">
@@ -140,8 +157,7 @@ namespace Unity.DataFlowGraph
         /// </exception>
         public void Destroy(NodeHandle handle)
         {
-            NodeVersionCheck(handle.VHandle);
-            Destroy(ref m_Nodes[handle.VHandle.Index]);
+            Destroy(ref GetNode(Validate(handle)));
         }
 
         /// <summary>
@@ -162,25 +178,33 @@ namespace Unity.DataFlowGraph
         /// </summary>
         public bool Exists(NodeHandle handle)
         {
-            return handle.VHandle.Index < m_Nodes.Count && handle.VHandle.Version == m_Nodes[handle.VHandle.Index].VHandle.Version;
+            return
+                handle.NodeSetID == NodeSetID &&
+                handle.VHandle.Index < m_Nodes.Count &&
+                handle.VHandle.Version == m_Nodes[handle.VHandle.Index].Self.VHandle.Version;
         }
 
-        internal (INodeDefinition Functionality, int Index) LookupDefinition<TDefinition>()
-            where TDefinition : INodeDefinition, new()
+        internal unsafe bool StillExists(ValidatedHandle handle)
+        {
+            return handle.VHandle.Version == m_Nodes.Ref(handle.VHandle.Index)->Self.VHandle.Version;
+        }
+
+        internal (NodeDefinition Definition, int Index) LookupDefinition<TDefinition>()
+            where TDefinition : NodeDefinition, new()
         {
             var index = NodeDefinitionTypeIndex<TDefinition>.Index;
 
-            // fill "sparse" table with the invalid functionality.
-            while (index >= m_NodeFunctionalities.Count)
+            // fill "sparse" table with the invalid definition.
+            while (index >= m_NodeDefinitions.Count)
             {
-                m_NodeFunctionalities.Add(m_InvalidFunctionalitySlot);
+                m_NodeDefinitions.Add(s_InvalidDefinitionSlot);
                 // TODO: We can, instead of wasting allocations, just make .Resolve() throw errors.
                 m_Traits.Add(LLTraitsHandle.Create());
                 m_ManagedAllocators.Add(new ManagedMemoryAllocator());
             }
 
-            var functionality = m_NodeFunctionalities[index];
-            if (functionality == m_InvalidFunctionalitySlot)
+            var definition = m_NodeDefinitions[index];
+            if (definition == s_InvalidDefinitionSlot)
             {
                 // TODO: Instead of field injection, use constructor?
                 LLTraitsHandle traitsHandle = new LLTraitsHandle();
@@ -188,10 +212,10 @@ namespace Unity.DataFlowGraph
 
                 try
                 {
-                    functionality = new TDefinition();
-                    functionality.BaseTraits.Set = functionality.Set = this;
-                    functionality.GeneratePortDescriptions();
-                    traitsHandle = functionality.BaseTraits.CreateNodeTraits(typeof(TDefinition));
+                    definition = new TDefinition();
+                    definition.BaseTraits.Set = definition.Set = this;
+                    definition.GeneratePortDescriptions();
+                    traitsHandle = definition.BaseTraits.CreateNodeTraits(typeof(TDefinition));
 
                     ref var traits = ref traitsHandle.Resolve();
 
@@ -206,35 +230,36 @@ namespace Unity.DataFlowGraph
                     if (allocator.IsCreated)
                         allocator.Dispose();
 
-                    functionality.Dispose();
+                    if(definition != s_InvalidDefinitionSlot)
+                        definition.Dispose();
+
                     throw;
                 }
 
-                m_NodeFunctionalities[index] = functionality;
+                m_NodeDefinitions[index] = definition;
                 m_Traits[index] = traitsHandle;
                 m_ManagedAllocators[index] = allocator;
             }
 
-            return (functionality, index);
+            return (definition, index);
         }
 
         void Destroy(ref InternalNodeData node, bool callDestructor = true)
         {
-
-            var index = m_Nodes[node.VHandle.Index].TraitsIndex;
+            var index = node.TraitsIndex;
 
             if (callDestructor)
             {
                 try
                 {
-                    m_NodeFunctionalities[index].Destroy(new NodeHandle(node.VHandle));
+                    m_NodeDefinitions[index].Destroy(node.Self.ToPublicHandle());
                 }
                 catch (Exception e)
                 {
                     // Nodes should never throw from destructors.
                     // Can't really propagate exception up: We may be inside the finalizer, completely smashing the clean up, or destroying a range of nodes which is atomic.
                     // Let the user know about it.
-                    Debug.LogError($"Undefined behaviour when throwing exceptions from destructors (node type: {m_NodeFunctionalities[index].GetType()})");
+                    Debug.LogError($"Undefined behaviour when throwing exceptions from destructors (node type: {m_NodeDefinitions[index].GetType()})");
                     Debug.LogException(e);
                 }
             }
@@ -267,10 +292,10 @@ namespace Unity.DataFlowGraph
                 node.KernelData = null;
             }
 
-            m_Diff.NodeDeleted(new NodeHandle(node.VHandle), index);
+            m_Diff.NodeDeleted(node.Self, index);
 
-            node.VHandle.Version++;
-            m_FreeNodes.Add(node.VHandle.Index);
+            ValidatedHandle.Bump(ref node.Self);
+            m_FreeNodes.Add(node.Self.VHandle.Index);
             SignalTopologyChanged();
         }
 
@@ -305,13 +330,11 @@ namespace Unity.DataFlowGraph
 
             unsafe
             {
-                var leakedConnections = m_Topology.Connections.Count(c => c.Valid);
-
                 int leakedGraphValues = 0;
 
-                for (int i = 0; i < m_GraphValues.Count; ++i)
+                for (int i = 0; i < m_GraphValues.UncheckedCount; ++i)
                 {
-                    if (m_GraphValues[i].IsAlive)
+                    if (m_GraphValues[i].Valid)
                     {
                         leakedGraphValues++;
                         DestroyValue(ref m_GraphValues[i]);
@@ -328,43 +351,46 @@ namespace Unity.DataFlowGraph
                     }
                 }
 
-                // At this point, the forwarding table should be empty - meaning the free table is as large
-                // as the forwarding table, except for the first, invalid index.
-                int badForwardedPorts = (m_ForwardingTable.Count - 1) - m_FreeForwardingTables.Count;
+                // Primarily used for diff'ing the RenderGraph
+                // TODO: Assert/Test order of these statements - it's important that all handlers and definition is alive at this update statement
+                UpdateInternal(m_LastJobifiedUpdateHandle);
+
+                if (leakedNodes > 0 || leakedGraphValues > 0)
+                {
+                    Debug.LogError($"NodeSet leak warnings: {leakedNodes} leaked node(s) and {leakedGraphValues} leaked graph value(s) left!");
+                }
+
+#if DFG_ASSERTIONS
+                // At this point, the forwarding table should be empty, except for the first, invalid index.
+                int badForwardedPorts = m_ForwardingTable.InUse - 1;
 
                 // After all nodes are destroyed, there should be no more array size entries.
                 int badArraySizes = m_ArraySizes.InUse - 1;
 
-                // Primarily used for diff'ing the RenderGraph
-                // TODO: Assert/Test order of these statements - it's important that all handlers and functionality is alive at this update statement
-                Update();
-
                 // if any connections are left are recorded as valid, the topology database is corrupted
                 // (since destroying a node removes all its connections, thus all connections should be gone
                 // after destroying all nodes)
-                var badConnections = m_Topology.Connections.Count(c => c.Valid);
+                var badConnections = m_Database.CountEstablishedConnections();
 
-                if (leakedConnections > 0 || leakedNodes > 0 || badConnections > 0 || leakedGraphValues > 0 || badForwardedPorts > 0 || badArraySizes > 0)
+                if (badConnections > 0 || badForwardedPorts > 0 || badArraySizes > 0)
                 {
-                    Debug.LogError($"NodeSet leak warnings: " +
-                        $"{leakedConnections} leaked connection(s), " +
+                    Debug.LogError("NodeSet internal leaks: " +
                         $"{badForwardedPorts} corrupted forward definition(s), " +
                         $"{badArraySizes} dangling array size entry(s), " +
-                        $"{leakedNodes} leaked node(s), " +
-                        $"{leakedGraphValues} leaked graph value(s) and " +
                         $"{badConnections} corrupted connections left!"
                     );
                 }
+#endif
 
                 foreach (var handler in m_ConnectionHandlerMap)
                 {
                     handler.Value.Dispose();
                 }
 
-                foreach (var functionality in m_NodeFunctionalities)
+                foreach (var definition in m_NodeDefinitions)
                 {
-                    if (functionality != m_InvalidFunctionalitySlot)
-                        functionality.Dispose();
+                    if (definition != s_InvalidDefinitionSlot)
+                        definition.Dispose();
                 }
 
                 for (int i = 0; i < m_Traits.Count; ++i)
@@ -377,12 +403,14 @@ namespace Unity.DataFlowGraph
 
                 PostRenderBatchProcess(true);
 
+                m_Database.Dispose();
+
                 m_Topology.Dispose();
+
                 m_Nodes.Dispose();
                 m_FreeNodes.Dispose();
 
                 m_GraphValues.Dispose();
-                m_FreeGraphValues.Dispose();
 
                 m_PostRenderValues.Dispose();
                 m_ReaderFences.Dispose();
@@ -394,56 +422,55 @@ namespace Unity.DataFlowGraph
                 m_ManagedAllocators.Dispose();
 
                 m_Batches.Dispose();
-                m_FreeForwardingTables.Dispose();
                 m_ForwardingTable.Dispose();
 
                 m_ArraySizes.Dispose();
+
+                if (m_ActiveComponentTypes.IsCreated)
+                    m_ActiveComponentTypes.Dispose();
             }
 
         }
 
         /// <summary>
-        /// Looks up the functionality interface for this handle.
-        /// <seealso cref="INodeFunctionality"/>
+        /// Looks up the node definition for this handle.
+        /// <seealso cref="NodeDefinition"/>
         /// </summary>
         /// <exception cref="ArgumentException">
         /// Thrown if the node handle does not refer to a valid instance.
         /// </exception>
-        public INodeFunctionality GetFunctionality(NodeHandle handle)
+        public NodeDefinition GetDefinition(NodeHandle handle)
         {
-            NodeVersionCheck(handle.VHandle);
-
-            var index = m_Nodes[handle.VHandle.Index].TraitsIndex;
-            return m_NodeFunctionalities[index];
+            return GetDefinitionInternal(Validate(handle));
         }
 
         /// <summary>
-        /// Looks up the specified functionality interface, creating it if it
+        /// Looks up the specified node definition, creating it if it
         /// doesn't exist already.
         /// </summary>
         /// <exception cref="InvalidNodeDefinitionException">
         /// Thrown if the <typeparamref name="TDefinition"/> is not a valid
         /// node definition.
         /// </exception>
-        public TDefinition GetFunctionality<TDefinition>()
-            where TDefinition : INodeDefinition, new()
+        public TDefinition GetDefinition<TDefinition>()
+            where TDefinition : NodeDefinition, new()
         {
-            return (TDefinition)LookupDefinition<TDefinition>().Functionality;
+            return (TDefinition)LookupDefinition<TDefinition>().Definition;
         }
 
         /// <summary>
-        /// Looks up the verified functionality interface for this handle.
-        /// <seealso cref="INodeFunctionality"/>
+        /// Looks up the verified node definition for this handle.
+        /// <seealso cref="NodeDefinition"/>
         /// </summary>
         /// <exception cref="ArgumentException">
         /// Thrown if the node handle does not refer to a valid instance.
         /// </exception>
-        public TDefinition GetFunctionality<TDefinition>(NodeHandle<TDefinition> handle)
-            where TDefinition : INodeDefinition, new()
+        public TDefinition GetDefinition<TDefinition>(NodeHandle<TDefinition> handle)
+            where TDefinition : NodeDefinition, new()
         {
-            NodeVersionCheck(((NodeHandle)handle).VHandle);
+            Validate(handle);
 
-            return (TDefinition)LookupDefinition<TDefinition>().Functionality;
+            return (TDefinition)LookupDefinition<TDefinition>().Definition;
         }
 
         /// <summary>
@@ -451,13 +478,9 @@ namespace Unity.DataFlowGraph
         /// is a <typeparamref name="TDefinition"/>.
         /// </summary>
         public bool Is<TDefinition>(NodeHandle handle)
-            where TDefinition : INodeDefinition
+            where TDefinition : NodeDefinition
         {
-            NodeVersionCheck(handle.VHandle);
-
-            var traitsIndex = m_Nodes[handle.VHandle.Index].TraitsIndex;
-
-            return m_NodeFunctionalities[traitsIndex] is TDefinition;
+            return GetDefinition(handle) is TDefinition;
         }
 
         /// <summary>
@@ -469,7 +492,7 @@ namespace Unity.DataFlowGraph
         /// If the <paramref name="handle"/> does not refer to a valid instance.
         /// </exception>
         public NodeHandle<TDefinition>? As<TDefinition>(NodeHandle handle)
-            where TDefinition : INodeDefinition
+            where TDefinition : NodeDefinition
         {
             if (!Is<TDefinition>(handle))
                 return null;
@@ -488,50 +511,12 @@ namespace Unity.DataFlowGraph
         /// If the <paramref name="handle"/> is not a <typeparamref name="TDefinition"/>.
         /// </exception>
         public NodeHandle<TDefinition> CastHandle<TDefinition>(NodeHandle handle)
-            where TDefinition : INodeDefinition
+            where TDefinition : NodeDefinition
         {
             if (!Is<TDefinition>(handle))
                 throw new InvalidCastException();
 
             return new NodeHandle<TDefinition>(handle.VHandle);
-        }
-
-        /// <summary>
-        /// Updates the node set in two phases:
-        /// 
-        /// 1. A message phase (simulation) where nodes are updated and messages
-        /// are passed around
-        /// 2. Aligning the simulation world and the rendering world and initiate
-        /// the rendering.
-        /// 
-        /// <seealso cref="RenderExecutionModel"/>
-        /// </summary>
-        /// <exception cref="InvalidOperationException">
-        /// Can be throw if invalid or missing dependencies were added through 
-        /// <see cref="InjectDependencyFromConsumer(Jobs.JobHandle)"/>.
-        /// </exception>
-        public void Update()
-        {
-            Profiler.BeginSample("NodeSet.FenceOutputConsumers");
-            FenceOutputConsumers();
-            Profiler.EndSample();
-
-            Profiler.BeginSample("NodeSet.Simulate");
-            // FIXME: Make this topologically ordered.
-            foreach (var node in m_Nodes)
-                if (node.IsCreated) // TODO: Test that we don't update dead nodes.
-                    m_NodeFunctionalities[node.TraitsIndex].OnUpdate(new NodeHandle(node.VHandle));
-            Profiler.EndSample();
-
-            Profiler.BeginSample("NodeSet.CopyWorlds");
-            m_RenderGraph.CopyWorlds(m_Diff, RendererModel, m_GraphValues, m_Batches);
-            PostRenderBatchProcess();
-            m_Diff = new GraphDiff(Allocator.Persistent); // TODO: Could be temp?
-            Profiler.EndSample();
-
-            Profiler.BeginSample("NodeSet.SwapGraphValues");
-            SwapGraphValues();
-            Profiler.EndSample();
         }
 
         /// <summary>
@@ -549,23 +534,22 @@ namespace Unity.DataFlowGraph
         public void SetBufferSize<TType>(NodeHandle handle, OutputPortID port, in TType requestedSize)
             where TType : struct
         {
-            var vHandle = ((NodeHandle)handle).VHandle;
-            NodeVersionCheck(vHandle);
+            var source = new OutputPair(this, handle, port);
 
-            var ports = m_NodeFunctionalities[m_Nodes[vHandle.Index].TraitsIndex].GetPortDescription(handle);
+            var portDescription = GetFormalPort(source);
 
-            if (ports.Outputs[port.Port].PortUsage != Usage.Data)
+            if (portDescription.Category != PortDescription.Category.Data)
                 throw new InvalidOperationException("Cannot set size on a non DataOutput port");
 
-            if (ports.Outputs[port.Port].Type != typeof(TType))
+            if (portDescription.Type != typeof(TType))
             {
-                if (ports.Outputs[port.Port].Type.IsConstructedGenericType && ports.Outputs[port.Port].Type.GetGenericTypeDefinition() == typeof(Buffer<>))
-                    throw new InvalidOperationException($"Expecting the return value of {ports.Outputs[port.Port].Type}.SizeRequest().");
+                if (portDescription.Type.IsConstructedGenericType && portDescription.Type.GetGenericTypeDefinition() == typeof(Buffer<>))
+                    throw new InvalidOperationException($"Expecting the return value of {portDescription.Type}.SizeRequest().");
                 else
-                    throw new InvalidOperationException($"Expecting an instance of {ports.Outputs[port.Port].Type}");
+                    throw new InvalidOperationException($"Expecting an instance of {portDescription.Type}");
             }
 
-            SetBufferSizeWithCorrectlyTypedSizeParameter(handle, ports.Outputs[port.Port], requestedSize);
+            SetBufferSizeWithCorrectlyTypedSizeParameter(source, portDescription, requestedSize);
         }
 
         /// <summary>
@@ -586,28 +570,25 @@ namespace Unity.DataFlowGraph
         /// Thrown if the request is invalid.
         /// </exception>
         public void SetBufferSize<TDefinition, TType>(NodeHandle<TDefinition> handle, DataOutput<TDefinition, TType> port, in TType requestedSize)
-            where TDefinition : INodeDefinition
+            where TDefinition : NodeDefinition
             where TType : struct
         {
-            NodeVersionCheck(handle.VHandle);
-
-            var ports = m_NodeFunctionalities[m_Nodes[handle.VHandle.Index].TraitsIndex].GetPortDescription(handle);
-            SetBufferSizeWithCorrectlyTypedSizeParameter(handle, ports.Outputs[port.Port.Port], requestedSize);
+            var source = new OutputPair(this, handle, port.Port);
+            SetBufferSizeWithCorrectlyTypedSizeParameter(source, GetFormalPort(source), requestedSize);
         }
 
-        unsafe void SetBufferSizeWithCorrectlyTypedSizeParameter<TType>(NodeHandle handle, in PortDescription.OutputPort port, TType sizeRequest)
+        unsafe void SetBufferSizeWithCorrectlyTypedSizeParameter<TType>(in OutputPair source, in PortDescription.OutputPort port, TType sizeRequest)
             where TType : struct
         {
             if (!port.HasBuffers)
                 throw new InvalidOperationException("Cannot set size on a DataOutput port which contains no Buffer<T> instances in its type.");
 
             OutputPortID resolvedOutput = port;
-            ResolvePublicSource(ref handle, ref resolvedOutput);
 
             foreach (var bufferInfo in port.BufferInfos)
             {
-                ref var requestedSizeBuf = ref Unsafe.AsRef<Buffer<byte>>((byte*)Unsafe.AsPointer(ref sizeRequest) + bufferInfo.Offset);
-                var requestedSize = requestedSizeBuf.GetSizeRequest();
+                var requestedSizeBuf = (BufferDescription*)((byte*)Unsafe.AsPointer(ref sizeRequest) + bufferInfo.Offset);
+                var requestedSize = requestedSizeBuf->GetSizeRequest();
                 if (!requestedSize.IsValid)
                 {
                     if (port.Type.IsConstructedGenericType && port.Type.GetGenericTypeDefinition() == typeof(Buffer<>))
@@ -616,20 +597,8 @@ namespace Unity.DataFlowGraph
                         throw new InvalidOperationException($"Expecting the return value of Buffer<T>.SizeRequest() on individual fields of {port.Type} for sizes being set.");
                 }
                 if (requestedSize.Size >= 0)
-                    m_Diff.NodeBufferResized(handle, resolvedOutput, bufferInfo.Offset, requestedSize.Size, bufferInfo.ItemType);
+                    m_Diff.NodeBufferResized(source, bufferInfo.Offset, requestedSize.Size, bufferInfo.ItemType);
             }
-        }
-
-        internal void SetupInitialTopology(INodeFunctionality functionality, NodeHandle handle, ref TopologyIndex topology)
-        {
-            topology.InputHeadConnection = 0;
-            topology.OutputHeadConnection = 0;
-
-            // TODO: Seems dangerous, node isn't really constructed at this point...
-            var ports = functionality.GetPortDescription(handle);
-
-            topology.InputPortCount = (ushort)ports.Inputs.Count;
-            topology.OutputPortCount = (ushort)ports.Outputs.Count;
         }
 
         unsafe void SetupNodeMemory(ref LowLevelNodeTraits traits, ref InternalNodeData node)
@@ -650,19 +619,30 @@ namespace Unity.DataFlowGraph
             }
         }
 
+        unsafe internal ref InternalNodeData GetNodeChecked(NodeHandle handle) => ref *m_Nodes.Ref(Validate(handle).VHandle.Index);
+        unsafe internal ref InternalNodeData GetNode(ValidatedHandle handle) => ref *m_Nodes.Ref(handle.VHandle.Index);
+        internal NodeDefinition GetDefinitionInternal(ValidatedHandle handle) => m_NodeDefinitions[GetNode(handle).TraitsIndex];
+
+        internal PortDescription.InputPort GetFormalPort(in InputPair destination) 
+            => GetDefinitionInternal(destination.Handle).GetFormalInput(destination.Handle, destination.Port);
+        internal PortDescription.OutputPort GetFormalPort(in OutputPair source)
+            => GetDefinitionInternal(source.Handle).GetFormalOutput(source.Handle, source.Port);
+
+        internal PortDescription.InputPort GetVirtualPort(in InputPair destination)
+            => GetDefinitionInternal(destination.Handle).GetVirtualInput(destination.Handle, destination.Port);
+        internal PortDescription.OutputPort GetVirtualPort(in OutputPair source)
+            => GetDefinitionInternal(source.Handle).GetVirtualOutput(source.Handle, source.Port);
+
         internal unsafe ref TNode GetNodeData<TNode>(NodeHandle handle)
             where TNode : struct, INodeData
         {
-            NodeVersionCheck(handle.VHandle);
-
-            return ref Unsafe.AsRef<TNode>(m_Nodes[handle.VHandle.Index].UserData);
+            return ref Unsafe.AsRef<TNode>(GetNodeChecked(handle).UserData);
         }
 
         internal unsafe ref TKernel GetKernelData<TKernel>(NodeHandle handle)
             where TKernel : struct, IKernelData
         {
-            NodeVersionCheck(handle.VHandle);
-            return ref Unsafe.AsRef<TKernel>(m_Nodes[handle.VHandle.Index].KernelData);
+            return ref Unsafe.AsRef<TKernel>(GetNodeChecked(handle).KernelData);
         }
 
         internal ref InternalNodeData AllocateData()
@@ -674,31 +654,39 @@ namespace Unity.DataFlowGraph
                 return ref m_Nodes[index];
             }
 
-            InternalNodeData data = new InternalNodeData();
-            data.VHandle.Index = m_Nodes.Count;
-            data.VHandle.Version = 1;
-            data.TraitsIndex = 0; // (will index into invalid class)
+            var data = new InternalNodeData();
+            data.Self = ValidatedHandle.Create(m_Nodes.Count, NodeSetID);
+            data.TraitsIndex = InvalidTraitSlot;
 
             m_Nodes.Add(data);
             m_Topology.EnsureSize(m_Nodes.Count);
 
-            return ref m_Nodes[data.VHandle.Index];
+            return ref GetNode(data.Self);
         }
 
-        internal void NodeVersionCheck(VersionedHandle handle)
+        /// <summary>
+        /// Converts and checks that the handle is valid, meaning the handle is safely
+        /// indexable into the <see cref="m_Nodes"/> array, and that the versions match.
+        /// 
+        /// A <see cref="ValidatedHandle"/> is the only way to use internal API.
+        /// 
+        /// Note that a <see cref="ValidatedHandle"/> may grow stale (mismatching versions),
+        /// but it will always be safe to index with this handle (you may just get a stale / newer node).
+        /// 
+        /// If you need to check the handle refers to the same <see cref="InternalNodeData"/>,
+        /// use <see cref="StillExists(ValidatedHandle)"/>
+        /// </summary>
+        internal ValidatedHandle Validate(NodeHandle handle)
         {
-            // TODO: Implement in terms of Exists()
-            if (handle.Index >= m_Nodes.Count || handle.Version != m_Nodes[handle.Index].VHandle.Version)
-            {
-                throw new ArgumentException("Node is disposed or invalid");
-            }
+            return ValidatedHandle.CheckAndConvert(this, handle);
         }
 
         // For testing
         internal GraphDiff GetCurrentGraphDiff() => m_Diff;
         // For other API
-        internal List<INodeDefinition> GetDefinitions() => m_NodeFunctionalities;
+        internal List<NodeDefinition> GetDefinitions() => m_NodeDefinitions;
         internal BlitList<LLTraitsHandle> GetLLTraits() => m_Traits;
+        internal ref readonly LowLevelNodeTraits GetNodeTraits(NodeHandle handle) => ref m_Traits[GetNodeChecked(handle).TraitsIndex].Resolve();
         internal VersionedList<InputBatch> GetInputBatches() => m_Batches;
 
     }

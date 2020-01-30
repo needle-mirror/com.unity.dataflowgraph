@@ -1,18 +1,37 @@
 using System.Collections.Generic;
 using NUnit.Framework;
+using Unity.Collections.LowLevel.Unsafe;
 
 namespace Unity.DataFlowGraph.Tests
 {
     public class NodeHandleTests
     {
-        class TestNode : NodeDefinition<TestNode.Node>
+        class TestNode : NodeDefinition<EmptyPorts> {}
+
+        class TestNode2 : NodeDefinition<EmptyPorts> {}
+
+        [Test]
+        public void NodeHandles_Record_NodeSetID_WhenCreated()
         {
-            public struct Node : INodeData { }
+            using (var set = new NodeSet())
+            {
+                NodeHandle node = set.Create<TestNode>();
+                Assert.AreEqual(set.NodeSetID, node.NodeSetID);
+                set.Destroy(node);
+            }
         }
 
-        class TestNode2 : NodeDefinition<TestNode2.Node>
+        [Test]
+        public void NodeHandles_HaveExpected_SizeAndAlignment()
         {
-            public struct Node : INodeData { }
+            Assert.AreEqual(8, UnsafeUtility.SizeOf<Collections.VersionedHandle>(), "SizeOf(VersionedHandle)");
+            Assert.AreEqual(4, UnsafeUtility.AlignOf<Collections.VersionedHandle>(), "AlignOf(VersionedHandle)");
+            Assert.AreEqual(8, UnsafeUtility.SizeOf<NodeHandle>(), "SizeOf(NodeHandle)");
+            Assert.AreEqual(4, UnsafeUtility.AlignOf<NodeHandle>(), "AlignOf(NodeHandle)");
+            Assert.AreEqual(8, UnsafeUtility.SizeOf<NodeHandle<TestNode>>(), "SizeOf(NodeHandle<T>)");
+            Assert.AreEqual(4, UnsafeUtility.AlignOf<NodeHandle<TestNode>>(), "AlignOf(NodeHandle<T>)");
+            Assert.AreEqual(8, UnsafeUtility.SizeOf<ValidatedHandle>(), "SizeOf(ValidatedHandle)");
+            Assert.AreEqual(4, UnsafeUtility.AlignOf<ValidatedHandle>(), "AlignOf(ValidatedHandle)");
         }
 
         [Test]

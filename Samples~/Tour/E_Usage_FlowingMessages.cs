@@ -42,11 +42,7 @@ namespace Unity.DataFlowGraph.Tour
                 /*
                  * To further emit a message from this node, we need to use the EmitMessage API.
                  */
-                EmitMessage(
-                    /*
-                     * The first argument for the EmitMessage API is where this message is coming from. 
-                     */
-                    ctx.Handle, 
+                ctx.EmitMessage(
                     /*
                      * Then from what port we are emitting a message.
                      * This means any node connected to this particular port on this instance is going to receive the
@@ -79,7 +75,7 @@ namespace Unity.DataFlowGraph.Tour
                 /*
                  * To set the name, we'll grab the node definition instance:
                  */
-                var myNode = set.GetFunctionality<MyNode>();
+                var myNode = set.GetDefinition<MyNode>();
                 myNode.SetName(a, 'a'); myNode.SetName(b, 'b'); myNode.SetName(c, 'c'); myNode.SetName(d, 'd'); myNode.SetName(e, 'e');
 
                 /*

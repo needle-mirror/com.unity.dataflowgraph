@@ -840,7 +840,7 @@ namespace Unity.DataFlowGraph.Tests
                 Assert.AreEqual(100, set.GetCurrentGraphDiff().ResizedDataBuffers[0].NewSize);
                 Assert.AreEqual(
                     UnsafeUtility.GetFieldOffset(typeof(ComplexAggregate).GetField("Doubles")),
-                    set.GetCurrentGraphDiff().ResizedDataBuffers[0].BufferOffset);
+                    set.GetCurrentGraphDiff().ResizedDataBuffers[0].LocalBufferOffset);
                 Assert.AreEqual(UnsafeUtility.SizeOf<double>(), set.GetCurrentGraphDiff().ResizedDataBuffers[0].ItemType.Size);
 
                 set.SetBufferSize(a, ComplexKernelAggregateNode.KernelPorts.Output,
@@ -850,7 +850,7 @@ namespace Unity.DataFlowGraph.Tests
                 Assert.AreEqual(75, set.GetCurrentGraphDiff().ResizedDataBuffers[1].NewSize);
                 Assert.AreEqual(
                     UnsafeUtility.GetFieldOffset(typeof(ComplexAggregate).GetField("Bytes")),
-                    set.GetCurrentGraphDiff().ResizedDataBuffers[1].BufferOffset);
+                    set.GetCurrentGraphDiff().ResizedDataBuffers[1].LocalBufferOffset);
                 Assert.AreEqual(UnsafeUtility.SizeOf<byte>(), set.GetCurrentGraphDiff().ResizedDataBuffers[1].ItemType.Size);
 
                 set.SetBufferSize(a, ComplexKernelAggregateNode.KernelPorts.Output,
@@ -860,7 +860,7 @@ namespace Unity.DataFlowGraph.Tests
                 Assert.AreEqual(125, set.GetCurrentGraphDiff().ResizedDataBuffers[2].NewSize);
                 Assert.AreEqual(
                     UnsafeUtility.GetFieldOffset(typeof(ComplexAggregate).GetField("Matrices")),
-                    set.GetCurrentGraphDiff().ResizedDataBuffers[2].BufferOffset);
+                    set.GetCurrentGraphDiff().ResizedDataBuffers[2].LocalBufferOffset);
                 Assert.AreEqual(UnsafeUtility.SizeOf<float4x4>(), set.GetCurrentGraphDiff().ResizedDataBuffers[2].ItemType.Size);
 
                 set.SetBufferSize(a, ComplexKernelAggregateNode.KernelPorts.Output,
@@ -870,12 +870,12 @@ namespace Unity.DataFlowGraph.Tests
                 Assert.AreEqual(50, set.GetCurrentGraphDiff().ResizedDataBuffers[3].NewSize);
                 Assert.AreEqual(
                     UnsafeUtility.GetFieldOffset(typeof(ComplexAggregate).GetField("Vectors")),
-                    set.GetCurrentGraphDiff().ResizedDataBuffers[3].BufferOffset);
+                    set.GetCurrentGraphDiff().ResizedDataBuffers[3].LocalBufferOffset);
                 Assert.AreEqual(UnsafeUtility.SizeOf<float4>(), set.GetCurrentGraphDiff().ResizedDataBuffers[3].ItemType.Size);
                 Assert.AreEqual(25, set.GetCurrentGraphDiff().ResizedDataBuffers[4].NewSize);
                 Assert.AreEqual(
                     UnsafeUtility.GetFieldOffset(typeof(ComplexAggregate).GetField("Matrices")),
-                    set.GetCurrentGraphDiff().ResizedDataBuffers[4].BufferOffset);
+                    set.GetCurrentGraphDiff().ResizedDataBuffers[4].LocalBufferOffset);
                 Assert.AreEqual(UnsafeUtility.SizeOf<float4x4>(), set.GetCurrentGraphDiff().ResizedDataBuffers[4].ItemType.Size);
 
                 set.Destroy(a);
@@ -920,12 +920,12 @@ namespace Unity.DataFlowGraph.Tests
                     Bytes = new Buffer<byte>(outputABBuf, bufferSizes.Bytes.GetSizeRequest().Size, default),
                     Matrices = new Buffer<float4x4>(outputAMBuf, bufferSizes.Matrices.GetSizeRequest().Size, default),
                 };
-                var fakeRenderContext = new RenderContext(new NodeHandle(), set.DataGraph.m_SharedData.SafetyManager);
+                var fakeRenderContext = new RenderContext(new ValidatedHandle(), set.DataGraph.m_SharedData.SafetyManager);
                 ComplexAggregate.RandomizeOutput(fakeRenderContext, k_RandomSeed, ref outputA);
 
                 var knodes = set.DataGraph.GetInternalData();
                 ref var aKNode = ref knodes[((NodeHandle)a).VHandle.Index];
-                ref var aKPorts = ref Unsafe.AsRef<ComplexKernelAggregateNode.KernelDefs>(aKNode.KernelPorts);
+                ref var aKPorts = ref Unsafe.AsRef<ComplexKernelAggregateNode.KernelDefs>(aKNode.Instance.Ports);
                 Assert.AreEqual(aKPorts.Output.m_Value, outputA);
 
                 // Perform the B node transformation locally.
@@ -943,7 +943,7 @@ namespace Unity.DataFlowGraph.Tests
                 ComplexAggregate.ArbitraryTransformation(fakeRenderContext, outputA, ref outputB);
 
                 ref var bKNode = ref knodes[((NodeHandle)b).VHandle.Index];
-                ref var bKPorts = ref Unsafe.AsRef<ComplexKernelAggregateNode.KernelDefs>(bKNode.KernelPorts);
+                ref var bKPorts = ref Unsafe.AsRef<ComplexKernelAggregateNode.KernelDefs>(bKNode.Instance.Ports);
                 Assert.AreEqual(bKPorts.Output.m_Value, outputB);
 
                 set.Destroy(a, b);

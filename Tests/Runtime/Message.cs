@@ -1,4 +1,4 @@
-namespace Unity.DataFlowGraph
+namespace Unity.DataFlowGraph.Tests
 {
     public struct Message
     {

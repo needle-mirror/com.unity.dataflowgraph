@@ -30,7 +30,7 @@ namespace Unity.DataFlowGraph.Tests
             using (var array = new NativeArray<int>(10, Allocator.Temp))
             using (var batch = new FutureArrayInputBatch(10, Allocator.Persistent))
             {
-                batch.SetTransientBuffer(new NodeHandle(), new InputPortArrayID(), array);
+                batch.SetTransientBuffer(new InputPair(), array);
             }
         }
 
@@ -41,7 +41,7 @@ namespace Unity.DataFlowGraph.Tests
             using (var batch = new FutureArrayInputBatch(10, Allocator.Persistent))
             using (var set = new NodeSet())
             {
-                batch.SetTransientBuffer(new NodeHandle(), new InputPortArrayID(), array);
+                batch.SetTransientBuffer(new InputPair(), array);
                 var batchHandle = set.SubmitDeferredInputBatch(new JobHandle(), batch);
             }
         }
@@ -116,7 +116,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 array.CopyFrom(sequence.ToArray());
 
-                batch.SetTransientBuffer(node, InputBufferNode.KernelPorts.InputBuffer, array);
+                batch.SetTransientBuffer(new InputPair(set, node, new InputPortArrayID(InputBufferNode.KernelPorts.InputBuffer.Port)), array);
                 var batchHandle = set.SubmitDeferredInputBatch(new JobHandle(), batch);
 
                 var gv = set.CreateGraphValue(node, InputBufferNode.KernelPorts.OutSum);
@@ -153,8 +153,8 @@ namespace Unity.DataFlowGraph.Tests
                 array.CopyFrom(sequence.ToArray());
                 doubleArray.CopyFrom(doubleSequence.ToArray());
 
-                batch.SetTransientBuffer(node, InputBufferNode.KernelPorts.ArrayOfInputBuffer, 0, array);
-                batch.SetTransientBuffer(node, InputBufferNode.KernelPorts.ArrayOfInputBuffer, 2, doubleArray);
+                batch.SetTransientBuffer(new InputPair(set, node, new InputPortArrayID(InputBufferNode.KernelPorts.ArrayOfInputBuffer.Port, 0)), array);
+                batch.SetTransientBuffer(new InputPair(set, node, new InputPortArrayID(InputBufferNode.KernelPorts.ArrayOfInputBuffer.Port, 2)), doubleArray);
                 var batchHandle = set.SubmitDeferredInputBatch(new JobHandle(), batch);
 
                 var gv = set.CreateGraphValue(node, InputBufferNode.KernelPorts.OutArraySum);
@@ -176,7 +176,28 @@ namespace Unity.DataFlowGraph.Tests
         struct NodeGV
         {
             public NodeHandle<InputBufferNode> Node;
+
+            public InputPair
+                InputBuffer,
+                InputBuffer2,
+                ArrayOfInputBuffer_0,
+                ArrayOfInputBuffer_2;
+
             public GraphValue<long> GV, GV2, GV3;
+
+            public NodeGV(NodeSet set, NodeHandle<InputBufferNode> node)
+            {
+                GV = set.CreateGraphValue(node, InputBufferNode.KernelPorts.OutSum);
+                GV2 = set.CreateGraphValue(node, InputBufferNode.KernelPorts.OutSum2);
+                GV3 = set.CreateGraphValue(node, InputBufferNode.KernelPorts.OutArraySum);
+
+                InputBuffer = new InputPair(set, node, new InputPortArrayID(InputBufferNode.KernelPorts.InputBuffer.Port));
+                InputBuffer2 = new InputPair(set, node, new InputPortArrayID(InputBufferNode.KernelPorts.InputBuffer2.Port));
+                ArrayOfInputBuffer_0 = new InputPair(set, node, new InputPortArrayID(InputBufferNode.KernelPorts.ArrayOfInputBuffer.Port, 0));
+                ArrayOfInputBuffer_2 = new InputPair(set, node, new InputPortArrayID(InputBufferNode.KernelPorts.ArrayOfInputBuffer.Port, 2));
+
+                Node = node;
+            }
         }
 
         struct DeferredJobProducer : IJob
@@ -189,10 +210,10 @@ namespace Unity.DataFlowGraph.Tests
             {
                 for (int i = 0; i < NodeList.Length; ++i)
                 {
-                    Batch.SetTransientBuffer(NodeList[i].Node, InputBufferNode.KernelPorts.InputBuffer, Array);
-                    Batch.SetTransientBuffer(NodeList[i].Node, InputBufferNode.KernelPorts.InputBuffer2, DoubleArray);
-                    Batch.SetTransientBuffer(NodeList[i].Node, InputBufferNode.KernelPorts.ArrayOfInputBuffer, 0, Array);
-                    Batch.SetTransientBuffer(NodeList[i].Node, InputBufferNode.KernelPorts.ArrayOfInputBuffer, 2, DoubleArray);
+                    Batch.SetTransientBuffer(NodeList[i].InputBuffer, Array);
+                    Batch.SetTransientBuffer(NodeList[i].InputBuffer2, DoubleArray);
+                    Batch.SetTransientBuffer(NodeList[i].ArrayOfInputBuffer_0, Array);
+                    Batch.SetTransientBuffer(NodeList[i].ArrayOfInputBuffer_2, DoubleArray);
                 }
             }
         }
@@ -215,11 +236,8 @@ namespace Unity.DataFlowGraph.Tests
                 {
                     var node = set.Create<InputBufferNode>();
                     set.SetPortArraySize(node, InputBufferNode.KernelPorts.ArrayOfInputBuffer, 3);
-                    var gv = set.CreateGraphValue(node, InputBufferNode.KernelPorts.OutSum);
-                    var gv2 = set.CreateGraphValue(node, InputBufferNode.KernelPorts.OutSum2);
-                    var gv3 = set.CreateGraphValue(node, InputBufferNode.KernelPorts.OutArraySum);
 
-                    nodes.Add(new NodeGV { Node = node, GV = gv, GV2 = gv2, GV3 = gv3 });
+                    nodes.Add(new NodeGV (set, node));
                 }
 
                 array.CopyFrom(sequence.ToArray());
@@ -289,8 +307,8 @@ namespace Unity.DataFlowGraph.Tests
             {
                 var a = set.Create<NodeWithAllTypesOfPorts>();
 
-                batch.SetTransientBuffer(a, NodeWithAllTypesOfPorts.KernelPorts.InputBuffer, array);
-                batch.SetTransientBuffer(a, NodeWithAllTypesOfPorts.KernelPorts.InputBuffer, array);
+                batch.SetTransientBuffer(new InputPair(set, a, new InputPortArrayID(NodeWithAllTypesOfPorts.KernelPorts.InputBuffer.Port)), array);
+                batch.SetTransientBuffer(new InputPair(set, a, new InputPortArrayID(NodeWithAllTypesOfPorts.KernelPorts.InputBuffer.Port)), array);
 
                 var batchHandle = set.SubmitDeferredInputBatch(new JobHandle(), batch);
 
@@ -318,7 +336,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 set.Connect(a, NodeWithAllTypesOfPorts.KernelPorts.OutputBuffer, b, NodeWithAllTypesOfPorts.KernelPorts.InputBuffer);
 
-                batch.SetTransientBuffer(b, NodeWithAllTypesOfPorts.KernelPorts.InputBuffer, array);
+                batch.SetTransientBuffer(new InputPair(set, b, new InputPortArrayID(NodeWithAllTypesOfPorts.KernelPorts.InputBuffer.Port)), array);
 
                 var batchHandle = set.SubmitDeferredInputBatch(new JobHandle(), batch);
 

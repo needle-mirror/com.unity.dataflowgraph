@@ -3,8 +3,56 @@ using NUnit.Framework;
 
 namespace Unity.DataFlowGraph.Tests
 {
+    using Topology = TopologyAPI<ValidatedHandle, InputPortArrayID, OutputPortID>;
+
+    internal static class TopologyExtensions
+    { 
+        internal static int Count<TMoveable>(this TMoveable walker)
+            where TMoveable : Topology.Database.IMoveable
+        {
+            int count = 0;
+            while (walker.MoveNext())
+                count++;
+
+            return count;
+        }
+
+        public static ValidatedHandle GetNthConnection(this Topology.Database.OutputTopologyEnumerable e, OutputPortID port, int index)
+        {
+            var currIndex = 0;
+
+            foreach (var filtered in e[port])
+            {
+                if (currIndex == index)
+                    return filtered;
+
+                currIndex++;
+            }
+
+            throw new IndexOutOfRangeException("Index of connection or port does not exist");
+        }
+
+        public static ValidatedHandle GetNthConnection(this Topology.Database.InputTopologyEnumerable e, InputPortID port, int index)
+        {
+            InputPortArrayID id = new InputPortArrayID(port);
+            var currIndex = 0;
+
+            foreach (var filtered in e[id])
+            {
+                if (currIndex == index)
+                    return filtered;
+
+                currIndex++;
+            }
+
+            throw new IndexOutOfRangeException("Index of connection or port does not exist");
+        }
+    }
+
     public class TopologyWalkerTests
     {
+
+
         public struct Node : INodeData { }
 
         public class OneInOutNode : NodeDefinition<Node, OneInOutNode.SimPorts>, IMsgHandler<Message>
@@ -35,7 +83,7 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        class EmptyNode : NodeDefinition<Node>
+        class EmptyNode : NodeDefinition<EmptyPorts>
         {
         }
 
@@ -46,25 +94,23 @@ namespace Unity.DataFlowGraph.Tests
             {
                 var node = set.Create<OneInOutNode>();
 
-                set.GetInputs(node);
-                set.GetOutputs(node);
+                set.GetInputs(set.Validate(node));
+                set.GetOutputs(set.Validate(node));
 
                 set.Destroy(node);
             }
         }
 
         [Test]
-        public void GetInputsOutputs_ThrowsExceptionOn_NullHandleAndDestroyedNode()
+        public void GetInputsOutputs_ThrowsExceptionOn_DestroyedNode()
         {
             using (var set = new NodeSet())
             {
                 var node = set.Create<OneInOutNode>();
                 set.Destroy(node);
 
-                Assert.Throws<ArgumentException>(() => set.GetInputs(node));
-                Assert.Throws<ArgumentException>(() => set.GetOutputs(node));
-                Assert.Throws<ArgumentException>(() => set.GetInputs(new NodeHandle()));
-                Assert.Throws<ArgumentException>(() => set.GetOutputs(new NodeHandle()));
+                Assert.Throws<ArgumentException>(() => set.GetInputs(set.Validate(node)));
+                Assert.Throws<ArgumentException>(() => set.GetOutputs(set.Validate(node)));
 
             }
         }
@@ -77,36 +123,19 @@ namespace Unity.DataFlowGraph.Tests
                 var empty = set.Create<EmptyNode>();
                 var one = set.Create<OneInOutNode>();
 
-                Assert.AreEqual(0, set.GetInputs(empty).Count);
-                Assert.AreEqual(0, set.GetInputs(empty).Count);
+                Assert.AreEqual(0, set.GetInputs(set.Validate(empty)).GetEnumerator().Count());
+                Assert.AreEqual(0, set.GetOutputs(set.Validate(empty)).GetEnumerator().Count());
 
-                Assert.AreEqual(0, set.GetFunctionality(empty).GetPortDescription(empty).Inputs.Count);
-                Assert.AreEqual(0, set.GetFunctionality(empty).GetPortDescription(empty).Outputs.Count);
+                Assert.AreEqual(0, set.GetDefinition(empty).GetPortDescription(empty).Inputs.Count);
+                Assert.AreEqual(0, set.GetDefinition(empty).GetPortDescription(empty).Outputs.Count);
 
-                Assert.AreEqual(1, set.GetInputs(one).Count);
-                Assert.AreEqual(1, set.GetInputs(one).Count);
+                Assert.AreEqual(0, set.GetInputs(set.Validate(one)).GetEnumerator().Count());
+                Assert.AreEqual(0, set.GetOutputs(set.Validate(one)).GetEnumerator().Count());
 
-                Assert.AreEqual(1, set.GetFunctionality(one).GetPortDescription(one).Inputs.Count);
-                Assert.AreEqual(1, set.GetFunctionality(one).GetPortDescription(one).Outputs.Count);
+                Assert.AreEqual(1, set.GetDefinition(one).GetPortDescription(one).Inputs.Count);
+                Assert.AreEqual(1, set.GetDefinition(one).GetPortDescription(one).Outputs.Count);
 
                 set.Destroy(empty, one);
-            }
-        }
-
-        [Test]
-        public void EmptyPortsInputsOutputsIsCorrect()
-        {
-            using (var set = new NodeSet())
-            {
-                var one = set.Create<OneInOutNode>();
-
-                foreach (var port in set.GetInputs(one))
-                    Assert.AreEqual(0, port.Count);
-
-                foreach (var port in set.GetOutputs(one))
-                    Assert.AreEqual(0, port.Count);
-
-                set.Destroy(one);
             }
         }
 
@@ -121,8 +150,8 @@ namespace Unity.DataFlowGraph.Tests
 
                 set.Connect(a, OneInOutNode.SimulationPorts.Output, b, OneInOutNode.SimulationPorts.Input);
 
-                Assert.AreEqual((NodeHandle)b, set.GetOutputs(a)[OneInOutNode.SimulationPorts.Output.Port, 0]);
-                Assert.AreEqual((NodeHandle)a, set.GetInputs(b)[OneInOutNode.SimulationPorts.Input.Port, 0]);
+                Assert.AreEqual(set.Validate(b), set.GetOutputs(set.Validate(a)).GetNthConnection(OneInOutNode.SimulationPorts.Output.Port, 0));
+                Assert.AreEqual(set.Validate(a), set.GetInputs(set.Validate(b)).GetNthConnection(OneInOutNode.SimulationPorts.Input.Port, 0));
 
                 set.Destroy(a, b);
             }
@@ -141,8 +170,17 @@ namespace Unity.DataFlowGraph.Tests
                 set.Connect(b, OneInOutNode.SimulationPorts.Output, a, OneInOutNode.SimulationPorts.Input);
                 set.Connect(c, OneInOutNode.SimulationPorts.Output, b, OneInOutNode.SimulationPorts.Input);
 
-                Assert.AreEqual((NodeHandle)a, set.GetOutputs(set.GetOutputs(c)[OneInOutNode.SimulationPorts.Output.Port, 0])[OneInOutNode.SimulationPorts.Output.Port, 0]);
-                Assert.AreEqual((NodeHandle)c, set.GetInputs(set.GetInputs(a)[OneInOutNode.SimulationPorts.Input.Port, 0])[OneInOutNode.SimulationPorts.Input.Port, 0]);
+                Assert.AreEqual(set.Validate(a), 
+                    set.GetOutputs(
+                        set.GetOutputs(set.Validate(c)).GetNthConnection(OneInOutNode.SimulationPorts.Output.Port, 0)
+                    ).GetNthConnection(OneInOutNode.SimulationPorts.Output.Port, 0)
+                );
+
+                Assert.AreEqual(set.Validate(c),
+                    set.GetInputs(
+                        set.GetInputs(set.Validate(a)).GetNthConnection(OneInOutNode.SimulationPorts.Input.Port, 0)
+                    ).GetNthConnection(OneInOutNode.SimulationPorts.Input.Port, 0)
+                );
 
                 set.Destroy(a, b, c);
             }
@@ -163,15 +201,15 @@ namespace Unity.DataFlowGraph.Tests
                 set.Connect(b, OneInOutNode.SimulationPorts.Output, a, OneInOutNode.SimulationPorts.Input);
                 set.Connect(c, OneInOutNode.SimulationPorts.Output, a, OneInOutNode.SimulationPorts.Input);
 
-                var port = set.GetInputs(a)[OneInOutNode.SimulationPorts.Input.Port];
+                var filteredPorts = set.GetInputs(set.Validate(a))[new InputPortArrayID(OneInOutNode.SimulationPorts.Input.Port)];
 
-                foreach (var node in port)
+                foreach (var node in filteredPorts)
                 {
-                    Assert.IsTrue(node == b || node == c);
+                    Assert.IsTrue(node.ToPublicHandle() == b || node.ToPublicHandle() == c);
                 }
 
-                Assert.AreEqual((NodeHandle)a, set.GetOutputs(c)[OneInOutNode.SimulationPorts.Output.Port, 0]);
-                Assert.AreEqual((NodeHandle)a, set.GetOutputs(b)[OneInOutNode.SimulationPorts.Output.Port, 0]);
+                Assert.AreEqual(set.Validate(a), set.GetOutputs(set.Validate(c)).GetNthConnection(OneInOutNode.SimulationPorts.Output.Port, 0));
+                Assert.AreEqual(set.Validate(a), set.GetOutputs(set.Validate(b)).GetNthConnection(OneInOutNode.SimulationPorts.Output.Port, 0));
 
                 set.Destroy(a, b, c);
             }
@@ -193,12 +231,12 @@ namespace Unity.DataFlowGraph.Tests
                 set.Connect(b, OneInOutNode.SimulationPorts.Output, a, ThreeInOutNode.SimulationPorts.Input1);
                 set.Connect(c, OneInOutNode.SimulationPorts.Output, a, ThreeInOutNode.SimulationPorts.Input3);
 
-                Assert.AreEqual((NodeHandle)b, set.GetInputs(a)[ThreeInOutNode.SimulationPorts.Input1.Port, 0]);
-                Assert.AreEqual(0, set.GetInputs(a)[ThreeInOutNode.SimulationPorts.Input2.Port].Count);
-                Assert.AreEqual((NodeHandle)c, set.GetInputs(a)[ThreeInOutNode.SimulationPorts.Input3.Port, 0]);
+                Assert.AreEqual(set.Validate(b), set.GetInputs(set.Validate(a)).GetNthConnection(ThreeInOutNode.SimulationPorts.Input1.Port, 0));
+                Assert.AreEqual(0, set.GetInputs(set.Validate(a))[new InputPortArrayID(ThreeInOutNode.SimulationPorts.Input2.Port)].Count());
+                Assert.AreEqual(set.Validate(c), set.GetInputs(set.Validate(a)).GetNthConnection(ThreeInOutNode.SimulationPorts.Input3.Port, 0));
 
-                Assert.AreEqual((NodeHandle)a, set.GetOutputs(c)[OneInOutNode.SimulationPorts.Output.Port, 0]);
-                Assert.AreEqual((NodeHandle)a, set.GetOutputs(b)[OneInOutNode.SimulationPorts.Output.Port, 0]);
+                Assert.AreEqual(set.Validate(a), set.GetOutputs(set.Validate(c)).GetNthConnection(OneInOutNode.SimulationPorts.Output.Port, 0));
+                Assert.AreEqual(set.Validate(a), set.GetOutputs(set.Validate(b)).GetNthConnection(OneInOutNode.SimulationPorts.Output.Port, 0));
 
                 set.Destroy(a, b, c);
             }
@@ -213,18 +251,18 @@ namespace Unity.DataFlowGraph.Tests
                     a = set.Create<OneInOutNode>(),
                     b = set.Create<OneInOutNode>();
 
-                Assert.AreEqual(0, set.GetOutputs(a)[OneInOutNode.SimulationPorts.Output.Port].Count);
-                Assert.AreEqual(0, set.GetInputs(b)[OneInOutNode.SimulationPorts.Input.Port].Count);
+                Assert.AreEqual(0, set.GetOutputs(set.Validate(a))[OneInOutNode.SimulationPorts.Output.Port].Count());
+                Assert.AreEqual(0, set.GetInputs(set.Validate(b))[new InputPortArrayID(OneInOutNode.SimulationPorts.Input.Port)].Count());
 
                 set.Connect(a, OneInOutNode.SimulationPorts.Output, b, OneInOutNode.SimulationPorts.Input);
 
-                Assert.AreEqual(1, set.GetOutputs(a)[OneInOutNode.SimulationPorts.Output.Port].Count);
-                Assert.AreEqual(1, set.GetInputs(b)[OneInOutNode.SimulationPorts.Input.Port].Count);
+                Assert.AreEqual(1, set.GetOutputs(set.Validate(a))[OneInOutNode.SimulationPorts.Output.Port].Count());
+                Assert.AreEqual(1, set.GetInputs(set.Validate(b))[new InputPortArrayID(OneInOutNode.SimulationPorts.Input.Port)].Count());
 
                 set.Disconnect(a, OneInOutNode.SimulationPorts.Output, b, OneInOutNode.SimulationPorts.Input);
 
-                Assert.AreEqual(0, set.GetOutputs(a)[OneInOutNode.SimulationPorts.Output.Port].Count);
-                Assert.AreEqual(0, set.GetInputs(b)[OneInOutNode.SimulationPorts.Input.Port].Count);
+                Assert.AreEqual(0, set.GetOutputs(set.Validate(a))[OneInOutNode.SimulationPorts.Output.Port].Count());
+                Assert.AreEqual(0, set.GetInputs(set.Validate(b))[new InputPortArrayID(OneInOutNode.SimulationPorts.Input.Port)].Count());
 
                 set.Destroy(a, b);
             }
@@ -243,33 +281,33 @@ namespace Unity.DataFlowGraph.Tests
 
                 for (int i = 0; i < 3; ++i)
                 {
-                    OutputPortID outPort = set.GetFunctionality(a).GetPortDescription(a).Outputs[i];
-                    InputPortID inPort = set.GetFunctionality(a).GetPortDescription(a).Inputs[i];
+                    OutputPortID outPort = set.GetDefinition(a).GetPortDescription(a).Outputs[i];
+                    InputPortID inPort = set.GetDefinition(a).GetPortDescription(a).Inputs[i];
 
                     set.Connect(b, outPort, a, inPort);
                     set.Connect(c, outPort, b, inPort);
 
-                    Assert.AreEqual(0, set.GetOutputs(a).Connections(outPort));
-                    Assert.AreEqual(1, set.GetInputs(a).Connections(inPort));
-                    Assert.AreEqual(1, set.GetOutputs(b).Connections(outPort));
-                    Assert.AreEqual(1, set.GetInputs(b).Connections(inPort));
-                    Assert.AreEqual(1, set.GetOutputs(c).Connections(outPort));
-                    Assert.AreEqual(0, set.GetInputs(c).Connections(inPort));
+                    Assert.AreEqual(0, set.GetOutputs(set.Validate(a))[outPort].Count());
+                    Assert.AreEqual(1, set.GetInputs(set.Validate(a))[new InputPortArrayID(inPort)].Count());
+                    Assert.AreEqual(1, set.GetOutputs(set.Validate(b))[outPort].Count());
+                    Assert.AreEqual(1, set.GetInputs(set.Validate(b))[new InputPortArrayID(inPort)].Count());
+                    Assert.AreEqual(1, set.GetOutputs(set.Validate(c))[outPort].Count());
+                    Assert.AreEqual(0, set.GetInputs(set.Validate(c))[new InputPortArrayID(inPort)].Count());
                 }
 
                 set.DisconnectAll(b);
 
                 foreach (var node in new[] { a, b, c })
                 {
-                    var inputs = set.GetInputs(node);
-                    var inputPortCount = inputs.Count;
+                    var inputs = set.GetInputs(set.Validate(node));
+                    var inputPortCount = inputs.GetEnumerator().Count();
                     for (int i = 0; i < inputPortCount; ++i)
-                        Assert.AreEqual(0, inputs.Connections(set.GetFunctionality(node).GetPortDescription(node).Inputs[i]));
+                        Assert.AreEqual(0, inputs[new InputPortArrayID(set.GetDefinition(node).GetPortDescription(node).Inputs[i])].Count());
 
-                    var outputs = set.GetOutputs(node);
-                    var outputPortCount = outputs.Count;
+                    var outputs = set.GetOutputs(set.Validate(node));
+                    var outputPortCount = outputs.GetEnumerator().Count();
                     for (int i = 0; i < outputPortCount; ++i)
-                        Assert.AreEqual(0, outputs.Connections(set.GetFunctionality(node).GetPortDescription(node).Outputs[i]));
+                        Assert.AreEqual(0, outputs[set.GetDefinition(node).GetPortDescription(node).Outputs[i]].Count());
                 }
 
                 set.Destroy(a, b, c);
@@ -293,11 +331,11 @@ namespace Unity.DataFlowGraph.Tests
 
                 for (int i = 0; i < 100; ++i)
                 {
-                    var temp = set.GetOutputs(a)[OneInOutNode.SimulationPorts.Output.Port, 0];
-                    Assert.AreEqual(b, temp);
-                    Assert.AreEqual(a, set.GetInputs(b)[OneInOutNode.SimulationPorts.Input.Port, 0]);
+                    var temp = set.GetOutputs(set.Validate(a)).GetNthConnection(OneInOutNode.SimulationPorts.Output.Port, 0);
+                    Assert.AreEqual(set.Validate(b), temp);
+                    Assert.AreEqual(set.Validate(a), set.GetInputs(set.Validate(b)).GetNthConnection(OneInOutNode.SimulationPorts.Input.Port, 0));
                     b = a;
-                    a = temp;
+                    a = temp.ToPublicHandle();
                 }
 
                 set.Destroy(a, b);
@@ -320,11 +358,14 @@ namespace Unity.DataFlowGraph.Tests
 
                 // TODO: Fix: Topology is not stable with regards to insertion order.
 
-                Assert.AreEqual((NodeHandle)c, set.GetOutputs(a)[OneInOutNode.SimulationPorts.Output.Port, 0]);
-                Assert.AreEqual((NodeHandle)b, set.GetOutputs(a)[OneInOutNode.SimulationPorts.Output.Port, 1]);
+                Assert.AreEqual(set.Validate(c), set.GetOutputs(set.Validate(a)).GetNthConnection(OneInOutNode.SimulationPorts.Output.Port, 0));
+                Assert.AreEqual(set.Validate(b), set.GetOutputs(set.Validate(a)).GetNthConnection(OneInOutNode.SimulationPorts.Output.Port, 1));
 
-                Assert.AreEqual((NodeHandle)c, set.GetOutputs(a)[OneInOutNode.SimulationPorts.Output.Port][0]);
-                Assert.AreEqual((NodeHandle)b, set.GetOutputs(a)[OneInOutNode.SimulationPorts.Output.Port][1]);
+                var byPort = set.GetOutputs(set.Validate(a))[OneInOutNode.SimulationPorts.Output.Port];
+                byPort.MoveNext();
+                Assert.AreEqual(set.Validate(c), byPort.Current);
+                byPort.MoveNext();
+                Assert.AreEqual(set.Validate(b), byPort.Current);
 
 
                 set.Destroy(a, b, c);

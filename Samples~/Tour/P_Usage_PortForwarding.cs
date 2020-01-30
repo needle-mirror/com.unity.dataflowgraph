@@ -45,7 +45,7 @@ namespace Unity.DataFlowGraph.Tour
             public void HandleMessage(in MessageContext ctx, in float msg)
             {
                 Debug.Log($"Child: Got a message {msg}");
-                EmitMessage(ctx.Handle, SimulationPorts.Output, msg * 2);
+                ctx.EmitMessage(SimulationPorts.Output, msg * 2);
             }
         }
 
@@ -77,7 +77,7 @@ namespace Unity.DataFlowGraph.Tour
                 Debug.Log($"Parent: Got a message {msg}");
             }
 
-            public override void Init(InitContext ctx)
+            protected override void Init(InitContext ctx)
             {
                 /*
                  * During initialization for this node we create a child node and remember it.
@@ -102,7 +102,7 @@ namespace Unity.DataFlowGraph.Tour
                 ctx.ForwardOutput(SimulationPorts.SecretlyForwardedOutput, nodeData.Child, ChildNode.SimulationPorts.Output);
             }
 
-            public override void Destroy(NodeHandle handle)
+            protected override void Destroy(NodeHandle handle)
             {
                 /*
                  * And remember, since we created the child node, we need to clean up after ourselves!

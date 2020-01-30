@@ -19,8 +19,6 @@ namespace Unity.DataFlowGraph.Tests
             public PotentiallyJobifiedNodeSet(RenderExecutionModel type)
                 : base()
             {
-                // TODO: This never actually worked, need to refactor TopologyCacheAPI to make it work again.
-                /*CacheManager.ComputeJobified = */
                 RendererModel = type;
             }
         }
@@ -54,33 +52,8 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        class KernelAdderNode : NodeDefinition<Node, Data, KernelAdderNode.KernelDefs, KernelAdderNode.Kernel>
-        {
-            public struct KernelDefs : IKernelPortDefinition
-            {
-#pragma warning disable 649  // Assigned through internal DataFlowGraph reflection
-                public DataInput<KernelAdderNode, int> Input;
-                public DataOutput<KernelAdderNode, int> Output;
-#pragma warning restore 649
-            }
-
-            [BurstCompile(CompileSynchronously = true)]
-            public struct Kernel : IGraphKernel<Data, KernelDefs>
-            {
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
-                {
-                    ctx.Resolve(ref ports.Output) = ctx.Resolve(ports.Input) + 1;
-                }
-            }
-        }
-
-        [
-            TestCase(RenderExecutionModel.MaximallyParallel),
-            TestCase(RenderExecutionModel.Synchronous),
-            TestCase(RenderExecutionModel.Islands),
-            TestCase(RenderExecutionModel.SingleThreaded)
-        ]
-        public void GraphCanUpdate_WithoutIssues(RenderExecutionModel meansOfComputation)
+        [Test]
+        public void GraphCanUpdate_WithoutIssues([Values] NodeSet.RenderExecutionModel meansOfComputation)
         {
             using (var set = new PotentiallyJobifiedNodeSet(meansOfComputation))
             {
@@ -96,10 +69,10 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        [TestCase(2, RenderExecutionModel.Synchronous), TestCase(2, RenderExecutionModel.MaximallyParallel),
-            TestCase(10, RenderExecutionModel.Synchronous), TestCase(10, RenderExecutionModel.MaximallyParallel),
-            TestCase(30, RenderExecutionModel.Synchronous), TestCase(30, RenderExecutionModel.MaximallyParallel)]
-        public void GraphAccumulatesData_OverLongChains(int nodeChainLength, RenderExecutionModel meansOfComputation)
+        [Test]
+        public void GraphAccumulatesData_OverLongChains(
+            [Values(2, 10, 30)] int nodeChainLength,
+            [Values(NodeSet.RenderExecutionModel.Synchronous, NodeSet.RenderExecutionModel.MaximallyParallel)] NodeSet.RenderExecutionModel meansOfComputation)
         {
             using (var set = new PotentiallyJobifiedNodeSet(meansOfComputation))
             {
@@ -152,13 +125,8 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        [
-            TestCase(RenderExecutionModel.MaximallyParallel),
-            TestCase(RenderExecutionModel.Synchronous),
-            TestCase(RenderExecutionModel.Islands),
-            TestCase(RenderExecutionModel.SingleThreaded)
-            ]
-        public void KernelNodeMemberMemory_IsPersistent_OverMultipleGraphEvaluations(RenderExecutionModel meansOfComputation)
+        [Test]
+        public void KernelNodeMemberMemory_IsPersistent_OverMultipleGraphEvaluations([Values] NodeSet.RenderExecutionModel meansOfComputation)
         {
             using (var set = new PotentiallyJobifiedNodeSet(meansOfComputation))
             {
@@ -198,10 +166,11 @@ namespace Unity.DataFlowGraph.Tests
          *  Contains multiple connections from the same output.
          */
 
-        struct DAGTest : IDisposable
+        public struct DAGTest : IDisposable
         {
             public NodeHandle<ANode>[] Leaves;
-            public GraphValue<int>[] Roots;
+            public NodeHandle[] Roots;
+            public GraphValue<int>[] RootGVs;
 
             List<NodeHandle> m_GC;
 
@@ -212,14 +181,16 @@ namespace Unity.DataFlowGraph.Tests
                 m_GC = new List<NodeHandle>();
                 m_Set = set;
                 Leaves = new NodeHandle<ANode>[5];
-                Roots = new GraphValue<int>[5];
+                Roots = new NodeHandle[5];
+                RootGVs = new GraphValue<int>[5];
 
                 // Part (1) of the graph.
                 Leaves[0] = set.Create<ANode>();
                 var b1 = set.Create<BNode>();
                 set.Connect(Leaves[0], ANode.KernelPorts.Output, b1, BNode.KernelPorts.Input);
 
-                Roots[0] = set.CreateGraphValue(b1, BNode.KernelPorts.Output);
+                Roots[0] = b1;
+                RootGVs[0] = set.CreateGraphValue(b1, BNode.KernelPorts.Output);
 
                 // Part (2) of the graph.
                 Leaves[1] = set.Create<ANode>();
@@ -229,7 +200,8 @@ namespace Unity.DataFlowGraph.Tests
                 set.Connect(Leaves[1], ANode.KernelPorts.Output, c2, CNode.KernelPorts.InputA);
                 set.Connect(c2, CNode.KernelPorts.Output, b2, BNode.KernelPorts.Input);
 
-                Roots[1] = set.CreateGraphValue(b2, BNode.KernelPorts.Output);
+                Roots[1] = b2;
+                RootGVs[1] = set.CreateGraphValue(b2, BNode.KernelPorts.Output);
 
                 // Part (4) of the graph.
                 Leaves[3] = set.Create<ANode>();
@@ -239,7 +211,8 @@ namespace Unity.DataFlowGraph.Tests
                 set.Connect(Leaves[3], ANode.KernelPorts.Output, c4, CNode.KernelPorts.InputA);
                 set.Connect(c4, CNode.KernelPorts.Output, b4, BNode.KernelPorts.Input);
 
-                Roots[3] = set.CreateGraphValue(b4, BNode.KernelPorts.Output);
+                Roots[3] = b4;
+                RootGVs[3] = set.CreateGraphValue(b4, BNode.KernelPorts.Output);
 
                 // Part (3) of the graph.
                 Leaves[2] = set.Create<ANode>();
@@ -258,11 +231,13 @@ namespace Unity.DataFlowGraph.Tests
 
                 set.Connect(c3_1, CNode.KernelPorts.Output, c3_2, CNode.KernelPorts.InputA);
                 set.Connect(c3_1, CNode.KernelPorts.Output, c3_2, CNode.KernelPorts.InputB);
-                Roots[2] = set.CreateGraphValue(c3_2, CNode.KernelPorts.Output);
+                Roots[2] = c3_2;
+                RootGVs[2] = set.CreateGraphValue(c3_2, CNode.KernelPorts.Output);
 
                 // Part (5) of the graph.
                 Leaves[4] = set.Create<ANode>();
-                Roots[4] = set.CreateGraphValue(Leaves[4], ANode.KernelPorts.Output);
+                Roots[4] = Leaves[4];
+                RootGVs[4] = set.CreateGraphValue(Leaves[4], ANode.KernelPorts.Output);
 
                 GC(b1, c2, b2, c4, b4, b3_1, b3_2, c3_1, c3_2);
             }
@@ -275,7 +250,7 @@ namespace Unity.DataFlowGraph.Tests
             public void SetLeafInputs(int value)
             {
                 foreach (var leaf in Leaves)
-                    m_Set.SendMessage(leaf, ANode.SimulationPorts.ValueInput, value);
+                    m_Set.SetData(leaf, ANode.KernelPorts.ValueInput, value);
             }
 
             public void Dispose()
@@ -283,34 +258,34 @@ namespace Unity.DataFlowGraph.Tests
                 var set = m_Set;
                 m_GC.ForEach(a => set.Destroy(a));
                 Leaves.ToList().ForEach(l => set.Destroy(l));
-                Roots.ToList().ForEach(r => set.ReleaseGraphValue(r));
+                RootGVs.ToList().ForEach(r => set.ReleaseGraphValue(r));
             }
         }
 
-        class ANode : NodeDefinition<Node, ANode.SimPorts, Data, ANode.KernelDefs, ANode.Kernel>, IMsgHandler<int>
+        public interface IComputeNode
         {
-            public struct SimPorts : ISimulationPortDefinition
-            {
-#pragma warning disable 649  // Assigned through internal DataFlowGraph reflection
-                public MessageInput<ANode, int> ValueInput;
-#pragma warning restore 649
-            }
+            OutputPortID OutputPort { get; }
+        }
 
+        public class ANode : NodeDefinition<Node, Data, ANode.KernelDefs, ANode.Kernel>, IComputeNode
+        {
             public struct KernelDefs : IKernelPortDefinition
             {
+                public DataInput<ANode, int> ValueInput;
                 public DataOutput<ANode, int> Output;
             }
 
             [BurstCompile(CompileSynchronously = true)]
             public struct Kernel : IGraphKernel<Data, KernelDefs>
             {
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports) => ctx.Resolve(ref ports.Output) = data.Contents + 1;
+                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports) =>
+                    ctx.Resolve(ref ports.Output) = ctx.Resolve(ports.ValueInput) + 1;
             }
 
-            public void HandleMessage(in MessageContext ctx, in int msg) => GetKernelData(ctx.Handle).Contents = msg;
+            public OutputPortID OutputPort => (OutputPortID)KernelPorts.Output;
         }
 
-        class BNode : NodeDefinition<Node, Data, BNode.KernelDefs, BNode.Kernel>
+        class BNode : NodeDefinition<Node, Data, BNode.KernelDefs, BNode.Kernel>, IComputeNode
         {
             public struct KernelDefs : IKernelPortDefinition
             {
@@ -325,9 +300,11 @@ namespace Unity.DataFlowGraph.Tests
             {
                 public void Execute(RenderContext ctx, Data data, ref KernelDefs ports) => ctx.Resolve(ref ports.Output) = ctx.Resolve(ports.Input) * 3;
             }
+
+            public OutputPortID OutputPort => (OutputPortID)KernelPorts.Output;
         }
 
-        class CNode : NodeDefinition<Node, Data, CNode.KernelDefs, CNode.Kernel>
+        class CNode : NodeDefinition<Node, Data, CNode.KernelDefs, CNode.Kernel>, IComputeNode
         {
             public struct KernelDefs : IKernelPortDefinition
             {
@@ -343,19 +320,16 @@ namespace Unity.DataFlowGraph.Tests
             {
                 public void Execute(RenderContext ctx, Data data, ref KernelDefs ports) => ctx.Resolve(ref ports.Output) = ctx.Resolve(ports.InputA) + ctx.Resolve(ports.InputB);
             }
+
+            public OutputPortID OutputPort => (OutputPortID)KernelPorts.Output;
         }
 
-
-
-        [
-            TestCase(RenderExecutionModel.MaximallyParallel),
-            TestCase(RenderExecutionModel.Synchronous),
-            TestCase(RenderExecutionModel.Islands),
-            TestCase(RenderExecutionModel.SingleThreaded)
-            ]
-        public void ComplexDAG_ProducesExpectedResults_InAllExecutionModels(RenderExecutionModel model)
+        [Test]
+        public void ComplexDAG_ProducesExpectedResults_InAllExecutionModels([Values] NodeSet.RenderExecutionModel model)
         {
             const int k_NumGraphs = 10;
+
+            for(int k = 0; k < 10; ++k)
             using (var set = new NodeSet())
             {
                 set.RendererModel = model;
@@ -388,6 +362,35 @@ namespace Unity.DataFlowGraph.Tests
                  *  
                  */
 
+                void CheckExpectedValueAtRoot(int expected, DAGTest graph, int root, int i)
+                {
+                    var output = set.GetValueBlocking(graph.RootGVs[root]);
+                    ref var value = ref set.GetOutputValues()[graph.RootGVs[root].Handle.Index];
+
+                    Assert.IsTrue(value.IsLinkedToGraph, // This happens locally inside CopyWorlds.
+                        $"Race condition on Root[{root}] from render graph in graph iteration {i}"
+                    );
+
+                    if(expected != output)
+                    {
+                        System.Threading.Thread.Sleep(1000);
+
+                        var laterOutput = set.GetValueBlocking(graph.RootGVs[0]);
+
+                        Assert.AreEqual(
+                            output,
+                            laterOutput,
+                            $"Root[{root}] produced a race condition in graph iteration {i}"
+                        );
+
+                        Assert.AreEqual(
+                            expected,
+                            output, 
+                            $"Root[0] produced unexpected results in graph iteration {i}"
+                        );
+                    }
+                }
+
                 for (int i = 0; i < k_NumGraphs; ++i)
                 {
                     var graph = tests[i];
@@ -397,41 +400,45 @@ namespace Unity.DataFlowGraph.Tests
                     var a = (i + 1);
                     var abb = a * b * b;
 
-                    Assert.AreEqual(
+                    CheckExpectedValueAtRoot(
                         a * b,
-                        set.GetValueBlocking(graph.Roots[0]),
-                        $"Root[0] produced unexpected results in graph iteration {i}"
+                        graph,
+                        0, 
+                        i
                     );
 
-                    Assert.AreEqual(
+                    CheckExpectedValueAtRoot(
                         (abb + a) * b,
-                        set.GetValueBlocking(graph.Roots[1]),
-                        $"Root[1] produced unexpected results in graph iteration {i}"
+                        graph,
+                        1,
+                        i
                     );
 
-                    Assert.AreEqual(
+                    CheckExpectedValueAtRoot(
                         (abb + a) * c * c,
-                        set.GetValueBlocking(graph.Roots[2]),
-                        $"Root[2] produced unexpected results in graph iteration {i}"
+                        graph,
+                        2,
+                        i
                     );
 
-                    Assert.AreEqual(
+                    CheckExpectedValueAtRoot(
                         (abb + a) * b,
-                        set.GetValueBlocking(graph.Roots[3]),
-                        $"Root[3] produced unexpected results in graph iteration {i}"
+                        graph,
+                        3,
+                        i
                     );
 
-                    Assert.AreEqual(
+                    CheckExpectedValueAtRoot(
                         a,
-                        set.GetValueBlocking(graph.Roots[4]),
-                        $"Root[4] produced unexpected results in graph iteration {i}"
+                        graph,
+                        4,
+                        i
                     );
                 }
 
                 tests.ForEach(t => t.Dispose());
             }
         }
-
 
         public class UserStructValueNode
             : NodeDefinition<Node, UserStructValueNode.SimPorts, UserStructValueNode.Data, UserStructValueNode.KernelDefs, UserStructValueNode.Kernel>
@@ -474,15 +481,10 @@ namespace Unity.DataFlowGraph.Tests
             public void HandleMessage(in MessageContext ctx, in int msg) => GetKernelData(ctx.Handle).value = msg;
         }
 
-        [
-            TestCase(RenderExecutionModel.MaximallyParallel),
-            TestCase(RenderExecutionModel.Synchronous),
-            TestCase(RenderExecutionModel.Islands),
-            TestCase(RenderExecutionModel.SingleThreaded)
-        ]
+        [Test]
         // This test is designed to detect if let's say someone swaps around void* kernelData and void* kernel
         // inside DataFlowGraph
-        public unsafe void AllUserStructsInRenderGraph_RetainExpectedValues_ThroughDifferentExecutionEngines(RenderExecutionModel model)
+        public unsafe void AllUserStructsInRenderGraph_RetainExpectedValues_ThroughDifferentExecutionEngines([Values] NodeSet.RenderExecutionModel model)
         {
             using (var set = new PotentiallyJobifiedNodeSet(model))
             {
@@ -496,8 +498,8 @@ namespace Unity.DataFlowGraph.Tests
                 Assert.AreEqual(1, knodes.Count);
 
                 ref var knode = ref knodes[((NodeHandle)node).VHandle.Index];
-                var kernelData = (UserStructValueNode.Data*)knode.KernelData;
-                var kernel = (UserStructValueNode.SwappedData*)knode.Kernel;
+                var kernelData = (UserStructValueNode.Data*)knode.Instance.Data;
+                var kernel = (UserStructValueNode.SwappedData*)knode.Instance.Kernel;
 
                 Assert.AreEqual(0, kernelData->value);
                 Assert.AreEqual(1, kernel->value);
@@ -512,6 +514,17 @@ namespace Unity.DataFlowGraph.Tests
                 }
 
                 set.Destroy(node);
+            }
+        }
+
+        [Test]
+        public void ChangingRendererModel_IncreasesTopologyVersion()
+        {
+            using (var set = new NodeSet())
+            {
+                var version = set.TopologyVersion.Version;
+                set.RendererModel = set.RendererModel == NodeSet.RenderExecutionModel.Islands ? NodeSet.RenderExecutionModel.MaximallyParallel : NodeSet.RenderExecutionModel.Islands;
+                Assert.Greater(set.TopologyVersion.Version, version);
             }
         }
 
@@ -561,10 +574,6 @@ namespace Unity.DataFlowGraph.Tests
         [Test]
         public void FencingOnRootFence_StopsAllOngoingRender_AndProducesExpectedRenderCount()
         {
-#if ENABLE_IL2CPP
-            Assert.Ignore("Skipping test since IL2CPP is broken for non-bursted Kernels");
-#endif
-
             const int k_NumRoots = 5;
 
             using (var set = new NodeSet())

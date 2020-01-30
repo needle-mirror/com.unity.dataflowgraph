@@ -9,14 +9,12 @@ namespace Unity.DataFlowGraph.Tests
 {
     public class BasicAPITests
     {
-        class TestNode : NodeDefinition<TestNode.Node>
-        {
-            public struct Node : INodeData { }
-        }
+        class TestNode : NodeDefinition<EmptyPorts> {}
 
-        class TestNode2 : NodeDefinition<TestNode2.Node>
+        class TestNode2 : NodeDefinition<EmptyPorts> {}
+        class TestNode_WithThrowingConstructor : NodeDefinition<EmptyPorts>
         {
-            public struct Node : INodeData { }
+            public TestNode_WithThrowingConstructor() => throw new NotImplementedException();
         }
 
         [Test]
@@ -35,6 +33,59 @@ namespace Unity.DataFlowGraph.Tests
                 var node = set.Create<TestNode>();
                 Assert.IsTrue(set.Exists(node));
                 set.Destroy(node);
+            }
+        }
+
+        [Test]
+        public void Nodes_OnlyExist_InOneNodeSet()
+        {
+            using (var set = new NodeSet())
+            {
+                NodeHandle node = set.Create<TestNode>();
+                Assert.IsTrue(set.Exists(node));
+                using (var altSet = new NodeSet())
+                {
+                    Assert.IsFalse(altSet.Exists(node));
+                }
+                set.Destroy(node);
+            }
+        }
+
+        [Test]
+        public void Nodes_AreOnlyValid_InOneNodeSet()
+        {
+            using (var set = new NodeSet())
+            {
+                NodeHandle node = set.Create<TestNode>();
+                Assert.DoesNotThrow(() => set.Validate(node));
+                using (var altSet = new NodeSet())
+                {
+                    Assert.Throws<ArgumentException>(() => altSet.Validate(node));
+                }
+                set.Destroy(node);
+            }
+        }
+
+        [Test]
+        public void NodeSetPropagatesExceptions_FromNonInstantiableNodeDefinition()
+        {
+            using (var set = new NodeSet())
+            {
+                // As Create<T> actually uses reflection, the concrete exception type is not thrown
+                // but conditionally wrapped inside some other target load framework exception type...
+                // More info: https://devblogs.microsoft.com/premier-developer/dissecting-the-new-constraint-in-c-a-perfect-example-of-a-leaky-abstraction/
+                bool somethingWasCaught = false;
+
+                try
+                {
+                    set.Create<TestNode_WithThrowingConstructor>();
+                }
+                catch
+                {
+                    somethingWasCaught = true;
+                }
+
+                Assert.True(somethingWasCaught);
             }
         }
 
@@ -81,18 +132,18 @@ namespace Unity.DataFlowGraph.Tests
                 var c = set.Create<TestNode2>();
 
                 Assert.AreEqual(
-                    set.GetFunctionality(a),
-                    set.LookupDefinition<TestNode2>().Functionality
+                    set.GetDefinition(a),
+                    set.LookupDefinition<TestNode2>().Definition
                 );
 
                 Assert.AreEqual(
-                    set.GetFunctionality(b),
-                    set.LookupDefinition<TestNode>().Functionality
+                    set.GetDefinition(b),
+                    set.LookupDefinition<TestNode>().Definition
                 );
 
                 Assert.AreEqual(
-                    set.GetFunctionality(c),
-                    set.LookupDefinition<TestNode2>().Functionality
+                    set.GetDefinition(c),
+                    set.LookupDefinition<TestNode2>().Definition
                 );
 
                 set.Destroy(a, b, c);
@@ -123,7 +174,7 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void Is_WillCorrectlyTestFunctionalityEquality()
+        public void Is_WillCorrectlyTestDefinitionEquality()
         {
             using (var set = new NodeSet())
             {
@@ -179,7 +230,7 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void As_WillCorrectlyTestFunctionalityEquality()
+        public void As_WillCorrectlyTestDefinitionEquality()
         {
             using (var set = new NodeSet())
             {
@@ -207,61 +258,59 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void AcquiredFunctionality_MatchesNodeType()
+        public void AcquiredDefinition_MatchesNodeType()
         {
             using (var set = new NodeSet())
             {
                 var node = set.Create<TestNode>();
 
-                var supposedFunctionality = set.GetFunctionality(node);
-                var expectedFunctionality = set.GetFunctionality<TestNode>();
+                var supposedDefinition = set.GetDefinition(node);
+                var expectedDefinition = set.GetDefinition<TestNode>();
 
-                Assert.AreEqual(supposedFunctionality, expectedFunctionality);
+                Assert.AreEqual(supposedDefinition, expectedDefinition);
 
                 set.Destroy(node);
             }
         }
 
         [Test]
-        public void AcquiredFunctionality_ThrowsOnDestroyed_AndDefaultConstructed_Nodes()
+        public void AcquiredDefinition_ThrowsOnDestroyed_AndDefaultConstructed_Nodes()
         {
             using (var set = new NodeSet())
             {
                 var node = new NodeHandle();
-                Assert.Throws<ArgumentException>(() => set.GetFunctionality(node));
+                Assert.Throws<ArgumentException>(() => set.GetDefinition(node));
 
                 node = set.Create<TestNode>();
                 set.Destroy(node);
 
-                Assert.Throws<ArgumentException>(() => set.GetFunctionality(node));
+                Assert.Throws<ArgumentException>(() => set.GetDefinition(node));
             }
         }
 
         [Test]
-        public void CanInstantiateFunctionality_WithoutHavingCreatedMatchingNode()
+        public void CanInstantiateDefinition_WithoutHavingCreatedMatchingNode()
         {
             using (var set = new NodeSet())
             {
-                Assert.IsNotNull(set.GetFunctionality<TestNode>());
+                Assert.IsNotNull(set.GetDefinition<TestNode>());
             }
         }
 
         [Test]
-        public void SetInjection_IsPerformedCorrectly_InFunctionality()
+        public void SetInjection_IsPerformedCorrectly_InDefinition()
         {
             using (var set = new NodeSet())
             {
-                Assert.AreEqual(set, set.GetFunctionality<TestNode>().Set);
+                Assert.AreEqual(set, set.GetDefinition<TestNode>().Set);
             }
         }
 
         class TestException : System.Exception { }
 
-        class ExceptionInConstructor : NodeDefinition<ExceptionInConstructor.Node>
+        class ExceptionInConstructor : NodeDefinition<EmptyPorts>
         {
-            public struct Node : INodeData { }
-
-            public override void Init(InitContext ctx)
+            protected internal override void Init(InitContext ctx)
             {
                 throw new TestException();
             }
@@ -277,11 +326,19 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        class ExceptionInDestructor : NodeDefinition<ExceptionInDestructor.Node>
+        [Test]
+        public void CanDestroy_DuringConstruction()
         {
-            public struct Node : INodeData { }
+            using (var set = new NodeSet())
+            {
+                var node = set.Create<DelegateMessageIONode>((InitContext ctx) => set.Destroy(ctx.Handle));
+                Assert.IsFalse(set.Exists(node));
+            }
+        }
 
-            public override void Destroy(NodeHandle handle)
+        class ExceptionInDestructor : NodeDefinition<EmptyPorts>
+        {
+            protected internal override void Destroy(NodeHandle handle)
             {
                 throw new TestException();
             }

@@ -6,6 +6,8 @@ using Unity.Collections.LowLevel.Unsafe;
 
 namespace Unity.DataFlowGraph
 {
+    using UntypedPortArray = PortArray<DataInput<InvalidDefinitionSlot, byte>>;
+
     public interface IIndexableInputPort { }
 
     /// <summary>
@@ -19,7 +21,7 @@ namespace Unity.DataFlowGraph
     public readonly unsafe struct PortArray<TInputPort>
         where TInputPort : IIndexableInputPort
     {
-        internal const UInt16 MaxSize = InputPortArrayID.NonArraySentinel;
+        public const UInt16 MaxSize = InputPortArrayID.NonArraySentinel;
 
         internal readonly void* Ptr;
         internal readonly ushort Size;
@@ -60,20 +62,25 @@ namespace Unity.DataFlowGraph
         internal ref TInputPort this[ushort i]
             => ref Unsafe.AsRef<TInputPort>((byte*)Ptr + i * Unsafe.SizeOf<TInputPort>());
 
-        internal static unsafe void Resize<TDefinition, TType>(ref PortArray<DataInput<TDefinition, TType>> portArray, ushort newSize, void* blankPage, Allocator allocator)
-            where TDefinition : INodeDefinition
+        internal void** NthInputPortPointer(ushort i)
+            => (void**)((byte*)Ptr + i * Unsafe.SizeOf<TInputPort>());
+
+        internal static void Resize<TDefinition, TType>(ref PortArray<DataInput<TDefinition, TType>> portArray, ushort newSize, void* blankPage, Allocator allocator)
+            where TDefinition : NodeDefinition
             where TType : struct
         {
+#if DFG_ASSERTIONS
             if (newSize == MaxSize)
-                throw new ArgumentException("Requested array size is too large");
+                throw new AssertionException("Requested array size is too large");
+#endif
 
             if (newSize == portArray.Size)
                 return;
 
             // Release any owned memory if downsizing.
-            for (int i = newSize; i < portArray.Size; ++i)
+            for (ushort i = newSize; i < portArray.Size; ++i)
             {
-                var inputPortPatch = (void**)((byte*)portArray.Ptr + i * Unsafe.SizeOf<DataInput<TDefinition, TType>>());
+                var inputPortPatch = portArray.NthInputPortPointer(i);
                 ref var ownership = ref DataInputUtility.GetMemoryOwnership(inputPortPatch);
                 if (ownership == DataInputUtility.Ownership.OwnedByPort)
                     UnsafeUtility.Free(*inputPortPatch, allocator);
@@ -99,8 +106,8 @@ namespace Unity.DataFlowGraph
                 portArray[i] = new DataInput<TDefinition, TType>(blankPage, default);
         }
 
-        internal static unsafe void Free<TDefinition, TType>(ref PortArray<DataInput<TDefinition, TType>> portArray, Allocator allocator)
-            where TDefinition : INodeDefinition
+        internal static void Free<TDefinition, TType>(ref PortArray<DataInput<TDefinition, TType>> portArray, Allocator allocator)
+            where TDefinition : NodeDefinition
             where TType : struct
         {
             Resize(ref portArray, 0, null, allocator);
@@ -165,18 +172,23 @@ namespace Unity.DataFlowGraph
         /// <param name="handle">Node on which to set the size of the array of ports</param>
         /// <param name="portArray">Port array to be modified</param>
         /// <param name="size">Desired array size</param>
-        /// <exception cref="InvalidOperationException">Thrown if the given port is not a <see cref="PortArray"/>, or, if downsizing the array would invalidate existing connections</exception>
-        public void SetPortArraySize(NodeHandle handle, InputPortID portArray, ushort size)
+        /// <exception cref="InvalidOperationException">
+        /// Thrown if the given port is not a <see cref="PortArray"/>, if downsizing the array would invalidate existing
+        /// connections, or if the given size exceeds <see cref="PortArray.MaxSize"/>
+        /// </exception>
+        public void SetPortArraySize(NodeHandle handle, InputPortID portArray, int size)
         {
-            var destPortDef = GetFunctionality(handle).GetPortDescription(handle).Inputs[portArray.Port];
+            var destination = new InputPair(this, handle, new InputPortArrayID(portArray));
+            var destPortDef = GetFormalPort(destination);
 
             if (!destPortDef.IsPortArray)
                 throw new InvalidOperationException("Cannot set port array size on a port that's not an array.");
 
-            ResolvePort_AndSetArraySize_OnValidatedPort(ref handle, ref portArray, size);
+            ushort sizeUshort = (ushort)size;
+            SetArraySize_OnValidatedPort(destination, sizeUshort);
 
-            if (destPortDef.PortUsage == Usage.Data)
-                m_Diff.PortArrayResized(handle, portArray, size);
+            if (destPortDef.Category == PortDescription.Category.Data)
+                m_Diff.PortArrayResized(destination, sizeUshort);
         }
 
         /// <summary>
@@ -185,22 +197,22 @@ namespace Unity.DataFlowGraph
         /// <param name="handle">Node on which to set the size of the array of ports</param>
         /// <param name="portArray">Data port array to be modified</param>
         /// <param name="size">Desired array size</param>
-        /// <exception cref="InvalidOperationException">Thrown if downsizing the array would invalidate existing connections</exception>
+        /// <exception cref="InvalidOperationException">
+        /// If downsizing the array would invalidate existing connections, or if the given size exceeds <see cref="PortArray.MaxSize"/>
+        /// </exception>
         public void SetPortArraySize<TDefinition, TType>(
             NodeHandle<TDefinition> handle,
             PortArray<DataInput<TDefinition, TType>> portArray,
-            ushort size
+            int size
         )
-            where TDefinition : INodeDefinition
+            where TDefinition : NodeDefinition
             where TType : struct
         {
-            NodeVersionCheck(handle.VHandle);
+            var destination = new InputPair(this, handle, new InputPortArrayID(portArray.Port));
 
-            var resolvedHandle = (NodeHandle)handle;
-            var resolvedPort = (InputPortID)portArray;
-            ResolvePort_AndSetArraySize_OnValidatedPort(ref resolvedHandle, ref resolvedPort, size);
-
-            m_Diff.PortArrayResized(resolvedHandle, resolvedPort, size);
+            ushort sizeUshort = (ushort)size;
+            SetArraySize_OnValidatedPort(destination, sizeUshort);
+            m_Diff.PortArrayResized(destination, sizeUshort);
         }
 
         /// <summary>
@@ -209,31 +221,29 @@ namespace Unity.DataFlowGraph
         /// <param name="handle">Node on which to set the size of the array of ports</param>
         /// <param name="portArray">Message port array to be modified</param>
         /// <param name="size">Desired array size</param>
-        /// <exception cref="InvalidOperationException">Thrown if downsizing the array would invalidate existing connections</exception>
+        /// <exception cref="InvalidOperationException">
+        /// If downsizing the array would invalidate existing connections, or if the given size exceeds <see cref="PortArray.MaxSize"/>
+        /// </exception>
         public void SetPortArraySize<TDefinition, TMsg>(
             NodeHandle<TDefinition> handle,
             PortArray<MessageInput<TDefinition, TMsg>> portArray,
-            ushort size
+            int size
         )
-            where TDefinition : INodeDefinition, IMsgHandler<TMsg>
+            where TDefinition : NodeDefinition, IMsgHandler<TMsg>
         {
-            NodeVersionCheck(handle.VHandle);
-
-            var resolvedHandle = (NodeHandle)handle;
-            var resolvedPort = (InputPortID)portArray;
-            ResolvePort_AndSetArraySize_OnValidatedPort(ref resolvedHandle, ref resolvedPort, size);
+            SetArraySize_OnValidatedPort(new InputPair(this, handle, new InputPortArrayID(portArray.Port)), (ushort)size);
         }
 
         /// <summary>
         /// Inputs must be resolved
         /// </summary>
-        bool PortArrayDownsizeWouldCauseDisconnection(NodeHandle handle, InputPortID port, ushort newSize)
+        bool PortArrayDownsizeWouldCauseDisconnection(in InputPair portArray, ushort newSize)
         {
-            for (var it = m_Topology.Indexes[handle.VHandle.Index].InputHeadConnection; it != TopologyDatabase.InvalidConnection; it = m_Topology.Connections[it].NextOutputConnection)
+            for (var it = m_Topology[portArray.Handle].InputHeadConnection; it != FlatTopologyMap.InvalidConnection; it = m_Database[it].NextOutputConnection)
             {
-                ref var connection = ref m_Topology.Connections[it];
+                ref readonly var connection = ref m_Database[it];
 
-                if (connection.DestinationInputPort.PortID == port &&
+                if (connection.DestinationInputPort.PortID == portArray.Port.PortID &&
                     connection.DestinationInputPort.ArrayIndex >= newSize)
                     return true;
             }
@@ -241,20 +251,19 @@ namespace Unity.DataFlowGraph
             return false;
         }
 
-        void ResolvePort_AndSetArraySize_OnValidatedPort(ref NodeHandle handle, ref InputPortID port, ushort value)
+        void SetArraySize_OnValidatedPort(in InputPair portArray, ushort value)
         {
-            InputPortArrayID resolvedPort = new InputPortArrayID(port);
-            ResolvePublicDestination(ref handle, ref resolvedPort);
-            port = resolvedPort.PortID;
+            if (value >= UntypedPortArray.MaxSize)
+                throw new ArgumentException("Requested array size is too large");
 
-            ref ArraySizeEntryHandle arraySizeHead = ref m_Nodes[handle.VHandle.Index].PortArraySizesHead;
+            ref ArraySizeEntryHandle arraySizeHead = ref GetNode(portArray.Handle).PortArraySizesHead;
 
             for (ArraySizeEntryHandle i = arraySizeHead, prev = ArraySizeEntryHandle.Invalid; i != ArraySizeEntryHandle.Invalid; prev = i, i = m_ArraySizes[i].Next)
             {
-                if (m_ArraySizes[i].Port != port)
+                if (m_ArraySizes[i].Port != portArray.Port.PortID)
                     continue;
 
-                if (m_ArraySizes[i].Value > value && PortArrayDownsizeWouldCauseDisconnection(handle, port, value))
+                if (m_ArraySizes[i].Value > value && PortArrayDownsizeWouldCauseDisconnection(portArray, value))
                     throw new InvalidOperationException("Port array resize would affect active connections");
 
                 if (value > 0)
@@ -281,7 +290,7 @@ namespace Unity.DataFlowGraph
             int newEntry = m_ArraySizes.Allocate();
             m_ArraySizes[newEntry].Next = arraySizeHead;
             m_ArraySizes[newEntry].Value = value;
-            m_ArraySizes[newEntry].Port = port;
+            m_ArraySizes[newEntry].Port = portArray.Port.PortID;
             arraySizeHead = newEntry;
         }
 
@@ -292,20 +301,47 @@ namespace Unity.DataFlowGraph
             node.PortArraySizesHead = ArraySizeEntryHandle.Invalid;
         }
 
-        /// <summary>
-        /// Inputs are assumed to be resolved.
-        /// </summary>
-        internal ushort GetPortArraySize_Unchecked(NodeHandle handle, InputPortID portArray)
+        internal void CheckPortArrayBounds(in InputPair portArray)
         {
-            for (var i = m_Nodes[handle.VHandle.Index].PortArraySizesHead; i != ArraySizeEntryHandle.Invalid; i = m_ArraySizes[i].Next)
+            if (!portArray.Port.IsArray)
+                return;
+            
+            for (var i = GetNode(portArray.Handle).PortArraySizesHead; i != ArraySizeEntryHandle.Invalid; i = m_ArraySizes[i].Next)
             {
-                if (m_ArraySizes[i].Port == portArray)
-                {
-                    return m_ArraySizes[i].Value;
-                }
+                if (m_ArraySizes[i].Port != portArray.Port.PortID)
+                    continue;
+
+                if (portArray.Port.ArrayIndex >= m_ArraySizes[i].Value)
+                    throw new IndexOutOfRangeException($"Port array index {portArray.Port.ArrayIndex} was out of bounds, array only has {m_ArraySizes[i].Value} indices");
+
+                return;
             }
 
-            return 0;
+            throw new IndexOutOfRangeException($"Port array index {portArray.Port.ArrayIndex} was out of bounds, array only has 0 indices");
+        }
+
+        internal bool ReportPortArrayBounds(in InputPair portArray)
+        {
+            if (!portArray.Port.IsArray)
+                return true;
+
+            for (var i = GetNode(portArray.Handle).PortArraySizesHead; i != ArraySizeEntryHandle.Invalid; i = m_ArraySizes[i].Next)
+            {
+                if (m_ArraySizes[i].Port != portArray.Port.PortID)
+                    continue;
+
+                if (portArray.Port.ArrayIndex >= m_ArraySizes[i].Value)
+                {
+                    UnityEngine.Debug.LogError($"Port array index {portArray.Port.ArrayIndex} was out of bounds, array only has {m_ArraySizes[i].Value} ports");
+                    return false;
+                }
+
+                return true;
+            }
+
+            UnityEngine.Debug.LogError($"Port array index {portArray.Port.ArrayIndex} was out of bounds, array only has 0 ports");
+
+            return false;
         }
 
         internal FreeList<ArraySizeEntry> GetArraySizesTable() => m_ArraySizes;

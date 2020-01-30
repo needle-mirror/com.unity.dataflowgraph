@@ -245,8 +245,8 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        [TestCase(RenderExecutionModel.Synchronous), TestCase(RenderExecutionModel.MaximallyParallel), TestCase(RenderExecutionModel.Islands)]
-        public void CanSynchronouslyPumpValues_ThroughMessages_AndRetrieve_AfterUpdate_ThroughGraphValue(RenderExecutionModel computeType)
+        [Test]
+        public void CanSynchronouslyPumpValues_ThroughMessages_AndRetrieve_AfterUpdate_ThroughGraphValue([Values] NodeSet.RenderExecutionModel computeType)
         {
             using (var set = new RenderGraphTests.PotentiallyJobifiedNodeSet(computeType))
             {
@@ -271,7 +271,7 @@ namespace Unity.DataFlowGraph.Tests
 
         [Test]
         public void CanSynchronouslyReadValues_InTreeStructure_AndRetrieve_AfterUpdate_ThroughGraphValue(
-            [Values] RenderExecutionModel computeType,
+            [Values] NodeSet.RenderExecutionModel computeType,
             [Values] GraphValueType typedNess)
         {
             using (var set = new RenderGraphTests.PotentiallyJobifiedNodeSet(computeType))

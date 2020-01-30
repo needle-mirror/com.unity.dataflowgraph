@@ -8,7 +8,7 @@ namespace Unity.DataFlowGraph
 
     interface IVirtualFunctionDeclaration
     {
-        bool IsPureVirtual { get; }
+        IntPtr ReflectionData { get; }
     }
 
     static class IGraphNodeExecutorExtensions

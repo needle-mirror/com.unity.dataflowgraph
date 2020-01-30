@@ -3,6 +3,7 @@ using System.Diagnostics;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
+using Unity.Entities;
 using Unity.Jobs;
 using Unity.Jobs.LowLevel.Unsafe;
 
@@ -11,6 +12,21 @@ namespace Unity.DataFlowGraph
 
     struct AtomicSafetyManager : IDisposable
     {
+
+        public unsafe struct ECSTypeAndSafety : ISafetyHandleContainable
+        {
+            public ComponentType Type;
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+
+            public void CopySafetyHandle(ComponentSafetyHandles* handles)
+            {
+                SafetyHandle = handles->GetSafetyHandle(Type.TypeIndex, Type.AccessModeType == ComponentType.AccessMode.ReadOnly);
+            }
+
+            public AtomicSafetyHandle SafetyHandle { get; set; }
+#endif
+        }
+
         public unsafe struct DeferredBlittableArray
         {
             public static DeferredBlittableArray Create<T>(NativeList<T> list)
@@ -263,7 +279,7 @@ namespace Unity.DataFlowGraph
 #endif
         }
 
-        public static unsafe JobHandle MarkScopeAsWrittenTo(JobHandle dependency, BufferProtectionScope scope)
+        public static JobHandle MarkScopeAsWrittenTo(JobHandle dependency, BufferProtectionScope scope)
         {
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
 
@@ -308,6 +324,9 @@ namespace Unity.DataFlowGraph
             where TSafetyHandleContainer : unmanaged, ISafetyHandleContainable
         {
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
+
+            if (handleCount == 0)
+                return dependency;
 
             // There's no API on AtomicSafetyHandle for marking them "in use", which is what happens
             // when a job is scheduled with "buffers" on them.

@@ -3,12 +3,58 @@ using Unity.Collections;
 
 namespace Unity.DataFlowGraph
 {
+    using Topology = TopologyAPI<ValidatedHandle, InputPortArrayID, OutputPortID>;
+
+    struct FlatTopologyMap : Topology.Database.ITopologyFromVertex, IDisposable
+    {
+        public const int InvalidConnection = Topology.Database.InvalidConnection;
+        public TopologyIndex this[ValidatedHandle vertex] { get => m_Indexes[vertex.VHandle.Index]; set => m_Indexes[vertex.VHandle.Index] = value; }
+        public ref TopologyIndex GetRef(ValidatedHandle vertex) => ref m_Indexes[vertex.VHandle.Index];
+        BlitList<TopologyIndex> m_Indexes;
+
+        public bool IsCreated => m_Indexes.IsCreated;
+
+        public void EnsureSize(int size) => m_Indexes.EnsureSize(size);
+
+        public void Dispose() => m_Indexes.Dispose();
+
+        public FlatTopologyMap(int capacity, Allocator allocator)
+        {
+            m_Indexes = new BlitList<TopologyIndex>(0, allocator);
+            m_Indexes.Reserve(capacity);
+        }
+
+        public FlatTopologyMap Clone()
+        {
+            return new FlatTopologyMap { m_Indexes = m_Indexes.Copy() };
+        }
+    }
+
     public partial class NodeSet : IDisposable
     {
-        TopologyDatabase m_Topology = new TopologyDatabase(capacity: 16, allocator: Allocator.Persistent);
+        internal const int InvalidConnection = Topology.Database.InvalidConnection;
 
-        internal TopologyCacheAPI.VersionTracker TopologyVersion => m_TopologyVersion;
-        TopologyCacheAPI.VersionTracker m_TopologyVersion = TopologyCacheAPI.VersionTracker.Create();
+        Topology.Database m_Database = new Topology.Database(capacity: 16, allocator: Allocator.Persistent);
+        FlatTopologyMap m_Topology = new FlatTopologyMap(capacity: 16, allocator: Allocator.Persistent);
+
+        internal Topology.CacheAPI.VersionTracker TopologyVersion => m_TopologyVersion;
+        Topology.CacheAPI.VersionTracker m_TopologyVersion = Topology.CacheAPI.VersionTracker.Create();
+
+        /// <summary>
+        /// The kind of connection.
+        /// </summary>
+        public enum ConnectionType
+        {
+            /// <summary>
+            /// Standard connectivity.
+            /// </summary>
+            Normal,
+            /// <summary>
+            /// Connection type which allows feeding information back to an upstream node without forming a cycle in
+            /// the graph. Cycle avoidance is achieved by considering this connection to introduce an update delay.
+            /// </summary>
+            Feedback
+        }
 
         /// <summary>
         /// Create a persistent connection between an output port on the source node and an input port of matching type
@@ -16,22 +62,23 @@ namespace Unity.DataFlowGraph
         /// </summary>
         /// <remarks>
         /// Multiple connections to a single <see cref="DataInput{TDefinition,TType}"/> on a node are not permitted.
+        /// <see cref="ConnectionType.Feedback"/> is only allowed for data ports. 
         /// </remarks>
         /// <exception cref="InvalidOperationException">Thrown if the request is invalid.</exception>
         /// <exception cref="ArgumentException">Thrown if the destination input port is already connected.</exception>
-        public void Connect(NodeHandle sourceHandle, OutputPortID sourcePort, NodeHandle destHandle, InputPortID destinationPort)
+        public void Connect(NodeHandle sourceHandle, OutputPortID sourcePort, NodeHandle destHandle, InputPortID destinationPort, ConnectionType dataConnectionType = ConnectionType.Normal)
         {
-            Connect(sourceHandle, sourcePort, destHandle, new InputPortArrayID(destinationPort));
+            Connect(sourceHandle, sourcePort, destHandle, new InputPortArrayID(destinationPort), dataConnectionType);
         }
 
         /// <summary>
-        /// Overload of <see cref="Connect(Unity.DataFlowGraph.NodeHandle,Unity.DataFlowGraph.OutputPortID,Unity.DataFlowGraph.NodeHandle,Unity.DataFlowGraph.InputPortID)"/>
+        /// Overload of <see cref="Connect(NodeHandle,OutputPortID,NodeHandle,InputPortID,ConnectionType)"/>
         /// targeting a destination port array with an index parameter.
         /// </summary>
         /// <exception cref="IndexOutOfRangeException">Thrown if the index is out of range with respect to the port array.</exception>
-        public void Connect(NodeHandle sourceHandle, OutputPortID sourcePort, NodeHandle destHandle, InputPortID destinationPortArray, ushort index)
+        public void Connect(NodeHandle sourceHandle, OutputPortID sourcePort, NodeHandle destHandle, InputPortID destinationPortArray, int index, ConnectionType dataConnectionType = ConnectionType.Normal)
         {
-            Connect(sourceHandle, sourcePort, destHandle, new InputPortArrayID(destinationPortArray, index));
+            Connect(sourceHandle, sourcePort, destHandle, new InputPortArrayID(destinationPortArray, index), dataConnectionType);
         }
 
         /// <summary>
@@ -46,18 +93,18 @@ namespace Unity.DataFlowGraph
         }
 
         /// <summary>
-        /// Overload of <see cref="Disconnect(Unity.DataFlowGraph.NodeHandle,Unity.DataFlowGraph.OutputPortID,Unity.DataFlowGraph.NodeHandle,Unity.DataFlowGraph.InputPortID)"/>
+        /// Overload of <see cref="Disconnect(NodeHandle,OutputPortID,NodeHandle,InputPortID)"/>
         /// targeting a destination port array with an index parameter.
         /// </summary>
         /// <exception cref="IndexOutOfRangeException">Thrown if the index is out of range with respect to the port array.</exception>
-        public void Disconnect(NodeHandle sourceHandle, OutputPortID sourcePort, NodeHandle destHandle, InputPortID destinationPortArray, ushort index)
+        public void Disconnect(NodeHandle sourceHandle, OutputPortID sourcePort, NodeHandle destHandle, InputPortID destinationPortArray, int index)
         {
             Disconnect(sourceHandle, sourcePort, destHandle, new InputPortArrayID(destinationPortArray, index));
         }
 
         /// <summary>
         /// Removes a previously made connection between an output data port on the source node and an input data port on
-        /// the destination node (see <see cref="Disconnect(Unity.DataFlowGraph.NodeHandle,Unity.DataFlowGraph.OutputPortID,Unity.DataFlowGraph.NodeHandle,Unity.DataFlowGraph.InputPortID)"/>)
+        /// the destination node (see <see cref="Disconnect(NodeHandle,OutputPortID,NodeHandle,InputPortID)"/>)
         /// but preserves the last data contents that was transmitted along the connection at the destination node's data
         /// input port. The data persists until a new connection is made to that data input port.
         /// <seealso cref="SetData{TType}(NodeHandle, InputPortID, in TType)"/>
@@ -70,28 +117,25 @@ namespace Unity.DataFlowGraph
         }
 
         /// <summary>
-        /// Overload of <see cref="DisconnectAndRetainValue(Unity.DataFlowGraph.NodeHandle,Unity.DataFlowGraph.OutputPortID,Unity.DataFlowGraph.NodeHandle,Unity.DataFlowGraph.InputPortID)"/>
+        /// Overload of <see cref="DisconnectAndRetainValue(NodeHandle,OutputPortID,NodeHandle,InputPortID)"/>
         /// targeting a port array with an index parameter.
         /// </summary>
         /// <exception cref="IndexOutOfRangeException">Thrown if the index is out of range with respect to the port array.</exception>
-        public void DisconnectAndRetainValue(NodeHandle sourceHandle, OutputPortID sourcePort, NodeHandle destHandle, InputPortID destinationPortArray, ushort index)
+        public void DisconnectAndRetainValue(NodeHandle sourceHandle, OutputPortID sourcePort, NodeHandle destHandle, InputPortID destinationPortArray, int index)
         {
             DisconnectAndRetainValue(sourceHandle, sourcePort, destHandle, new InputPortArrayID(destinationPortArray, index));
         }
 
-        internal void DisconnectAll(NodeHandle handle)
-        {
-            NodeVersionCheck(handle.VHandle);
-            UncheckedDisconnectAll(ref m_Nodes[handle.VHandle.Index]);
-        }
+        internal void DisconnectAll(NodeHandle handle) => UncheckedDisconnectAll(ref GetNodeChecked(handle));
 
-        void Connect(NodeHandle sourceHandle, OutputPortID sourcePort, NodeHandle destHandle, InputPortArrayID destinationPort)
+        void Connect(NodeHandle sourceHandle, OutputPortID sourcePort, NodeHandle destHandle, InputPortArrayID destinationPort, ConnectionType dataConnectionType)
         {
-            NodeVersionCheck(sourceHandle.VHandle);
-            NodeVersionCheck(destHandle.VHandle);
+            var source = new OutputPair(this, sourceHandle, sourcePort);
+            var dest = new InputPair(this, destHandle, destinationPort);
 
-            var sourcePortDef = GetFunctionality(sourceHandle).GetPortDescription(sourceHandle).Outputs[sourcePort.Port];
-            var destPortDef = GetFunctionality(destHandle).GetPortDescription(destHandle).Inputs[destinationPort.PortID.Port];
+            // Connectivity correctness does not imply port existence (e.g. ComponentNodes)
+            var sourcePortDef = GetVirtualPort(source);
+            var destPortDef = GetVirtualPort(dest);
 
             if (destPortDef.IsPortArray != destinationPort.IsArray)
                 throw new InvalidOperationException(destPortDef.IsPortArray
@@ -99,101 +143,140 @@ namespace Unity.DataFlowGraph
                     : "An array index can only be given when connecting to an array port.");
 
             // TODO: Handle Msg -> data
-            if (sourcePortDef.PortUsage != destPortDef.PortUsage)
-                throw new InvalidOperationException($"Port usage between source ({sourcePortDef.PortUsage}) and destination ({destPortDef.PortUsage}) are not compatible");
+            if (sourcePortDef.Category != destPortDef.Category)
+                throw new InvalidOperationException($"Port category between source ({sourcePortDef.Category}) and destination ({destPortDef.Category}) are not compatible");
+
+            if (dataConnectionType != ConnectionType.Normal && sourcePortDef.Category != PortDescription.Category.Data)
+                throw new InvalidOperationException($"Cannot create a feedback connection for non-Data Port");
 
             // TODO: Adapters?
             if (sourcePortDef.Type != destPortDef.Type)
                 throw new InvalidOperationException($"Cannot connect source type ({sourcePortDef.Type}) to destination type ({destPortDef.Type})");
 
-            UncheckedTypedConnect((FlagsFromUsage(sourcePortDef.PortUsage), sourcePortDef.Type), sourceHandle, sourcePort, destHandle, destinationPort);
+            Connect((sourcePortDef.Category, sourcePortDef.Type, dataConnectionType), source, dest);
         }
 
         void Disconnect(NodeHandle sourceHandle, OutputPortID sourcePort, NodeHandle destHandle, InputPortArrayID destinationPort)
         {
-            NodeVersionCheck(sourceHandle.VHandle);
-            NodeVersionCheck(destHandle.VHandle);
+            var source = new OutputPair(this, sourceHandle, sourcePort);
+            var dest = new InputPair(this, destHandle, destinationPort);
 
-            var destPortDef = GetFunctionality(destHandle).GetPortDescription(destHandle).Inputs[destinationPort.PortID.Port];
+            // Connectivity correctness does not imply port existence (e.g. ComponentNodes)
+            var destPortDef = GetVirtualPort(dest);
 
             if (destPortDef.IsPortArray != destinationPort.IsArray)
                 throw new InvalidOperationException(destPortDef.IsPortArray
                     ? "An array index is required when disconnecting from an array port."
                     : "An array index can only be given when disconnecting from an array port.");
 
-            UncheckedDisconnect(sourceHandle, sourcePort, destHandle, destinationPort);
+            Disconnect(source, dest);
         }
 
         void DisconnectAndRetainValue(NodeHandle sourceHandle, OutputPortID sourcePort, NodeHandle destHandle, InputPortArrayID destinationPort)
         {
-            var portDef = GetFunctionality(destHandle).GetPortDescription(destHandle).Inputs[destinationPort.PortID.Port];
+            var source = new OutputPair(this, sourceHandle, sourcePort);
+            var dest = new InputPair(this, destHandle, destinationPort);
+
+            var portDef = GetFormalPort(dest);
 
             if (portDef.HasBuffers)
                 throw new InvalidOperationException($"Cannot retain data on a data port which includes buffers");
 
-            if (portDef.PortUsage != Usage.Data)
+            if (portDef.Category != PortDescription.Category.Data)
                 throw new InvalidOperationException($"Cannot retain data on a non-data port");
 
-            Disconnect(sourceHandle, sourcePort, destHandle, destinationPort);
-
-            // TODO: Double resolve - fix in follow up PR
-            ResolvePublicDestination(ref destHandle, ref destinationPort);
-            m_Diff.RetainData(destHandle, destinationPort);
+            Disconnect(source, dest);
+            m_Diff.RetainData(dest);
         }
 
-        void UncheckedDisconnect(NodeHandle sourceHandle, OutputPortID sourcePort, NodeHandle destHandle, InputPortArrayID destinationPort)
+        void Disconnect(in OutputPair source, in InputPair dest)
         {
-            ResolvePublicSource(ref sourceHandle, ref sourcePort);
-            ResolvePublicDestination(ref destHandle, ref destinationPort);
-
-            ref var connection = ref m_Topology.FindConnection(sourceHandle, sourcePort, destHandle, destinationPort);
+            ref readonly var connection = ref m_Database.FindConnection(ref m_Topology, source.Handle, source.Port, dest.Handle, dest.Port); 
 
             if (!connection.Valid)
             {
-                if (destinationPort.IsArray && destinationPort.ArrayIndex >= GetPortArraySize_Unchecked(destHandle, destinationPort.PortID))
-                    throw new IndexOutOfRangeException("PortArray index out of bounds.");
+                CheckPortArrayBounds(dest);
 
                 throw new ArgumentException("Connection doesn't exist!");
             }
 
-            DisconnectConnection(ref connection, ref m_Nodes[sourceHandle.VHandle.Index]);
+            DisconnectConnection(connection, ref GetNode(source.Handle));
+
+            if (connection.TraversalFlags == (uint)PortDescription.Category.Data << (int)PortDescription.CategoryShift.FeedbackConnection)
+            {
+                // Disconnect the backwards dependency.
+                ref readonly var backConnection =
+                    ref m_Database.FindConnection(ref m_Topology, dest.Handle, OutputPortID.Invalid, source.Handle, InputPortArrayID.Invalid);
+
+                m_Database.DisconnectAndRelease(ref m_Topology, backConnection);
+            }
+
             SignalTopologyChanged();
         }
 
-        internal void UncheckedTypedConnect((TraversalFlags Class, Type Type) semantics, NodeHandle sourceHandle, OutputPortID sourcePort, NodeHandle destHandle, InputPortArrayID destinationPort)
+        internal void Connect((PortDescription.Category Category, Type Type, ConnectionType ConnType) semantics, in OutputPair source, in InputPair dest)
         {
-            ResolvePublicSource(ref sourceHandle, ref sourcePort);
-            ResolvePublicDestination(ref destHandle, ref destinationPort);
-
-            if (destinationPort.IsArray && destinationPort.ArrayIndex >= GetPortArraySize_Unchecked(destHandle, destinationPort.PortID))
-                throw new IndexOutOfRangeException("PortArray index out of bounds.");
-
-            // TODO: Check recursion at some point - as well.
-            if (m_Topology.ConnectionExists(sourceHandle, sourcePort, destHandle, destinationPort))
-                throw new ArgumentException("Connection already exists!");
-
-            if (semantics.Class == TraversalFlags.DSL)
+            // TODO: Not ideal, but we cannot detect entity -> entity connections ahead of time,
+            // so we need to dynamically test and keep track of dependencies.
+            if(HostSystem != null)
             {
-                var handler = GetDSLHandler(semantics.Type);
-                handler.Connect(this, sourceHandle, sourcePort, destHandle, destinationPort.PortID);
+                if (source.Port.Storage.IsECSPort && dest.Port.PortID.Storage.IsECSPort)
+                    AddWriter(source.Port.ECSType);
+
+#if DFG_ASSERTIONS
+                if (source.Port.Storage.IsECSPort && !HasReaderOrWriter(source.Port.ECSType))
+                    throw new AssertionException($"Unregistrered {source.Port.Storage} for source");
+
+                if (dest.Port.PortID.Storage.IsECSPort && !HasReaderOrWriter(dest.Port.PortID.ECSType))
+                    throw new AssertionException($"Unregistrered {dest.Port.PortID.Storage} for dest");
+#endif
             }
 
-            m_Topology.Connect(semantics.Class, sourceHandle, sourcePort, destHandle, destinationPort);
+
+            CheckPortArrayBounds(dest);
+
+            // TODO: Check recursion at some point - as well.
+            if (m_Database.ConnectionExists(ref m_Topology, source.Handle, source.Port, dest.Handle, dest.Port))
+                throw new ArgumentException("Connection already exists!");
+
+            if (semantics.Category == PortDescription.Category.DomainSpecific)
+            {
+                var handler = GetDSLHandler(semantics.Type);
+                handler.Connect(this, source.Handle.ToPublicHandle(), source.Port, dest.Handle.ToPublicHandle(), dest.Port.PortID);
+            }
+
+            if (semantics.ConnType != ConnectionType.Feedback)
+            {
+                m_Database.Connect(ref m_Topology, (uint)semantics.Category, source.Handle, source.Port, dest.Handle, dest.Port);
+            }
+            else
+            {
+                m_Database.Connect(ref m_Topology, (uint)semantics.Category << (int)PortDescription.CategoryShift.FeedbackConnection, source.Handle, source.Port, dest.Handle, dest.Port);
+                // Create the backwards dependency so that traversal order is correct.
+                m_Database.Connect(
+                    ref m_Topology, (uint) semantics.Category << (int)PortDescription.CategoryShift.BackConnection,
+                    dest.Handle, OutputPortID.Invalid, 
+                    source.Handle, InputPortArrayID.Invalid);
+            }
+
             // everything good
             SignalTopologyChanged();
         }
 
-        void DisconnectConnection(ref Connection connection, ref InternalNodeData source)
+        void DisconnectConnection(in Topology.Connection connection, ref InternalNodeData source)
         {
-            if (connection.ConnectionType == TraversalFlags.DSL)
+            if (connection.TraversalFlags == (uint)PortDescription.Category.DomainSpecific)
             {
-                var leftPort = m_NodeFunctionalities[source.TraitsIndex].GetPortDescription(connection.SourceHandle).Outputs[connection.SourceOutputPort.Port];
+                var leftPort = GetDefinitionInternal(connection.Source)
+                    .GetPortDescription(connection.Source.ToPublicHandle())
+                    .Outputs[connection.SourceOutputPort.Port];
+
                 var handler = m_ConnectionHandlerMap[leftPort.Type];
 
-                handler.Disconnect(this, connection.SourceHandle, connection.SourceOutputPort, connection.DestinationHandle, connection.DestinationInputPort.PortID);
+                handler.Disconnect(this, connection.Source.ToPublicHandle(), connection.SourceOutputPort, connection.Destination.ToPublicHandle(), connection.DestinationInputPort.PortID);
             }
 
-            m_Topology.DisconnectAndRelease(ref connection);
+            m_Database.DisconnectAndRelease(ref m_Topology, connection);
         }
 
         void UncheckedDisconnectAll(ref InternalNodeData node)
@@ -202,35 +285,21 @@ namespace Unity.DataFlowGraph
             // calling DisconnectAll() on topology database disregards DSL callbacks.
             // So we iterate manually here.
 
-            ref var index = ref m_Topology.Indexes[node.VHandle.Index];
+            var index = m_Topology[node.Self];
 
             bool topologyChanged = false;
 
-            var it = index.InputHeadConnection;
-            while (true)
+            for(var it = index.InputHeadConnection; it != InvalidConnection; it = m_Database[it].NextInputConnection)
             {
-                ref var connection = ref m_Topology.Connections[it];
-
-                if (!connection.Valid)
-                    break;
-
-                it = connection.NextInputConnection;
-
-                DisconnectConnection(ref connection, ref m_Nodes[connection.SourceHandle.VHandle.Index]);
+                ref readonly var connection = ref m_Database[it];
+                DisconnectConnection(connection, ref GetNode(connection.Source));
                 topologyChanged = true;
             }
 
-            it = index.OutputHeadConnection;
-            while (true)
+            for (var it = index.OutputHeadConnection; it != InvalidConnection; it = m_Database[it].NextOutputConnection)
             {
-                ref var connection = ref m_Topology.Connections[it];
-
-                if (!connection.Valid)
-                    break;
-
-                it = connection.NextOutputConnection;
-
-                DisconnectConnection(ref connection, ref m_Nodes[connection.SourceHandle.VHandle.Index]);
+                ref readonly var connection = ref m_Database[it];
+                DisconnectConnection(connection, ref GetNode(connection.Source));
                 topologyChanged = true;
             }
 
@@ -238,103 +307,30 @@ namespace Unity.DataFlowGraph
                 SignalTopologyChanged();
         }
 
-        /// <remarks>
-        /// Assumes validated input handles. Output handles are validated.
-        /// </remarks>
-        /// <returns>True if arguments changed</returns>
-        internal bool ResolvePublicDestination(ref NodeHandle destHandle, ref InputPortArrayID destinationPort)
-        {
-            for (var fH = m_Nodes[destHandle.VHandle.Index].ForwardedPortHead; fH != ForwardPortHandle.Invalid; fH = m_ForwardingTable[fH].NextIndex)
-            {
-                ref var forwarding = ref m_ForwardingTable[fH];
-
-                if (!forwarding.IsInput)
-                    continue;
-
-                InputPortID port = forwarding.GetOriginInputPortID();
-
-                // Forwarded port list are monotonically increasing by port, so we can break out early
-                if (port.Port > destinationPort.PortID.Port)
-                    break;
-
-                if (port != destinationPort.PortID)
-                    continue;
-
-                if (!Exists(forwarding.Replacement))
-                    throw new InvalidOperationException("Replacement node for previously registered forward doesn't exist anymore");
-
-                destHandle = forwarding.Replacement;
-                destinationPort = destinationPort.IsArray
-                    ? new InputPortArrayID(forwarding.GetReplacedInputPortID(), destinationPort.ArrayIndex)
-                    : new InputPortArrayID(forwarding.GetReplacedInputPortID());
-
-                return true;
-            }
-
-            return false;
-        }
-
-        /// <remarks>
-        /// Assumes validated input handles. Output handles are validated.
-        /// </remarks>
-        /// <returns>True if arguments changed</returns>
-        bool ResolvePublicSource(ref NodeHandle sourceHandle, ref OutputPortID sourcePort)
-        {
-            for (var fH = m_Nodes[sourceHandle.VHandle.Index].ForwardedPortHead; fH != ForwardPortHandle.Invalid; fH = m_ForwardingTable[fH].NextIndex)
-            {
-                ref var forwarding = ref m_ForwardingTable[fH];
-
-                if (forwarding.IsInput)
-                    continue;
-
-                OutputPortID port = forwarding.GetOriginOutputPortID();
-
-                // Forwarded port list are monotonically increasing by port, so we can break out early
-                if (port.Port > sourcePort.Port)
-                    break;
-
-                if (port != sourcePort)
-                    continue;
-
-                if (!Exists(forwarding.Replacement))
-                    throw new InvalidOperationException("Replacement node for previously registered forward doesn't exist anymore");
-
-                sourceHandle = forwarding.Replacement;
-                sourcePort = forwarding.GetReplacedOutputPortID();
-
-                return true;
-            }
-
-            return false;
-        }
-
         void SignalTopologyChanged()
         {
             m_TopologyVersion.SignalTopologyChanged();
         }
 
-        static TraversalFlags FlagsFromUsage(Usage use)
+        /// <remarks>
+        /// Does not enumerate forwarded topology.
+        /// </remarks>
+        internal Topology.Database.InputTopologyEnumerable GetInputs(ValidatedHandle handle)
         {
-            switch (use)
-            {
-                case Usage.Message:
-                    return TraversalFlags.Message;
-                case Usage.Data:
-                    return TraversalFlags.DataFlow;
-                case Usage.DomainSpecific:
-                    return TraversalFlags.DSL;
-            }
+            return m_Database.GetInputs(m_Topology[handle]);
+        }
 
-            throw new ArgumentOutOfRangeException(nameof(use));
+        /// <remarks>
+        /// Does not enumerate forwarded topology.
+        /// </remarks>
+        internal Topology.Database.OutputTopologyEnumerable GetOutputs(ValidatedHandle handle)
+        {
+            return m_Database.GetOutputs(m_Topology[handle]);
         }
 
         // TODO: Fix these to return .ReadOnly when blitlist supports generic enumeration on readonlys
         internal BlitList<InternalNodeData> GetInternalData() => m_Nodes;
-
-        internal BlitList<TopologyIndex> GetInternalTopologyIndices() => m_Topology.Indexes;
-        internal BlitList<Connection> GetInternalEdges() => m_Topology.Connections;
-        internal TopologyDatabase GetTopologyDatabase() => m_Topology;
-
-        internal BlitList<int> GetFreeEdges() => m_Topology.m_FreeConnections;
+        internal Topology.Database GetTopologyDatabase() => m_Database;
+        internal FlatTopologyMap GetTopologyMap() => m_Topology;
     }
 }

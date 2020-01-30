@@ -8,7 +8,10 @@ using Unity.Jobs;
 using UnityEngine.TestTools;
 using Unity.DataFlowGraph;
 
-[assembly: RegisterGenericComponentType(typeof(NodeMemoryInput<Unity.DataFlowGraph.Tests.InputBatchTests.Entities.MemoryInputTag>))]
+[assembly: RegisterGenericComponentType(typeof(NodeMemoryInput<Unity.DataFlowGraph.Tests.InputBatchTests.Entities.MemoryInputTag, Unity.DataFlowGraph.Tests.InputBatchTests.Entities.ECSBuffer>))]
+[assembly: RegisterGenericComponentType(typeof(NodeMemoryInput<Unity.DataFlowGraph.Tests.InputBatchTests.Entities.MemoryInputTag, Unity.DataFlowGraph.Tests.InputBatchTests.Entities.ECSIntBuffer>))]
+[assembly: RegisterGenericComponentType(typeof(NodeMemoryInput<Unity.DataFlowGraph.Tests.InputBatchTests.Entities.MemoryInputTag, Unity.DataFlowGraph.Tests.InputBatchTests.Entities.WeirdStruct>))]
+[assembly: RegisterGenericComponentType(typeof(NodeMemoryInput<Unity.DataFlowGraph.Tests.InputBatchTests.Entities.MemoryInputTag, Unity.DataFlowGraph.Tests.InputBatchTests.Entities.IncompatibleBufferElement>))]
 
 namespace Unity.DataFlowGraph.Tests
 {
@@ -16,7 +19,7 @@ namespace Unity.DataFlowGraph.Tests
     {
         public class Entities
         {
-            struct WeirdStruct : IBufferElementData
+            public struct WeirdStruct : IBufferElementData
             {
                 int m_A; float m_B; double m_C;
             }
@@ -110,7 +113,7 @@ namespace Unity.DataFlowGraph.Tests
                     var entity = entityManager.CreateEntity();
 
                     entityManager.AddBuffer<ECSBuffer>(entity);
-                    entityManager.AddComponent(entity, ComponentType.ReadWrite<NodeMemoryInput<MemoryInputTag>>());
+                    entityManager.AddComponent(entity, ComponentType.ReadWrite<NodeMemoryInput<MemoryInputTag, ECSBuffer>>());
 
                     LogAssert.Expect(UnityEngine.LogType.Error, new Regex("Node is disposed or invalid"));
 
@@ -157,8 +160,14 @@ namespace Unity.DataFlowGraph.Tests
                 }
             }
 
+            public enum APIType
+            {
+                StronglyTyped,
+                WeaklyTyped
+            }
+
             [Test]
-            public void CreatingMemoryEntity_ResolvesDestination()
+            public void CreatingMemoryEntity_ResolvesDestination([Values] APIType apiType)
             {
 #if UNITY_EDITOR
                 // FIXME: Without calling this here, later, LowLevelNodeTraits complains that Buffer<ECSBuffer> is not blittable!?!?!
@@ -175,17 +184,19 @@ namespace Unity.DataFlowGraph.Tests
 
                     entityManager.AddBuffer<ECSBuffer>(entity);
 
-                    var memory = new NodeMemoryInput<MemoryInputTag>(node, (InputPortID)InputECSBufferNode.KernelPorts.ECSInput);
+                    var memory = apiType == APIType.WeaklyTyped
+                        ? new NodeMemoryInput<MemoryInputTag, ECSBuffer>(node, (InputPortID) InputECSBufferNode.KernelPorts.ECSInput)
+                        : NodeMemoryInput<MemoryInputTag, ECSBuffer>.Create(node, InputECSBufferNode.KernelPorts.ECSInput);
 
                     entityManager.AddComponentData(entity, memory);
 
                     memorySystem.Set = set;
                     memorySystem.Update();
 
-                    var checkedComponent = entityManager.GetComponentData<NodeMemoryInput<MemoryInputTag>>(entity);
+                    var checkedComponent = entityManager.GetComponentData<NodeMemoryInput<MemoryInputTag, ECSBuffer>>(entity);
 
-                    Assert.AreEqual(memory.Node, checkedComponent.ResolvedNode);
-                    Assert.AreEqual(memory.m_Port, checkedComponent.ResolvedPort);
+                    Assert.AreEqual(memory.Node, checkedComponent.ResolvedDestination.Handle.ToPublicHandle());
+                    Assert.AreEqual(memory.InternalPort, checkedComponent.ResolvedDestination.Port);
 
                     // Assert memory checked component is added to entity.
                     set.Destroy(node);
@@ -211,28 +222,28 @@ namespace Unity.DataFlowGraph.Tests
 
                     entityManager.AddBuffer<ECSBuffer>(entity);
 
-                    var memoryA = new NodeMemoryInput<MemoryInputTag>(a, (InputPortID)InputECSBufferNode.KernelPorts.ECSInput);
+                    var memoryA = new NodeMemoryInput<MemoryInputTag, ECSBuffer>(a, (InputPortID)InputECSBufferNode.KernelPorts.ECSInput);
 
                     entityManager.AddComponentData(entity, memoryA);
 
                     memorySystem.Set = set;
                     memorySystem.Update();
 
-                    var checkedComponentA = entityManager.GetComponentData<NodeMemoryInput<MemoryInputTag>>(entity);
+                    var checkedComponentA = entityManager.GetComponentData<NodeMemoryInput<MemoryInputTag, ECSBuffer>>(entity);
 
-                    Assert.AreEqual(memoryA.Node, checkedComponentA.ResolvedNode);
-                    Assert.AreEqual(memoryA.m_Port, checkedComponentA.ResolvedPort);
+                    Assert.AreEqual(memoryA.Node, checkedComponentA.ResolvedDestination.Handle.ToPublicHandle());
+                    Assert.AreEqual(memoryA.InternalPort, checkedComponentA.ResolvedDestination.Port);
 
-                    var memoryB = new NodeMemoryInput<MemoryInputTag>(b, (InputPortID)InputECSBufferNode.KernelPorts.ECSInput);
+                    var memoryB = new NodeMemoryInput<MemoryInputTag, ECSBuffer>(b, (InputPortID)InputECSBufferNode.KernelPorts.ECSInput);
 
                     entityManager.SetComponentData(entity, memoryB);
 
                     memorySystem.Update();
 
-                    var checkedComponentB = entityManager.GetComponentData<NodeMemoryInput<MemoryInputTag>>(entity);
+                    var checkedComponentB = entityManager.GetComponentData<NodeMemoryInput<MemoryInputTag, ECSBuffer>>(entity);
 
-                    Assert.AreEqual(memoryB.Node, checkedComponentB.ResolvedNode);
-                    Assert.AreEqual(memoryB.m_Port, checkedComponentB.ResolvedPort);
+                    Assert.AreEqual(memoryB.Node, checkedComponentB.ResolvedDestination.Handle.ToPublicHandle());
+                    Assert.AreEqual(memoryB.InternalPort, checkedComponentB.ResolvedDestination.Port);
 
                     // Assert memory checked component is added to entity.
                     set.Destroy(a, b);
@@ -257,29 +268,29 @@ namespace Unity.DataFlowGraph.Tests
 
                     entityManager.AddBuffer<ECSBuffer>(entity);
 
-                    var memory = new NodeMemoryInput<MemoryInputTag>(node, (InputPortID)InputECSBufferNode.KernelPorts.ECSInput);
+                    var memory = new NodeMemoryInput<MemoryInputTag, ECSBuffer>(node, (InputPortID)InputECSBufferNode.KernelPorts.ECSInput);
 
                     entityManager.AddComponentData(entity, memory);
 
                     memorySystem.Set = set;
                     memorySystem.Update();
 
-                    var checkedComponent = entityManager.GetComponentData<NodeMemoryInput<MemoryInputTag>>(entity);
-                    Assert.AreEqual(memory.Node, checkedComponent.ResolvedNode);
-                    Assert.AreEqual(memory.m_Port, checkedComponent.ResolvedPort);
+                    var checkedComponent = entityManager.GetComponentData<NodeMemoryInput<MemoryInputTag, ECSBuffer>>(entity);
+                    Assert.AreEqual(memory.Node, checkedComponent.ResolvedDestination.Handle.ToPublicHandle());
+                    Assert.AreEqual(memory.InternalPort, checkedComponent.ResolvedDestination.Port);
 
                     entityManager.RemoveComponent<ECSBuffer>(entity);
                     memorySystem.Update();
 
-                    checkedComponent = entityManager.GetComponentData<NodeMemoryInput<MemoryInputTag>>(entity);
-                    Assert.AreEqual(new NodeHandle(), checkedComponent.ResolvedNode);
-                    Assert.AreEqual(new InputPortArrayID(), checkedComponent.ResolvedPort);
+                    checkedComponent = entityManager.GetComponentData<NodeMemoryInput<MemoryInputTag, ECSBuffer>>(entity);
+                    Assert.AreEqual(new NodeHandle(), checkedComponent.ResolvedDestination.Handle.ToPublicHandle());
+                    Assert.AreEqual(new InputPortArrayID(), checkedComponent.ResolvedDestination.Port);
 
                     entityManager.AddBuffer<ECSBuffer>(entity);
                     memorySystem.Update();
-                    checkedComponent = entityManager.GetComponentData<NodeMemoryInput<MemoryInputTag>>(entity);
-                    Assert.AreEqual(memory.Node, checkedComponent.ResolvedNode);
-                    Assert.AreEqual(memory.m_Port, checkedComponent.ResolvedPort);
+                    checkedComponent = entityManager.GetComponentData<NodeMemoryInput<MemoryInputTag, ECSBuffer>>(entity);
+                    Assert.AreEqual(memory.Node, checkedComponent.ResolvedDestination.Handle.ToPublicHandle());
+                    Assert.AreEqual(memory.InternalPort, checkedComponent.ResolvedDestination.Port);
 
                     // Assert memory checked component is added to entity.
                     set.Destroy(node);
@@ -300,7 +311,7 @@ namespace Unity.DataFlowGraph.Tests
 
                     entityManager.AddBuffer<WeirdStruct>(entity);
 
-                    var memory = new NodeMemoryInput<MemoryInputTag>(a, (InputPortID)NodeWithAllTypesOfPorts.KernelPorts.InputBuffer);
+                    var memory = new NodeMemoryInput<MemoryInputTag, WeirdStruct>(a, (InputPortID)NodeWithAllTypesOfPorts.KernelPorts.InputBuffer);
 
                     entityManager.AddComponentData(entity, memory);
 
@@ -327,7 +338,7 @@ namespace Unity.DataFlowGraph.Tests
 
                     entityManager.AddBuffer<ECSIntBuffer>(entity);
 
-                    var memory = new NodeMemoryInput<MemoryInputTag>(a, (InputPortID)NodeWithAllTypesOfPorts.KernelPorts.InputScalar);
+                    var memory = new NodeMemoryInput<MemoryInputTag, ECSIntBuffer>(a, (InputPortID)NodeWithAllTypesOfPorts.KernelPorts.InputScalar);
 
                     entityManager.AddComponentData(entity, memory);
 
@@ -382,7 +393,7 @@ namespace Unity.DataFlowGraph.Tests
 
                     entityManager.AddBuffer<ECSIntBuffer>(entity);
 
-                    var memory = new NodeMemoryInput<MemoryInputTag>(a, (InputPortID)AggregateInputBufferNode.KernelPorts.AggregateIntBufferInput);
+                    var memory = new NodeMemoryInput<MemoryInputTag, ECSIntBuffer>(a, (InputPortID)AggregateInputBufferNode.KernelPorts.AggregateIntBufferInput);
 
                     entityManager.AddComponentData(entity, memory);
 
@@ -409,28 +420,38 @@ namespace Unity.DataFlowGraph.Tests
 
                     entityManager.AddBuffer<ECSBuffer>(entity);
 
-                    var memory = new NodeMemoryInput<MemoryInputTag>(node, (InputPortID)InputECSBufferNode.KernelPorts.ECSInput, 1);
+                    var memory = new NodeMemoryInput<MemoryInputTag, ECSBuffer>(node, (InputPortID)InputECSBufferNode.KernelPorts.ECSInput, 1);
 
                     entityManager.AddComponentData(entity, memory);
+                    memorySystem.Set = set;
 
                     LogAssert.Expect(UnityEngine.LogType.Error, new Regex("An array index can only be given"));
-
-                    memorySystem.Set = set;
                     memorySystem.Update();
 
-                    memory = new NodeMemoryInput<MemoryInputTag>(node, (InputPortID)InputECSBufferNode.KernelPorts.ECSInputArray);
+                    memory = new NodeMemoryInput<MemoryInputTag, ECSBuffer>(node, (InputPortID)InputECSBufferNode.KernelPorts.ECSInputArray);
                     entityManager.SetComponentData(entity, memory);
 
                     LogAssert.Expect(UnityEngine.LogType.Error, new Regex("An array index is required"));
-
                     memorySystem.Update();
 
-                    set.SetPortArraySize(node, InputECSBufferNode.KernelPorts.ECSInputArray, 5);
-                    memory = new NodeMemoryInput<MemoryInputTag>(node, (InputPortID)InputECSBufferNode.KernelPorts.ECSInputArray, 10);
+                    memory = NodeMemoryInput<MemoryInputTag, ECSBuffer>.Create(node, InputECSBufferNode.KernelPorts.ECSInputArray, 0);
                     entityManager.SetComponentData(entity, memory);
 
-                    LogAssert.Expect(UnityEngine.LogType.Error, new Regex("PortArray index out of bounds"));
+                    LogAssert.Expect(UnityEngine.LogType.Error, new Regex("Port array index"));
+                    memorySystem.Update();
 
+
+                    set.SetPortArraySize(node, InputECSBufferNode.KernelPorts.ECSInputArray, 5);
+                    memory = new NodeMemoryInput<MemoryInputTag, ECSBuffer>(node, (InputPortID)InputECSBufferNode.KernelPorts.ECSInputArray, 10);
+                    entityManager.SetComponentData(entity, memory);
+
+                    LogAssert.Expect(UnityEngine.LogType.Error, new Regex("Port array index"));
+                    memorySystem.Update();
+
+                    memory = NodeMemoryInput<MemoryInputTag, ECSBuffer>.Create(node, InputECSBufferNode.KernelPorts.ECSInputArray, 8);
+                    entityManager.SetComponentData(entity, memory);
+
+                    LogAssert.Expect(UnityEngine.LogType.Error, new Regex("Port array index"));
                     memorySystem.Update();
 
                     set.Destroy(node);
@@ -450,7 +471,7 @@ namespace Unity.DataFlowGraph.Tests
 
                     entityManager.AddBuffer<ECSBuffer>(entity);
 
-                    NodeMemoryInput<MemoryInputTag> memory = default;
+                    NodeMemoryInput<MemoryInputTag, ECSBuffer> memory = default;
 
                     entityManager.AddComponentData(entity, memory);
 
@@ -471,7 +492,7 @@ namespace Unity.DataFlowGraph.Tests
             public enum PortTestType { OnSimplePort, OnPortArray };
 
             [Test]
-            public void ZCanReadAndSum_InputBuffers_ProvidedFrom_ECS([Values] RenderExecutionModel model, [Values(1, 2, 5, 13, 46)] int sequenceLength, [Values] PortTestType portTestType)
+            public void ZCanReadAndSum_InputBuffers_ProvidedFrom_ECS([Values] NodeSet.RenderExecutionModel model, [Values(1, 2, 5, 13, 46)] int sequenceLength, [Values] PortTestType portTestType)
 
             {
                 const int k_Updates = 5;
@@ -503,15 +524,15 @@ namespace Unity.DataFlowGraph.Tests
                         var entity = entityManager.CreateEntity();
                         nodes.Add(new NodeGVECS { Node = node, GV = gv, BufferEntity = entity });
 
-                        NodeMemoryInput<MemoryInputTag> memoryInputTag;
+                        NodeMemoryInput<MemoryInputTag, ECSBuffer> memoryInputTag;
                         if (portTestType == PortTestType.OnSimplePort)
                         {
-                            memoryInputTag = new NodeMemoryInput<MemoryInputTag>(node, (InputPortID)InputECSBufferNode.KernelPorts.ECSInput);
+                            memoryInputTag = new NodeMemoryInput<MemoryInputTag, ECSBuffer>(node, (InputPortID)InputECSBufferNode.KernelPorts.ECSInput);
                         }
                         else
                         {
                             set.SetPortArraySize(node, InputECSBufferNode.KernelPorts.ECSInputArray, 2);
-                            memoryInputTag = new NodeMemoryInput<MemoryInputTag>(node, (InputPortID)InputECSBufferNode.KernelPorts.ECSInputArray, 1);
+                            memoryInputTag = new NodeMemoryInput<MemoryInputTag, ECSBuffer>(node, (InputPortID)InputECSBufferNode.KernelPorts.ECSInputArray, 1);
                         }
 
                         entityManager.AddBuffer<ECSBuffer>(entity);
@@ -638,7 +659,7 @@ namespace Unity.DataFlowGraph.Tests
                     entityManager.GetBuffer<ECSIntBuffer>(entity).Add(new ECSIntBuffer { Value = 3 });
                     entityManager.AddComponentData(
                         entity,
-                        new NodeMemoryInput<MemoryInputTag>(node, (InputPortID)NodeWithAllTypesOfPorts.KernelPorts.InputBuffer));
+                        new NodeMemoryInput<MemoryInputTag, ECSBuffer>(node, (InputPortID)NodeWithAllTypesOfPorts.KernelPorts.InputBuffer));
 
                     memorySystem.Set = set;
                     memorySystem.Update();
@@ -647,7 +668,7 @@ namespace Unity.DataFlowGraph.Tests
             }
 
             [NativeAllowReinterpretation]
-            struct IncompatibleBufferElement : IBufferElementData
+            public struct IncompatibleBufferElement : IBufferElementData
             {
                 public double Value;
             }
@@ -667,7 +688,7 @@ namespace Unity.DataFlowGraph.Tests
                     entityManager.GetBuffer<IncompatibleBufferElement>(entity).Add(new IncompatibleBufferElement { Value = 3 }); // Solely to avoid compiler warning
                     entityManager.AddComponentData(
                         entity,
-                        new NodeMemoryInput<MemoryInputTag>(node, (InputPortID)NodeWithAllTypesOfPorts.KernelPorts.InputBuffer));
+                        new NodeMemoryInput<MemoryInputTag, IncompatibleBufferElement>(node, (InputPortID)NodeWithAllTypesOfPorts.KernelPorts.InputBuffer));
 
                     LogAssert.Expect(UnityEngine.LogType.Error, "Cannot assign one buffer type to another fundamentally different type");
 
@@ -705,7 +726,7 @@ namespace Unity.DataFlowGraph.Tests
                 }
 
 
-                public override void Init(InitContext ctx)
+                protected internal override void Init(InitContext ctx)
                 {
                     ref var data = ref GetNodeData(ctx.Handle);
                     data.Child = Set.Create<InputECSBufferNode>();
@@ -714,7 +735,7 @@ namespace Unity.DataFlowGraph.Tests
                     ctx.ForwardOutput(KernelPorts.ForwardedDataOutputSum, data.Child, InputECSBufferNode.KernelPorts.Sum);
                 }
 
-                public override void Destroy(NodeHandle handle)
+                protected internal override void Destroy(NodeHandle handle)
                 {
                     Set.Destroy(GetNodeData(handle).Child);
                 }
@@ -747,7 +768,7 @@ namespace Unity.DataFlowGraph.Tests
                     entityManager.AddBuffer<ECSBuffer>(entity);
                     entityManager.AddComponentData(
                         entity,
-                        new NodeMemoryInput<MemoryInputTag>(node, (InputPortID)UberNodeWithDataForwarding.KernelPorts.ForwardedDataInput)
+                        new NodeMemoryInput<MemoryInputTag, ECSBuffer>(node, (InputPortID)UberNodeWithDataForwarding.KernelPorts.ForwardedDataInput)
                     );
 
                     entityManager.GetBuffer<ECSBuffer>(entity).Reinterpret<float>().CopyFrom(sequence.ToArray());

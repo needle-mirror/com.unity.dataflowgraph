@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -17,10 +18,21 @@ namespace Unity.DataFlowGraph.Tests
         static readonly string ForceIL2CPPBuildEnvVar = "FORCE_IL2CPP_BUILD";
         static readonly string ForceBurstCompileEnvVar = "FORCE_BURST_COMPILE";
         static readonly string ForceSamplesImportEnvVar = "FORCE_SAMPLES_IMPORT";
+        static readonly string ForceDFGInternalAssertionsEnvVar = "FORCE_DFG_INTERNAL_ASSERTIONS";
 
-        static bool? GetEnvVarEnabled(string name) => 
+        static bool? GetEnvVarEnabled(string name) =>
+#if UNITY_EDITOR
             Environment.GetEnvironmentVariable(name) == null ? default(bool?) :
             Environment.GetEnvironmentVariable(name) == "0" ? false : true;
+#else
+            GameObject.Find(name + "=true") != null ? true :
+            GameObject.Find(name + "=false") != null ? false : default(bool?);
+#endif
+
+#if UNITY_EDITOR
+        static void BakeEnvVarToBuild(string name) =>
+            new GameObject(name + ((bool)GetEnvVarEnabled(name) ? "=true" : "=false"));
+#endif
 
         static bool? ForceIL2CPPBuild => GetEnvVarEnabled(ForceIL2CPPBuildEnvVar);
 
@@ -28,7 +40,34 @@ namespace Unity.DataFlowGraph.Tests
 
         static bool? ForceSamplesImport => GetEnvVarEnabled(ForceSamplesImportEnvVar);
 
+        static bool? ForceDFGInternalAssertions => GetEnvVarEnabled(ForceDFGInternalAssertionsEnvVar);
+
+        const string SamplesAsmDefText = @"
+        {
+            ""name"": ""Unity.DataFlowGraph.Samples.Test"",
+            ""references"": [
+                ""Unity.DataFlowGraph"",
+                ""Unity.Mathematics"",
+                ""Unity.Burst"",
+                ""Unity.Collections""
+            ]
+        }";
+
 #if UNITY_EDITOR
+        static readonly List<BuildTargetGroup> ValidBuildTargetGroups =
+            Enum.GetValues(typeof(BuildTargetGroup))
+                .OfType<BuildTargetGroup>()
+                .Where(t => t != BuildTargetGroup.Unknown)
+                .Where(t => !typeof(BuildTargetGroup).GetField(t.ToString()).GetCustomAttributes(typeof(ObsoleteAttribute)).Any())
+                .ToList();
+
+        static readonly List<BuildTarget> ValidBuildTargets =
+            Enum.GetValues(typeof(BuildTarget))
+                .OfType<BuildTarget>()
+                .Where(t => t != BuildTarget.NoTarget)
+                .Where(t => !typeof(BuildTarget).GetField(t.ToString()).GetCustomAttributes(typeof(ObsoleteAttribute)).Any())
+                .ToList();
+
         public static bool EnableBurstCompilation
         {
             // FIXME: Burst Editor Settings are not properly exposed. Use reflection to hack into it.
@@ -69,14 +108,25 @@ namespace Unity.DataFlowGraph.Tests
             false;
 #endif
 
+        public static bool IsDFGInternalAssertionsBuild => 
+#if DFG_ASSERTIONS
+            true;
+#else
+            false;
+#endif
+
         public void Setup()
         {
 #if UNITY_EDITOR
             if (ForceIL2CPPBuild != null)
             {
-                PlayerSettings.SetScriptingBackend(
-                    EditorUserBuildSettings.selectedBuildTargetGroup,
-                    (bool) ForceIL2CPPBuild ? ScriptingImplementation.IL2CPP : ScriptingImplementation.Mono2x);
+                foreach (BuildTargetGroup targetGroup in ValidBuildTargetGroups)
+                {
+                    PlayerSettings.SetScriptingBackend(
+                        targetGroup,
+                        (bool) ForceIL2CPPBuild ? ScriptingImplementation.IL2CPP : ScriptingImplementation.Mono2x);
+                }
+                BakeEnvVarToBuild(ForceIL2CPPBuildEnvVar);
             }
 
             if (ForceBurstCompile != null)
@@ -86,23 +136,28 @@ namespace Unity.DataFlowGraph.Tests
 
                 // FIXME: Burst AOT Settings are not properly exposed. Use reflection to hack into it.
                 //   var burstAOTSettings =
-                //       Burst.Editor.BurstPlatformAotSettings.GetOrCreateSettings(EditorUserBuildSettings.selectedStandaloneTarget);
+                //       Burst.Editor.BurstPlatformAotSettings.GetOrCreateSettings(target);
                 //   burstAOTSettings.DisableBurstCompilation = !(bool) ForceBurstCompile;
-                //   burstAOTSettings.Save(EditorUserBuildSettings.selectedStandaloneTarget);
+                //   burstAOTSettings.Save(target);
 
                 var burstAOTSettingsType =
                     AppDomain.CurrentDomain.Load("Unity.Burst.Editor")
                         .GetType("Unity.Burst.Editor.BurstPlatformAotSettings");
 
-                var burstAOTSettings =
-                    burstAOTSettingsType.GetMethod("GetOrCreateSettings", BindingFlags.Static | BindingFlags.NonPublic)
-                        .Invoke(null, new object[] {EditorUserBuildSettings.selectedStandaloneTarget});
+                foreach (BuildTarget target in ValidBuildTargets)
+                {
+                    var burstAOTSettings =
+                        burstAOTSettingsType.GetMethod("GetOrCreateSettings", BindingFlags.Static | BindingFlags.NonPublic)
+                            .Invoke(null, new object[] {target});
 
-                burstAOTSettingsType.GetField("DisableBurstCompilation", BindingFlags.NonPublic | BindingFlags.Instance)
-                    .SetValue(burstAOTSettings, !(bool) ForceBurstCompile);
+                    burstAOTSettingsType.GetField("DisableBurstCompilation", BindingFlags.NonPublic | BindingFlags.Instance)
+                        .SetValue(burstAOTSettings, !(bool) ForceBurstCompile);
 
-                burstAOTSettingsType.GetMethod("Save", BindingFlags.NonPublic | BindingFlags.Instance)
-                    .Invoke(burstAOTSettings, new object[] {EditorUserBuildSettings.selectedStandaloneTarget});
+                    burstAOTSettingsType.GetMethod("Save", BindingFlags.NonPublic | BindingFlags.Instance)
+                        .Invoke(burstAOTSettings, new object[] {target});
+                }
+
+                BakeEnvVarToBuild(ForceBurstCompileEnvVar);
             }
 
             if (ForceSamplesImport != null && (bool) ForceSamplesImport)
@@ -111,19 +166,28 @@ namespace Unity.DataFlowGraph.Tests
 
                 // Try to import the samples the Package Manager way, if not, do it ourselves.
                 // (This fails because the Package Manager list is still refreshing at initial application launch)
+                var needAssetDBRefresh = false;
+                var importedSamplesRoot = Path.Combine(Application.dataPath, "Samples");
                 var samples = PackageManager.UI.Sample.FindByPackage(thisPkg.name, thisPkg.version);
                 if (samples.Any())
                 {
+                    importedSamplesRoot = samples.First().importPath;
                     foreach (var sample in samples)
                     {
+                        while (!sample.importPath.StartsWith(importedSamplesRoot))
+                            importedSamplesRoot = Path.GetDirectoryName(importedSamplesRoot);
+
                         if (!sample.isImported)
                         {
                             if (!sample.Import())
                                 throw new InvalidOperationException($"Failed to import sample \"{sample.displayName}\".");
                         }
                     }
+                    if (importedSamplesRoot.Length == 0)
+                        throw new InvalidOperationException("Could not find common part of path for imported samples");
+                    PreventRecompilationDuringTestRun();
                 }
-                else if (!Directory.Exists(Path.Combine(Application.dataPath, "Samples")))
+                else if (!Directory.Exists(importedSamplesRoot))
                 {
                     string samplesPath = null;
                     foreach (var path in new[] {"Samples", "Samples~"}.Select(dir => Path.Combine(thisPkg.resolvedPath, dir)))
@@ -133,11 +197,54 @@ namespace Unity.DataFlowGraph.Tests
                     }
                     if (samplesPath == null)
                         throw new InvalidOperationException("Could not find package Samples directory");
-                    FileUtil.CopyFileOrDirectory(samplesPath, Path.Combine(Application.dataPath, "Samples"));
-                    AssetDatabase.Refresh();
+                    FileUtil.CopyFileOrDirectory(samplesPath, importedSamplesRoot);
+                    needAssetDBRefresh = true;
                 }
+
+                // Add in an assembly definition file and preprocessor config to turn on warnings-as-errors.
+                if (!Directory.Exists(Path.Combine(importedSamplesRoot, "Samples.asmdef")))
+                {
+                    File.WriteAllText(Path.Combine(importedSamplesRoot, "Samples.asmdef"), SamplesAsmDefText);
+                    needAssetDBRefresh = true;
+                }
+                if (!Directory.Exists(Path.Combine(importedSamplesRoot, "csc.rsp")))
+                {
+                    File.WriteAllText(Path.Combine(importedSamplesRoot, "csc.rsp"), "-warnaserror+");
+                    needAssetDBRefresh = true;
+                }
+
+                if (needAssetDBRefresh)
+                {
+                    AssetDatabase.Refresh();
+                    PreventRecompilationDuringTestRun();
+                }
+
+                BakeEnvVarToBuild(ForceSamplesImportEnvVar);
             }
-#endif
+
+            if (ForceDFGInternalAssertions != null)
+            {
+                foreach (BuildTargetGroup targetGroup in ValidBuildTargetGroups)
+                {
+                    var globalDefines =
+                        PlayerSettings.GetScriptingDefineSymbolsForGroup(targetGroup);
+                    if ((bool) ForceDFGInternalAssertions && !globalDefines.Split(';').Contains("DFG_ASSERTIONS"))
+                    {
+                        globalDefines += (globalDefines.Length > 0 ? ";" : "") + "DFG_ASSERTIONS";
+                        PlayerSettings.SetScriptingDefineSymbolsForGroup(targetGroup, globalDefines);
+                        PreventRecompilationDuringTestRun();
+                    }
+                    else if (!(bool) ForceDFGInternalAssertions && globalDefines.Split(';').Contains("DFG_ASSERTIONS"))
+                    {
+                        globalDefines = String.Join(";", globalDefines.Split(';').Where(s => s != "DFG_ASSERTIONS").ToArray());
+                        PlayerSettings.SetScriptingDefineSymbolsForGroup(targetGroup, globalDefines);
+                        PreventRecompilationDuringTestRun();
+                    }
+                }
+
+                BakeEnvVarToBuild(ForceDFGInternalAssertionsEnvVar);
+            }
+#endif // UNITY_EDITOR
         }
 
         [Test]
@@ -145,13 +252,10 @@ namespace Unity.DataFlowGraph.Tests
         {
             if (ForceIL2CPPBuild != null)
             {
-                // This only really makes sense for the Editor, or, on standalone platforms where the Editor build step
-                // runs with the same environment as the Player invocation.
                 Assert.AreEqual(
                     (bool) ForceIL2CPPBuild,
                     IsIL2CPPBuild,
-                    $"{ForceIL2CPPBuildEnvVar} environment variable is {((bool) ForceIL2CPPBuild ? "enabled" : "disabled")}," +
-                    $" but we {(IsIL2CPPBuild ? "are" : "are not")} running IL2CPP");
+                    ((bool) ForceIL2CPPBuild ? "Expected" : "Did not expect") + " to be running in IL2CPP");
             }
 
             if (!IsIL2CPPBuild)
@@ -172,18 +276,29 @@ namespace Unity.DataFlowGraph.Tests
 
             if (ForceBurstCompile != null)
             {
-                // This only really makes sense for the Editor, or, on standalone platforms where the Editor build step
-                // runs with the same environment as the Player invocation.
                 Assert.AreEqual(
                     (bool) ForceBurstCompile,
                     BurstConfig.IsBurstEnabled,
-                    $"{ForceBurstCompileEnvVar} environment variable is {((bool) ForceBurstCompile ? "enabled" : "disabled")}," +
-                    $" but we {(BurstConfig.IsBurstEnabled ? "are" : "are not")} Burst compiling");
-
+                    ((bool) ForceBurstCompile ? "Expected" : "Did not expect") + " Burst to be enabled");
             }
 
             if (!BurstConfig.IsBurstEnabled)
-                Assert.Ignore("Burst compilation is disabled.");
+                Assert.Ignore("Burst disabled.");
+        }
+
+        [Test]
+        public void DFGAssertions_AreEnabled()
+        {
+            if (ForceDFGInternalAssertions != null)
+            {
+                Assert.AreEqual(
+                    (bool) ForceDFGInternalAssertions,
+                    IsDFGInternalAssertionsBuild,
+                    ((bool) ForceDFGInternalAssertions ? "Expected" : "Did not expect") + " internal DFG assertions to be in effect.");
+            }
+
+            if (!IsDFGInternalAssertionsBuild)
+                Assert.Ignore("This build does not have internal DFG assertions enabled.");
         }
 
         [Test]
@@ -193,18 +308,31 @@ namespace Unity.DataFlowGraph.Tests
             bool sampleDetected =
                 AppDomain.CurrentDomain.GetAssemblies().Any(a => a.GetType("Unity.DataFlowGraph.TimeExample.TimeExample") != null);
 
-            if (ForceSamplesImport != null && (bool) ForceSamplesImport)
+            if (ForceSamplesImport != null)
             {
-                // This only really makes sense for the Editor, or, on standalone platforms where the Editor build step
-                // runs with the same environment as the Player invocation.
-                Assert.IsTrue(
+                Assert.AreEqual(
+                    (bool) ForceSamplesImport,
                     sampleDetected,
-                    $"{ForceSamplesImportEnvVar} environment variable is enabled, but no package samples were detected.");
-
+                    ((bool) ForceSamplesImport ? "Expected" : "Did not expect") + " to find package samples");
             }
 
             if (!sampleDetected)
                 Assert.Ignore("Package samples not detected.");
         }
+
+#if UNITY_EDITOR
+        void PreventRecompilationDuringTestRun()
+        {
+            // Workaround required as we upgraded to ECS 0.3.0.
+            // Importing Samples during our IPrebuildStep() causes a recompilation/domain-reload to occur (as expected),
+            // however, as of the new ECS, once tests start to run, we see a second unexplained recompilation which occurs
+            // while tests are ongoing. Ultimately, the post-recompilation domain-reload occurs mid test which causes
+            // crashes. We avoid this by setting the player preference to "Recompile After Finished Playing".
+            //
+            // RecompileAfterFinishedPlaying = 1 from EditorApplication.cs
+            //
+            EditorPrefs.SetInt("ScriptCompilationDuringPlay", 1); 
+        }
+#endif
     }
 }

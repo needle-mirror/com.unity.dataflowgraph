@@ -26,7 +26,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 Assert.That(ctx.Port == SimulationPorts.Input);
                 data.Contents += msg.Contents;
-                EmitMessage(ctx.Handle, SimulationPorts.Output, new Message(data.Contents + 1));
+                ctx.EmitMessage(SimulationPorts.Output, new Message(data.Contents + 1));
             }
         }
 
@@ -121,7 +121,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 set.Connect(a, InOutTestNode.SimulationPorts.Output, b, InOutTestNode.SimulationPorts.Input);
 
-                var otherNodePortDef = set.GetFunctionality<TwoInOutTestNode>().GetPortDescription(a);
+                var otherNodePortDef = set.GetDefinition<TwoInOutTestNode>().GetStaticPortDescription();
 
                 Assert.Throws<ArgumentOutOfRangeException>(() => set.Connect(a, otherNodePortDef.Outputs[1], b, otherNodePortDef.Inputs[0]));
                 Assert.Throws<ArgumentOutOfRangeException>(() => set.Connect(a, otherNodePortDef.Outputs[0], b, otherNodePortDef.Inputs[1]));
@@ -132,7 +132,7 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         void ConnectingOutOfArrayPortIndicesRange_ThrowsException<TNodeDefinition>(InputPortID inputs, OutputPortID output)
-            where TNodeDefinition : INodeDefinition, new()
+            where TNodeDefinition : NodeDefinition, new()
         {
             using (var set = new NodeSet())
             {
@@ -159,7 +159,7 @@ namespace Unity.DataFlowGraph.Tests
             using (var set = new NodeSet())
             {
                 // Must touch the Node type first to ensure PortIDs have been assigned.
-                set.GetFunctionality<NodeWithAllTypesOfPorts>();
+                set.GetDefinition<NodeWithAllTypesOfPorts>();
             }
 
             ConnectingOutOfArrayPortIndicesRange_ThrowsException<NodeWithAllTypesOfPorts>(
@@ -169,7 +169,7 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         void DisconnectingOutOfArrayPortIndicesRange_ThrowsException<TNodeDefinition>(InputPortID inputs, OutputPortID output)
-            where TNodeDefinition : INodeDefinition, new()
+            where TNodeDefinition : NodeDefinition, new()
         {
             using (var set = new NodeSet())
             {
@@ -202,7 +202,7 @@ namespace Unity.DataFlowGraph.Tests
             using (var set = new NodeSet())
             {
                 // Must touch the Node type first to ensure PortIDs have been assigned.
-                set.GetFunctionality<NodeWithAllTypesOfPorts>();
+                set.GetDefinition<NodeWithAllTypesOfPorts>();
             }
 
             DisconnectingOutOfArrayPortIndicesRange_ThrowsException<NodeWithAllTypesOfPorts>(
@@ -212,7 +212,7 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         public void ReducingConnectedArrayPort_ThrowsException<TNodeDefinition>(InputPortID inputs, OutputPortID output)
-            where TNodeDefinition : INodeDefinition, new()
+            where TNodeDefinition : NodeDefinition, new()
         {
             using (var set = new NodeSet())
             {
@@ -242,7 +242,7 @@ namespace Unity.DataFlowGraph.Tests
             using (var set = new NodeSet())
             {
                 // Must touch the Node type first to ensure PortIDs have been assigned.
-                set.GetFunctionality<NodeWithAllTypesOfPorts>();
+                set.GetDefinition<NodeWithAllTypesOfPorts>();
             }
 
             ReducingConnectedArrayPort_ThrowsException<NodeWithAllTypesOfPorts>(

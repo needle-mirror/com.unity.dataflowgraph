@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Runtime.InteropServices;
+using Unity.Collections.LowLevel.Unsafe;
 
 namespace Unity.Collections
 {
@@ -6,11 +8,19 @@ namespace Unity.Collections
 #pragma warning disable 660, 661  // We do not want Equals(object) nor GetHashCode()
     struct VersionedHandle
     {
-        public int Index, Version;
+        public int Index;
+        public ushort Version, ContainerID;
+
+        public VersionedHandle(int index, ushort version, ushort containerID)
+        {
+            Index = index;
+            Version = version;
+            ContainerID = containerID;
+        }
 
         public static bool operator ==(VersionedHandle left, VersionedHandle right)
         {
-            return left.Version == right.Version && left.Index == right.Index;
+            return left.Version == right.Version && left.Index == right.Index && left.ContainerID == right.ContainerID;
         }
 
         public static bool operator !=(VersionedHandle left, VersionedHandle right)
@@ -20,7 +30,7 @@ namespace Unity.Collections
 
         public override string ToString()
         {
-            return $"Index: {Index}, Version: {Version}";
+            return $"Index: {Index}, Version: {Version}, ContainerID: {ContainerID}";
         }
     }
 #pragma warning restore 660, 661
@@ -38,10 +48,12 @@ namespace Unity.Collections
         public bool IsCreated => m_List.IsCreated;
 
         FreeList<T> m_List;
+        readonly ushort m_ContainerID;
 
-        public VersionedList(Allocator alloc)
+        public VersionedList(Allocator alloc, ushort containerID)
         {
             m_List = new FreeList<T>(alloc);
+            m_ContainerID = containerID;
         }
 
         public ref T Allocate()
@@ -51,9 +63,15 @@ namespace Unity.Collections
             ref var value = ref m_List.Values[index];
 
             if (value.VHandle.Version == 0)
-                value.VHandle = new VersionedHandle { Version = 1, Index = index };
+                value.VHandle = new VersionedHandle(index, 1, m_ContainerID);
 
             return ref value;
+        }
+
+        public unsafe void CopyTo(NativeList<T> list)
+        {
+            list.ResizeUninitialized(UncheckedCount);
+            UnsafeUtility.MemCpy(list.GetUnsafePtr(), m_List.Values.Pointer, UncheckedCount * sizeof(T));
         }
 
         public ref T Resolve(VersionedHandle handle)
@@ -66,7 +84,7 @@ namespace Unity.Collections
 
         public bool Exists(VersionedHandle handle)
         {
-            return (uint)handle.Index < m_List.Values.Count && handle.Version == m_List.Values[handle.Index].VHandle.Version;
+            return (uint)handle.Index < m_List.Values.Count && handle.Version == m_List.Values[handle.Index].VHandle.Version && handle.ContainerID == m_ContainerID;
         }
 
         public void Release(T item) => Release(item.VHandle);
@@ -78,7 +96,7 @@ namespace Unity.Collections
             if (value.Valid)
                 throw new InvalidOperationException("Value should be invalid when destroyed");
 
-            value.VHandle = new VersionedHandle { Version = handle.Version + 1, Index = handle.Index };
+            value.VHandle = new VersionedHandle(handle.Index, (ushort)(handle.Version + 1), handle.ContainerID);
             m_List.Release(value.VHandle.Index);
         }
 

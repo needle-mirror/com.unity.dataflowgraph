@@ -1,151 +1,118 @@
 ﻿using System;
 using Unity.Burst;
 using Unity.Collections;
-using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
 
 namespace Unity.DataFlowGraph
 {
-    unsafe struct TopologyComputationContext : IDisposable
+    static partial class TopologyAPI<TVertex, TInputPort, TOutputPort>
+        where TVertex : unmanaged, IEquatable<TVertex>
+        where TInputPort : unmanaged, IEquatable<TInputPort>
+        where TOutputPort : unmanaged, IEquatable<TOutputPort>
     {
-        public struct NodeVisitCache
+        public static class VertexTools
         {
-            public int visitCount;
-            public int parentCount;
-            public int TraversalIndex;
-            public int CurrentlyResolving;
-        }
-
-        public struct OrderedNodeHandle
-        {
-            public NodeHandle Node;
-            public int Index;
-        }
-
-        public unsafe struct NodeArraySource
-        {
-            public NodeArraySource(NativeArray<NodeHandle> nodes)
+            public struct VisitCache
             {
-                Source = (NodeHandle*)nodes.GetUnsafeReadOnlyPtr();
-                Count = nodes.Length;
-            }
-
-            public NodeArraySource(NativeList<NodeHandle> nodes)
-            {
-                Source = (NodeHandle*)nodes.GetUnsafePtr();
-                Count = nodes.Length;
-            }
-
-            public NodeArraySource(BlitList<NodeHandle> nodes)
-            {
-                Source = (NodeHandle*)nodes.Pointer;
-                Count = nodes.Count;
-            }
-
-            internal readonly NodeHandle* Source;
-            internal readonly int Count;
-        }
-
-        public bool IsCreated => Nodes != null;
-        /// <summary>
-        /// 1:1 with # of nodes and matches those
-        /// </summary>
-        public BlitList<TopologyIndex> Topologies;
-        /// <summary>
-        /// 1:1 to connection table in set
-        /// </summary>
-        [ReadOnly]
-        public BlitList<Connection> Connections;
-
-        /// <summary>
-        /// Input nodes to calculate topology system for.
-        /// Is a pointer so we can support any kind of input 
-        /// array.
-        /// 
-        /// Number of items is in <see cref="Count"/>
-        /// </summary>
-        /// <remarks>
-        /// TODO: change to System.Span{T}
-        /// </remarks>
-        [NativeDisableUnsafePtrRestriction]
-        public NodeHandle* Nodes;
-        public int Count;
-
-        public MutableTopologyCache Cache;
-
-        public NativeArray<NodeVisitCache> VisitCache;
-        public NativeList<int> VisitCacheLeafIndicies;
-
-        public RenderExecutionModel Model;
-
-        [BurstCompile]
-        struct PrepareJob : IJob
-        {
-            public BlitList<Connection> SourceConnections;
-            public BlitList<TopologyIndex> SourceTopologies;
-
-            public TopologyComputationContext Context;
-            public TopologyCacheAPI.VersionTracker Version;
-
-            public void Execute()
-            {
-                // TODO: Make a system that doesn't need to allocate arrays for no-op
-                // topology jobs.
-                if (TopologyCacheAPI.IsCacheFresh(Version, Context.Cache))
-                    return;
-                // TODO: Figure out a better system than just copying everything
-                // ^ Edit: Or don't, and properly double-buffer these structures
-                Context.Connections.BlitSharedPortion(SourceConnections);
-                Context.Topologies.BlitSharedPortion(SourceTopologies);
+                public int VisitCount;
+                public int ParentCount;
+                public int TraversalIndex;
+                public int CurrentlyResolving;
             }
         }
 
-        /// <summary>
-        /// The cache and nodes are not taking ownership of, and must survive this context's lifetime.
-        /// The returned context must ONLY be used after the jobhandle is completed. Additionally, this must happen
-        /// in the current scope.
-        /// </summary>
-        public static JobHandle InitializeContext(
-            JobHandle inputDependencies,
-            out TopologyComputationContext context,
-            BlitList<Connection> connectionTable,
-            BlitList<TopologyIndex> topologies,
-            TraversalCache cache,
-            NodeArraySource sourceNodes,
-            TopologyCacheAPI.VersionTracker version,
-            RenderExecutionModel model = RenderExecutionModel.MaximallyParallel
+        public struct ComputationContext<TTopologyFromVertex> : IDisposable
+            where TTopologyFromVertex : Database.ITopologyFromVertex
+        {
+            [BurstCompile]
+            internal struct ComputeTopologyJob : IJob
+            {
+                public ComputationContext<TTopologyFromVertex> Context;
+                public int NewVersion;
+
+                public void Execute()
+                {
+                    if (Context.Cache.Version[0] == NewVersion)
+                        return;
+
+                    CacheAPI.RecomputeCache(ref Context);
+                    Context.Cache.Version[0] = NewVersion;
+                }
+            }
+
+            public bool IsCreated => Vertices != null;
+
+            public TTopologyFromVertex Topologies;
+            [ReadOnly]
+            public Database Database;
+
+            /// <summary>
+            /// Input nodes to calculate topology system for.
+            /// Is a pointer so we can support any kind of input 
+            /// array.
+            /// 
+            /// Number of items is in <see cref="Count"/>
+            /// </summary>
+            /// <remarks>
+            /// TODO: change to System.Span{T}
+            /// </remarks>
+            [ReadOnly]
+            public NativeArray<TVertex> Vertices;
+
+            public MutableTopologyCache Cache;
+
+            public NativeArray<VertexTools.VisitCache> VisitCache;
+            public NativeList<int> VisitCacheLeafIndicies;
+
+            public SortingAlgorithm Algorithm;
+
+            internal ProfilerMarkers Markers;
+
+            /// <summary>
+            /// Note that no ownership is taken over the following:
+            /// - Cache
+            /// - Topology
+            /// - Connections
+            /// - Nodes
+            /// Hence they must survive the context's lifetime.
+            /// The returned context must ONLY be used after the jobhandle is completed. Additionally, this must happen
+            /// in the current scope.
+            /// </summary>
+            public static JobHandle InitializeContext(
+                JobHandle inputDependencies,
+                out ComputationContext<TTopologyFromVertex> context,
+                Database connectionTable,
+                TTopologyFromVertex topologies,
+                TraversalCache cache,
+                NativeArray<TVertex> sourceNodes,
+                CacheAPI.VersionTracker version,
+                SortingAlgorithm algorithm = SortingAlgorithm.GlobalBreadthFirst
             )
-        {
-            context = new TopologyComputationContext();
-            context.Cache = new MutableTopologyCache(cache);
+            {
+                context = default;
+                context.Cache = new MutableTopologyCache(cache);
 
-            PrepareJob job;
-            job.Version = version;
+                context.Vertices = sourceNodes;
 
-            job.SourceConnections = connectionTable;
-            job.SourceTopologies = topologies;
+                context.Database = connectionTable;
+                context.Topologies = topologies;
 
-            context.Nodes = sourceNodes.Source;
-            context.Count = sourceNodes.Count;
+                context.VisitCache =
+                    new NativeArray<VertexTools.VisitCache>(context.Vertices.Length, Allocator.TempJob);
+                context.VisitCacheLeafIndicies = new NativeList<int>(10, Allocator.TempJob);
+                context.Algorithm = algorithm;
 
-            context.Connections = new BlitList<Connection>(job.SourceConnections.Count, Allocator.TempJob);
-            context.Topologies = new BlitList<TopologyIndex>(job.SourceTopologies.Count, Allocator.TempJob);
+                context.Markers = ProfilerMarkers.Markers;
 
-            context.VisitCache = new NativeArray<NodeVisitCache>(context.Count, Allocator.TempJob);
-            context.VisitCacheLeafIndicies = new NativeList<int>(10, Allocator.TempJob);
-            context.Model = model;
-            job.Context = context;
-
-            return job.Schedule(inputDependencies);
-        }
+                return inputDependencies;
+            }
 
 
-        public void Dispose()
-        {
-            Topologies.Dispose();
-            Connections.Dispose();
-            VisitCache.Dispose();
-            VisitCacheLeafIndicies.Dispose();
+            public void Dispose()
+            {
+                VisitCache.Dispose();
+                VisitCacheLeafIndicies.Dispose();
+            }
         }
     }
 }

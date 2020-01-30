@@ -29,7 +29,7 @@ namespace Unity.Collections
                 return index;
             }
 
-            var value = new T();
+            T value = default;
             Values.Add(value);
 
             return Values.Count - 1;

@@ -3,9 +3,107 @@ using System.Linq;
 using System.Reflection;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Burst;
+using Unity.Collections;
 
 namespace Unity.DataFlowGraph
 {
+    struct KernelLayout
+    {
+        public readonly unsafe struct Pointers
+        {
+            [NativeDisableUnsafePtrRestriction] readonly public RenderKernelFunction.BasePort* Ports;
+            [NativeDisableUnsafePtrRestriction] readonly public RenderKernelFunction.BaseData* Data;
+            [NativeDisableUnsafePtrRestriction] readonly public RenderKernelFunction.BaseKernel* Kernel;
+
+            public Pointers(RenderKernelFunction.BasePort* ports, RenderKernelFunction.BaseData* data, RenderKernelFunction.BaseKernel* kernel)
+            {
+                Ports = ports;
+                Data = data;
+                Kernel = kernel;
+            }
+        }
+
+        SimpleType Combined;
+        int DataOffset;
+        int KernelOffset;
+
+        struct Layout<TUserKernel, TKernelData, TKernelPortDefinition>
+           where TUserKernel : struct, IGraphKernel<TKernelData, TKernelPortDefinition>
+           where TKernelData : struct, IKernelData
+           where TKernelPortDefinition : struct, IKernelPortDefinition
+        {
+            public static KernelLayout KernelLayout = Calculate();
+
+#pragma warning disable 649  // Never assigned; these are placeholders for the memory used by the Kernel
+            public TKernelPortDefinition Ports;
+            public TKernelData Data;
+            public TUserKernel Kernel;
+#pragma warning restore 649
+
+            static KernelLayout Calculate()
+            {
+                var type = typeof(Layout<TUserKernel, TKernelData, TKernelPortDefinition>);
+                KernelLayout ret;
+                ret.Combined = SimpleType.Create<Layout<TUserKernel, TKernelData, TKernelPortDefinition>>();
+                ret.DataOffset = UnsafeUtility.GetFieldOffset(type.GetField("Data"));
+                ret.KernelOffset = UnsafeUtility.GetFieldOffset(type.GetField("Kernel"));
+
+                return ret;
+            }
+
+            void Reassign_ToAvoid_CompilerWarning()
+            {
+                Ports = default;
+                Data = default;
+                Kernel = default;
+            }
+        }
+
+        public static KernelLayout Calculate<TUserKernel, TKernelData, TKernelPortDefinition>()
+           where TUserKernel : struct, IGraphKernel<TKernelData, TKernelPortDefinition>
+           where TKernelData : struct, IKernelData
+           where TKernelPortDefinition : struct, IKernelPortDefinition
+        {
+            return Layout<TUserKernel, TKernelData, TKernelPortDefinition>.KernelLayout;
+        }
+
+        /// <summary>
+        /// Must be free'd using <see cref="Free(in Pointers, Allocator)"/>/>
+        /// </summary>
+        public unsafe Pointers Allocate(Allocator allocator)
+        {
+            return VirtualReconstruct(Utility.CAlloc(Combined, allocator));
+        }
+
+        /// <summary>
+        /// Reconstruct a kernel layout as if it existed in that memory location.
+        /// </summary>
+        public unsafe Pointers VirtualReconstruct(void* location)
+        {
+            var basePointer = (byte*)location;
+            return new Pointers(
+                (RenderKernelFunction.BasePort*)basePointer,
+                (RenderKernelFunction.BaseData*)(basePointer + DataOffset),
+                (RenderKernelFunction.BaseKernel*)(basePointer + KernelOffset)
+            );
+        }
+
+        /// <summary>
+        /// Treating <paramref name="source"/> and <paramref name="destination"/> as if
+        /// they come from the same <see cref="KernelLayout"/>, copy the memory from the 
+        /// <paramref name="source"/> to the <paramref name="destination"/>.
+        /// </summary>
+        public unsafe void Blit(in Pointers source, ref Pointers destination)
+        {
+            UnsafeUtility.MemCpy(destination.Ports, source.Ports, Combined.Size);
+        }
+
+        public unsafe void Free(in Pointers p, Allocator allocator)
+        {
+            UnsafeUtility.Free(p.Ports, allocator);
+        }
+    }
+
     struct LowLevelTraitsFactory<TNodeData, TSimPorts, TKernelData, TKernelPortDefinition, TUserKernel>
        where TNodeData : struct, INodeData
        where TSimPorts : struct, ISimulationPortDefinition
@@ -29,9 +127,10 @@ namespace Unity.DataFlowGraph
                 vtable.KernelFunction = RenderKernelFunction.GetManagedFunction<TKernelData, TKernelPortDefinition, TUserKernel>();
 
             var traits = new LowLevelNodeTraits(
-               CreateStorage(nodeDataIsManaged),
+               CreateStorage(nodeDataIsManaged, isComponentNode: hostNodeType == typeof(InternalComponentNode)),
                vtable,
-               new DataPortDeclarations(hostNodeType, typeof(TKernelPortDefinition))
+               new DataPortDeclarations(hostNodeType, typeof(TKernelPortDefinition)),
+               KernelLayout.Calculate<TUserKernel, TKernelData, TKernelPortDefinition>()
            );
 
             var handle = LLTraitsHandle.Create();
@@ -39,10 +138,11 @@ namespace Unity.DataFlowGraph
             return handle;
         }
 
-        static LowLevelNodeTraits.StorageDefinition CreateStorage(bool nodeDataIsManaged)
+        static LowLevelNodeTraits.StorageDefinition CreateStorage(bool nodeDataIsManaged, bool isComponentNode)
         {
             return new LowLevelNodeTraits.StorageDefinition(
                 nodeDataIsManaged,
+                isComponentNode: isComponentNode,
                 SimpleType.Create<TNodeData>(),
                 SimpleType.Create<TSimPorts>(),
                 SimpleType.Create<TKernelData>(),
@@ -83,7 +183,15 @@ namespace Unity.DataFlowGraph
 
         static LowLevelNodeTraits.StorageDefinition CreateStorage(bool nodeDataIsManaged)
         {
-            return new LowLevelNodeTraits.StorageDefinition(nodeDataIsManaged, SimpleType.Create<TNodeData>(), SimpleType.Create<TSimPorts>(), new SimpleType(), new SimpleType(), new SimpleType());
+            return new LowLevelNodeTraits.StorageDefinition(
+                nodeDataIsManaged, 
+                isComponentNode: false,
+                SimpleType.Create<TNodeData>(), 
+                SimpleType.Create<TSimPorts>(), 
+                new SimpleType(), 
+                new SimpleType(), 
+                new SimpleType()
+            );
         }
 
         internal static void ValidateRulesForStorage(Type hostNodeType, bool nodeDataIsManaged)

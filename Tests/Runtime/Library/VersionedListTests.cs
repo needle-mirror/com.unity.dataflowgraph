@@ -25,7 +25,7 @@ namespace Unity.DataFlowGraph.Library.Tests
         [Test]
         public void ConstructedVersionedList_IsCreated()
         {
-            var thing = new VersionedList<VersionedItem>(Allocator.Temp);
+            var thing = new VersionedList<VersionedItem>(Allocator.Temp, 99);
             Assert.IsTrue(thing.IsCreated);
             Assert.DoesNotThrow(() => thing.Dispose());
             Assert.IsFalse(thing.IsCreated);
@@ -50,7 +50,7 @@ namespace Unity.DataFlowGraph.Library.Tests
         [Test]
         public void UsingScopeDeallocatesCorrectly()
         {
-            using (var list = new VersionedList<VersionedItem>(Allocator.Temp))
+            using (var list = new VersionedList<VersionedItem>(Allocator.Temp, 99))
             {
             }
         }
@@ -74,7 +74,7 @@ namespace Unity.DataFlowGraph.Library.Tests
             Assert.Throws<ObjectDisposedException>(
                 () =>
                 {
-                    using (var list = new VersionedList<VersionedItem>(Allocator.Temp))
+                    using (var list = new VersionedList<VersionedItem>(Allocator.Temp, 99))
                         list.Dispose();
                 }
             );
@@ -83,7 +83,7 @@ namespace Unity.DataFlowGraph.Library.Tests
         [Test]
         public void Allocating_IncreasesUncheckedCount()
         {
-            using (var list = new VersionedList<VersionedItem>(Allocator.Temp))
+            using (var list = new VersionedList<VersionedItem>(Allocator.Temp, 99))
             {
                 for (int i = 0; i < 100; ++i)
                 {
@@ -97,7 +97,7 @@ namespace Unity.DataFlowGraph.Library.Tests
         [Test]
         public void VHandleIndex_MatchesAllocationNumber()
         {
-            using (var list = new VersionedList<VersionedItem>(Allocator.Temp))
+            using (var list = new VersionedList<VersionedItem>(Allocator.Temp, 99))
             {
                 for (int i = 0; i < 100; ++i)
                 {
@@ -110,7 +110,7 @@ namespace Unity.DataFlowGraph.Library.Tests
         [Test]
         public void VHandleVersion_StartsAtOne()
         {
-            using (var list = new VersionedList<VersionedItem>(Allocator.Temp))
+            using (var list = new VersionedList<VersionedItem>(Allocator.Temp, 99))
             {
                 for (int i = 0; i < 100; ++i)
                 {
@@ -123,7 +123,7 @@ namespace Unity.DataFlowGraph.Library.Tests
         [Test]
         public void RepeatedAllocationAndRelease_IncreasesVersionNumber()
         {
-            using (var list = new VersionedList<VersionedItem>(Allocator.Temp))
+            using (var list = new VersionedList<VersionedItem>(Allocator.Temp, 99))
             {
                 for (int i = 0; i < 100; ++i)
                 {
@@ -137,7 +137,7 @@ namespace Unity.DataFlowGraph.Library.Tests
         [Test]
         public void AllIndexers_ThrowOutOfRangeExceptions_ForInvalidItemIndices()
         {
-            using (var list = new VersionedList<VersionedItem>(Allocator.Temp))
+            using (var list = new VersionedList<VersionedItem>(Allocator.Temp, 99))
             {
                 for (int i = 0; i < 10; ++i)
                 {
@@ -163,7 +163,7 @@ namespace Unity.DataFlowGraph.Library.Tests
         [Test]
         public void ReleasingValidItem_Throws()
         {
-            using (var list = new VersionedList<VersionedItem>(Allocator.Temp))
+            using (var list = new VersionedList<VersionedItem>(Allocator.Temp, 99))
             {
                 ref var item = ref list.Allocate();
                 item.Valid = true;
@@ -175,7 +175,7 @@ namespace Unity.DataFlowGraph.Library.Tests
         [Test]
         public void CleaningUpItems_IsNotRequired()
         {
-            using (var list = new VersionedList<VersionedItem>(Allocator.Temp))
+            using (var list = new VersionedList<VersionedItem>(Allocator.Temp, 99))
             {
                 list.Allocate();
             }
@@ -184,7 +184,7 @@ namespace Unity.DataFlowGraph.Library.Tests
         [Test]
         public void DefaultConstructedItem_DoesNotExist()
         {
-            using (var list = new VersionedList<VersionedItem>(Allocator.Temp))
+            using (var list = new VersionedList<VersionedItem>(Allocator.Temp, 99))
             {
                 var item = new VersionedItem();
                 Assert.IsFalse(list.Exists(item.VHandle));
@@ -194,7 +194,7 @@ namespace Unity.DataFlowGraph.Library.Tests
         [Test]
         public void VHandleOfFirstAllocation_DoesNotMatchDefaultConstructedItem()
         {
-            using (var list = new VersionedList<VersionedItem>(Allocator.Temp))
+            using (var list = new VersionedList<VersionedItem>(Allocator.Temp, 99))
             {
                 var item = new VersionedItem();
                 var item2 = list.Allocate();
@@ -205,9 +205,24 @@ namespace Unity.DataFlowGraph.Library.Tests
         }
 
         [Test]
+        public void VHandleFromOneList_DoesNotExistInAnother()
+        {
+            using (var list1 = new VersionedList<VersionedItem>(Allocator.Temp, 1))
+            using (var list2 = new VersionedList<VersionedItem>(Allocator.Temp, 2))
+            {
+                var item1 = list1.Allocate();
+                var item2 = list2.Allocate();
+
+                Assert.AreNotEqual(item1.VHandle, item2.VHandle);
+                Assert.IsFalse(list1.Exists(item2.VHandle));
+                Assert.IsFalse(list2.Exists(item1.VHandle));
+            }
+        }
+
+        [Test]
         public void AllocatedItem_DoesNotExist_AfterReleasingIt()
         {
-            using (var list = new VersionedList<VersionedItem>(Allocator.Temp))
+            using (var list = new VersionedList<VersionedItem>(Allocator.Temp, 99))
             {
                 var item = list.Allocate();
 
@@ -220,7 +235,7 @@ namespace Unity.DataFlowGraph.Library.Tests
         [Test]
         unsafe public void AllIndexers_ReturnSameMemoryLocation()
         {
-            using (var list = new VersionedList<VersionedItem>(Allocator.Temp))
+            using (var list = new VersionedList<VersionedItem>(Allocator.Temp, 99))
             {
                 fixed (VersionedItem* item = &list.Allocate())
                 {
@@ -249,7 +264,7 @@ namespace Unity.DataFlowGraph.Library.Tests
 
             int upperBound = 0;
 
-            using (var list = new VersionedList<VersionedItem>(Allocator.Temp))
+            using (var list = new VersionedList<VersionedItem>(Allocator.Temp, 99))
             {
                 for (int i = 0; i < k_Actions; ++i)
                 {

@@ -5,36 +5,38 @@ using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
 using Unity.Jobs.LowLevel.Unsafe;
 using UnityEngine;
-using UnityEngine.Profiling;
+using Unity.Entities;
 
 namespace Unity.DataFlowGraph
 {
+    using Topology = TopologyAPI<ValidatedHandle, InputPortArrayID, OutputPortID>;
     using BufferResizeCommands = BlitList<RenderGraph.BufferResizeStruct>;
     using InputPortUpdateCommands = BlitList<RenderGraph.InputPortUpdateStruct>;
-    using UntypedPortArray = PortArray<DataInput<InvalidFunctionalitySlot, byte>>;
-
-    public enum RenderExecutionModel
-    {
-        /// <summary>
-        /// Every node of execution will be launched in a separate job
-        /// </summary>
-        MaximallyParallel = 0,
-        /// <summary>
-        /// All nodes are executed in a single job
-        /// </summary>
-        SingleThreaded,
-        /// <summary>
-        /// All nodes are executed on the calling thread
-        /// </summary>
-        Synchronous,
-        /// <summary>
-        /// Connected components in the graph will be executed in one job.
-        /// </summary>
-        Islands
-    }
+    using UntypedPortArray = PortArray<DataInput<InvalidDefinitionSlot, byte>>;
 
     partial class NodeSet
     {
+        
+        public enum RenderExecutionModel
+        {
+            /// <summary>
+            /// Every node of execution will be launched in a separate job
+            /// </summary>
+            MaximallyParallel = 0,
+            /// <summary>
+            /// All nodes are executed in a single job
+            /// </summary>
+            SingleThreaded,
+            /// <summary>
+            /// All nodes are executed on the calling thread
+            /// </summary>
+            Synchronous,
+            /// <summary>
+            /// Connected components in the graph will be executed in one job.
+            /// </summary>
+            Islands
+        }
+
         RenderExecutionModel m_Model;
 
         /// <summary>
@@ -62,9 +64,9 @@ namespace Unity.DataFlowGraph
     {
         internal struct BufferResizeStruct
         {
-            public NodeHandle Handle;
+            public ValidatedHandle Handle;
             public int DataPortIndex;
-            public int BufferOffset;
+            public int LocalBufferOffset;
             public int Size;
             public SimpleType ItemType;
         }
@@ -79,7 +81,7 @@ namespace Unity.DataFlowGraph
             };
 
             public UpdateType Operation;
-            public NodeHandle Handle;
+            public ValidatedHandle Handle;
             public int DataPortIndex;
             public ushort SizeOrArrayIndex;
             public void* Data;
@@ -89,48 +91,53 @@ namespace Unity.DataFlowGraph
 
         internal unsafe struct KernelNode
         {
-            public bool AliveInRenderer => Kernel != null && KernelData != null && KernelPorts != null;
-            public NodeHandle Handle;
-            public RenderKernelFunction.BaseKernel* Kernel;
-            public RenderKernelFunction.BaseData* KernelData;
-            public RenderKernelFunction.BasePort* KernelPorts;
+            public bool AliveInRenderer => Instance.Kernel != null;
+            public LLTraitsHandle TraitsHandle;
+            public KernelLayout.Pointers Instance;
+            public ValidatedHandle Handle;
+            public JobHandle Fence;
             // TODO: Get from cached type traits
             public int KernelDataSize;
-            public int TraitsIndex;
-            public JobHandle Fence;
-            public LLTraitsHandle TraitsHandle;
 
             public void FreeInplace()
             {
-                ClearPortAllocations();
-                UnsafeUtility.Free(KernelData, Allocator.Persistent);
-                UnsafeUtility.Free(Kernel, Allocator.Persistent);
-                UnsafeUtility.Free(KernelPorts, Allocator.Persistent);
+                ClearAllocations();
                 this = new KernelNode();
             }
 
-            public void ClearPortAllocations()
+            public void ClearAllocations()
             {
-                // we don't need to keep track, we can just walk over all output ports and free them.
                 ref var traits = ref TraitsHandle.Resolve();
+
+                if(traits.Storage.IsComponentNode)
+                {
+                    InternalComponentNode.GetGraphKernel(Instance.Kernel).Dispose();
+                }
+
+                // we don't need to keep track, we can just walk over all output ports and free them.
                 foreach (var offset in traits.DataPorts.OutputBufferOffsets)
                 {
-                    ref var buffer = ref Unsafe.AsRef<Buffer<byte>>((byte*)KernelPorts + offset);
-                    UnsafeUtility.Free(buffer.Ptr, PortAllocator);
+                    UnsafeUtility.Free(offset.AsUntyped(Instance.Ports).Ptr, PortAllocator);
                 }
 
                 for (int i = 0; i < traits.DataPorts.Inputs.Count; ++i)
                 {
                     ref var portDecl = ref traits.DataPorts.Inputs[i];
-                    void** inputPortPatch = (void**)((byte*)KernelPorts + portDecl.PatchOffset);
-                    if (portDecl.IsArray)
+
+                    if (!portDecl.IsArray)
                     {
-                        ref var portArray = ref Unsafe.AsRef<UntypedPortArray>(inputPortPatch);
-                        UntypedPortArray.Free(ref portArray, PortAllocator);
+                        var inputPortPatch = portDecl.GetPointerToPatch(Instance.Ports);
+
+                        if (DataInputUtility.PortOwnsMemory(inputPortPatch))
+                            UnsafeUtility.Free(*inputPortPatch, PortAllocator);
                     }
-                    else if (DataInputUtility.PortOwnsMemory(inputPortPatch))
-                        UnsafeUtility.Free(*inputPortPatch, PortAllocator);
+                    else 
+                    {
+                        UntypedPortArray.Free(ref portDecl.AsPortArray(Instance.Ports), PortAllocator);
+                    }
                 }
+
+                traits.KernelLayout.Free(Instance, Allocator.Persistent);
             }
         }
 
@@ -141,31 +148,34 @@ namespace Unity.DataFlowGraph
         NativeList<JobHandle> m_BackScheduledJobs;
 
         NodeSet m_Set;
-        TraversalCache m_Cache;
+        internal Topology.TraversalCache Cache;
         internal SharedData m_SharedData;
         // TODO: Test this is in sync with # of kernel nodes
         internal int m_ExistingNodes = 0;
-        RenderExecutionModel m_Model;
-        TopologyCacheAPI.VersionTracker m_PreviousVersion;
+        NodeSet.RenderExecutionModel m_Model;
+        Topology.CacheAPI.VersionTracker m_PreviousVersion;
         bool m_IsRendering;
         AtomicSafetyManager.BufferProtectionScope m_BufferScope;
 
         public RenderGraph(NodeSet set)
         {
             m_Set = set;
-            m_Cache = new TraversalCache(16, TraversalFlags.DataFlow);
+            Cache = new Topology.TraversalCache(
+                16, 
+                (uint)PortDescription.Category.Data | ((uint)PortDescription.Category.Data << (int)PortDescription.CategoryShift.BackConnection), 
+                (uint)PortDescription.Category.Data | ((uint)PortDescription.Category.Data << (int)PortDescription.CategoryShift.FeedbackConnection));
             m_SharedData = new SharedData(32);
-            m_Model = RenderExecutionModel.MaximallyParallel;
+            m_Model = NodeSet.RenderExecutionModel.MaximallyParallel;
             m_IslandFences = new NativeList<JobHandle>(16, Allocator.Persistent);
             m_BackScheduledJobs = new NativeList<JobHandle>(16, Allocator.Persistent);
-            m_PreviousVersion = TopologyCacheAPI.VersionTracker.Create();
+            m_PreviousVersion = Topology.CacheAPI.VersionTracker.Create();
             m_BufferScope = AtomicSafetyManager.BufferProtectionScope.Create();
         }
 
-        public void CopyWorlds(GraphDiff ownedGraphDiff, RenderExecutionModel executionModel, BlitList<DataOutputValue> values, VersionedList<InputBatch> batches)
+        public void CopyWorlds(GraphDiff ownedGraphDiff, JobHandle ecsExternalDependencies, NodeSet.RenderExecutionModel executionModel, VersionedList<DataOutputValue> values, VersionedList<InputBatch> batches)
         {
-            TopologyComputationContext topologyContext = new TopologyComputationContext();
-            NativeArray<NodeHandle> activeNodes = new NativeArray<NodeHandle>();
+            var topologyContext = new Topology.ComputationContext<FlatTopologyMap>();
+            var activeNodes = new NativeArray<ValidatedHandle>();
             var bufferResizeCommands = new BufferResizeCommands();
             var inputPortUpdateCommands = new InputPortUpdateCommands();
 
@@ -181,25 +191,25 @@ namespace Unity.DataFlowGraph
 
             try
             {
-                Profiler.BeginSample("NodeSet.RenderGraph.SyncPreviousRender");
+                Markers.SyncPreviousRenderProfilerMarker.Begin();
                 SyncAnyRendering();
                 ChangeRendererModel(executionModel);
-                Profiler.EndSample();
+                Markers.SyncPreviousRenderProfilerMarker.End();
 
-                Profiler.BeginSample("NodeSet.RenderGraph.AlignWorld");
+                Markers.AlignWorldProfilerMarker.Begin();
                 activeNodes = AlignWorld(ref ownedGraphDiff, out bufferResizeCommands, out inputPortUpdateCommands);
-                Profiler.EndSample();
+                Markers.AlignWorldProfilerMarker.End();
 
-                Profiler.BeginSample("NodeSet.RenderGraph.PrepareGraph");
-                parallelTopology = TopologyComputationContext.InitializeContext(
+                Markers.PrepareGraphProfilerMarker.Begin();
+                parallelTopology = Topology.ComputationContext<FlatTopologyMap>.InitializeContext(
                     internalDependencies,
                     out topologyContext,
-                    m_Set.GetInternalEdges(),
-                    m_Set.GetInternalTopologyIndices(),
-                    m_Cache,
-                    new TopologyComputationContext.NodeArraySource(activeNodes),
+                    m_Set.GetTopologyDatabase(),
+                    m_Set.GetTopologyMap(),
+                    Cache,
+                    activeNodes,
                     m_Set.TopologyVersion,
-                    executionModel
+                    AlgorithmFromModel(executionModel)
                 );
 
                 parallelKernelBlit = CopyDirtyRenderData(internalDependencies, ref ownedGraphDiff, activeNodes);
@@ -213,7 +223,11 @@ namespace Unity.DataFlowGraph
                 parallelTopology = RefreshTopology(parallelTopology, topologyContext);
 
                 m_ExternalDependencies = ComputeValueChunkAndPatchPorts(
-                    JobHandle.CombineDependencies(parallelTopology, parallelInputPortUpdates)
+                    JobHandle.CombineDependencies(
+                        parallelTopology, // Patching ports needs parental information
+                        parallelInputPortUpdates, // Patching ports is ordered after input updates, so they're not necessarily overwritten if assigned
+                        parallelKernelBlit // Compute chunk now reads from kernel data for ecs -> ecs connections
+                    )
                 );
 
                 m_ExternalDependencies = AssignExternalInputDataToPorts(
@@ -221,25 +235,30 @@ namespace Unity.DataFlowGraph
                     batches
                 );
 
-                asyncMemoryCopy = FlushAsyncRequestMemory(parallelResizeBuffers, values);
+                asyncMemoryCopy = ResolveDataOutputsToGraphValues(parallelResizeBuffers, values);
+                
+                m_ExternalDependencies = Utility.CombineDependencies(
+                    m_ExternalDependencies,
+                    ecsExternalDependencies,
+                    parallelKernelBlit,
+                    asyncMemoryCopy
+                );
 
-                m_ExternalDependencies = JobHandle.CombineDependencies(m_ExternalDependencies, parallelKernelBlit, asyncMemoryCopy);
-                Profiler.EndSample();
+                Markers.PrepareGraphProfilerMarker.End();
 
-                Profiler.BeginSample("NodeSet.RenderGraph.RenderWorld");
+                Markers.RenderWorldProfilerMarker.Begin();
                 scheduleDeps = RenderWorld(
                     parallelTopology,
                     m_ExternalDependencies
                 );
+                Markers.RenderWorldProfilerMarker.End();
 
-                Profiler.EndSample();
-
-                Profiler.BeginSample("NodeSet.RenderGraph.PostScheduleTasks");
+                Markers.PostScheduleTasksProfilerMarker.Begin();
                 scheduleDeps = InjectValueDependencies(scheduleDeps, values);
 
                 ComputeOutputDependenciesForInputBatches(scheduleDeps, batches);
                 UpdateTopologyVersion(m_Set.TopologyVersion);
-                Profiler.EndSample();
+                Markers.PostScheduleTasksProfilerMarker.End();
             }
             catch (Exception e)
             {
@@ -260,7 +279,7 @@ namespace Unity.DataFlowGraph
             }
             finally
             {
-                Profiler.BeginSample("NodeSet.RenderGraph.FinalizeParallelTasks");
+                Markers.FinalizeParallelTasksProfilerMarker.Begin();
                 parallelResizeBuffers.Complete();
                 parallelKernelBlit.Complete();
                 parallelTopology.Complete();
@@ -280,11 +299,11 @@ namespace Unity.DataFlowGraph
                 if (inputPortUpdateCommands.IsCreated)
                     inputPortUpdateCommands.Dispose();
 
-                Profiler.EndSample();
+                Markers.FinalizeParallelTasksProfilerMarker.End();
             }
         }
 
-        void UpdateTopologyVersion(TopologyCacheAPI.VersionTracker setTopologyVersion)
+        void UpdateTopologyVersion(Topology.CacheAPI.VersionTracker setTopologyVersion)
         {
             m_PreviousVersion = setTopologyVersion;
         }
@@ -295,7 +314,7 @@ namespace Unity.DataFlowGraph
             ClearNodes();
             m_SharedData.Dispose();
             m_Nodes.Dispose();
-            m_Cache.Dispose();
+            Cache.Dispose();
             m_IslandFences.Dispose();
             m_BufferScope.Dispose();
             m_BackScheduledJobs.Dispose();
@@ -310,7 +329,7 @@ namespace Unity.DataFlowGraph
 
             try
             {
-                job.Cache = m_Cache;
+                job.Cache = Cache;
                 job.Nodes = m_Nodes;
                 job.RenderingMode = m_Model;
                 job.DependencyCombiner = new NativeList<JobHandle>(5, Allocator.TempJob);
@@ -318,9 +337,10 @@ namespace Unity.DataFlowGraph
                 job.Shared = m_SharedData;
                 job.ExternalDependencies = externalDeps;
 
-                Profiler.BeginSample("NodeSet.RenderGraph.WaitForSchedulingDependencies");
+                Markers.WaitForSchedulingDependenciesProfilerMarker.Begin();
                 internalDeps.Complete();
-                Profiler.EndSample();
+
+                Markers.WaitForSchedulingDependenciesProfilerMarker.End(); 
                 // TODO: Change to job.Run() to run it through burst (currently not supported due to faulty detected of main thread).
                 // Next TODO: Change to job.Schedule() if we can ever schedule jobs from non-main thread. This would remove any trace of 
                 // the render graph on the main thread, and still be completely deterministic (although the future logic in copy worlds
@@ -340,7 +360,7 @@ namespace Unity.DataFlowGraph
             return new JobHandle();
         }
 
-        void ChangeRendererModel(RenderExecutionModel model)
+        void ChangeRendererModel(NodeSet.RenderExecutionModel model)
         {
             m_Model = model;
         }
@@ -358,6 +378,11 @@ namespace Unity.DataFlowGraph
             m_SharedData.SafetyManager->BumpTemporaryHandleVersions();
             m_BufferScope.Bump();
             m_IsRendering = false;
+
+            for(int i = 0; i < Cache.Errors.Length; ++i)
+            {
+                Debug.LogError($"NodeSet.RenderGraph.Traversal: {Topology.TraversalCache.FormatError(Cache.Errors[i])}");
+            }
         }
 
         unsafe JobHandle AssignExternalInputDataToPorts(JobHandle deps, VersionedList<InputBatch> batches)
@@ -368,6 +393,7 @@ namespace Unity.DataFlowGraph
             AssignInputBatchJob add;
             add.Nodes = m_Nodes;
             add.Shared = m_SharedData;
+            add.Marker = Markers.AssignInputBatch;
 
             for (int i = 0; i < batches.UncheckedCount; ++i)
             {
@@ -405,7 +431,7 @@ namespace Unity.DataFlowGraph
                     batchDeps.Add(batch.InputDependency);
                 }
 
-                return JobHandleUnsafeUtility.CombineDependencies((JobHandle*)batchDeps.GetUnsafePtr(), batchDeps.Length);
+                return JobHandle.CombineDependencies(batchDeps);
             }
         }
 
@@ -416,6 +442,7 @@ namespace Unity.DataFlowGraph
             RemoveInputBatchJob remove;
             remove.Shared = m_SharedData;
             remove.Nodes = m_Nodes;
+            remove.Marker = Markers.RemoveInputBatch;
 
             for (var i = 0; i < batches.UncheckedCount; i++)
             {
@@ -437,17 +464,17 @@ namespace Unity.DataFlowGraph
             }
         }
 
-        JobHandle FlushAsyncRequestMemory(JobHandle inputDependencies, BlitList<DataOutputValue> values)
+        JobHandle ResolveDataOutputsToGraphValues(JobHandle inputDependencies, VersionedList<DataOutputValue> values)
         {
-            return new FlushGraphValuesJob { Nodes = m_Nodes, Values = values }.Schedule(values.Count, 2, inputDependencies);
+            return new ResolveDataOutputsToGraphValuesJob { Nodes = m_Nodes, Values = values }.Schedule(values.UncheckedCount, 2, inputDependencies);
         }
 
-        JobHandle InjectValueDependencies(JobHandle inputDependencies, BlitList<DataOutputValue> values)
+        JobHandle InjectValueDependencies(JobHandle inputDependencies, VersionedList<DataOutputValue> values)
         {
-            return new CopyValueDependenciesJob { Nodes = m_Nodes, Values = values, Model = m_Model, IslandFences = m_IslandFences }.Schedule(inputDependencies);
+            return new CopyValueDependenciesJob { Nodes = m_Nodes, Values = values, Model = m_Model, IslandFences = m_IslandFences, Marker = Markers.CopyValueDependencies }.Schedule(inputDependencies);
         }
 
-        unsafe JobHandle CopyDirtyRenderData(JobHandle inputDependencies, /* in */ ref GraphDiff ownedGraphDiff, NativeArray<NodeHandle> aliveNodes)
+        unsafe JobHandle CopyDirtyRenderData(JobHandle inputDependencies, /* in */ ref GraphDiff ownedGraphDiff, NativeArray<ValidatedHandle> aliveNodes)
         {
             CopyDirtyRendererDataJob job;
             job.AliveNodes = aliveNodes;
@@ -457,33 +484,59 @@ namespace Unity.DataFlowGraph
             return job.Schedule(aliveNodes.Length, Mathf.Max(10, aliveNodes.Length / JobsUtility.MaxJobThreadCount), inputDependencies);
         }
 
-        JobHandle RefreshTopology(JobHandle dependency, in TopologyComputationContext context)
+        JobHandle RefreshTopology(JobHandle dependency, in Topology.ComputationContext<FlatTopologyMap> context)
         {
-            return TopologyCacheAPI.ScheduleTopologyComputation(dependency, m_Set.TopologyVersion, context);
+            return Topology.CacheAPI.ScheduleTopologyComputation(dependency, m_Set.TopologyVersion, context);
         }
 
-        JobHandle ComputeValueChunkAndPatchPorts(JobHandle input)
+        unsafe JobHandle ComputeValueChunkAndPatchPorts(JobHandle deps)
         {
+            var entityManager = m_Set.HostSystem?.World?.EntityManager;
+
             if (m_Set.TopologyVersion != m_PreviousVersion)
             {
+                // Schedule additional ECS jobs.
+                if(entityManager != null)
+                {
+                    ClearLocalECSInputsAndOutputsJob clearJob;
+                    clearJob.EntityStore = entityManager.EntityComponentStore;
+                    clearJob.KernelNodes = m_Nodes;
+                    clearJob.NodeSetID = m_Set.NodeSetID;
+
+                    deps = clearJob.Schedule(m_Set.HostSystem, deps);
+                }
+
                 ComputeValueChunkAndPatchPortsJob job;
-                job.Cache = m_Cache;
+                job.Cache = Cache;
                 job.Nodes = m_Nodes;
                 job.Shared = m_SharedData;
-                return job.Schedule(m_Cache.Islands, 1, input);
+                job.Marker = Markers.ComputeValueChunkAndResizeBuffers;
+                deps = job.Schedule(Cache.Islands, 1, deps);
             }
 
-            return input;
+            if (entityManager != null)
+            {
+                RepatchDFGInputsIfNeededJob ecsPatchJob;
+
+                ecsPatchJob.EntityStore = entityManager.EntityComponentStore;
+                ecsPatchJob.KernelNodes = m_Nodes;
+                ecsPatchJob.NodeSetID = m_Set.NodeSetID;
+                ecsPatchJob.Shared = m_SharedData;
+
+                deps = ecsPatchJob.Schedule(m_Set.HostSystem, deps);
+            }
+
+            return deps;
         }
 
         JobHandle ResizeDataPortBuffers(JobHandle dependency, BufferResizeCommands bufferResizeCommands)
         {
-            return new ResizeOutputDataPortBuffers { OwnedCommands = bufferResizeCommands, Nodes = m_Nodes }.Schedule(dependency);
+            return new ResizeOutputDataPortBuffers { OwnedCommands = bufferResizeCommands, Nodes = m_Nodes, Marker = Markers.ResizeOutputDataBuffers }.Schedule(dependency);
         }
 
         JobHandle InputPortUpdates(JobHandle dependency, InputPortUpdateCommands inputPortUpdateCommands)
         {
-            return new UpdateInputDataPort { OwnedCommands = inputPortUpdateCommands, Nodes = m_Nodes, Shared = m_SharedData }.Schedule(dependency);
+            return new UpdateInputDataPort { OwnedCommands = inputPortUpdateCommands, Nodes = m_Nodes, Shared = m_SharedData, Marker = Markers.UpdateInputDataPorts }.Schedule(dependency);
         }
 
         static unsafe void* AllocateAndCopyData(void* data, SimpleType type)
@@ -503,7 +556,7 @@ namespace Unity.DataFlowGraph
             return dataCopy;
         }
 
-        NativeArray<NodeHandle> AlignWorld(/* in */ ref GraphDiff ownedGraphDiff, out BufferResizeCommands bufferResizeCommands, out InputPortUpdateCommands inputPortUpdateCommands)
+        NativeArray<ValidatedHandle> AlignWorld(/* in */ ref GraphDiff ownedGraphDiff, out BufferResizeCommands bufferResizeCommands, out InputPortUpdateCommands inputPortUpdateCommands)
         {
             var simulationNodes = m_Set.GetInternalData();
             var llTraits = m_Set.GetLLTraits();
@@ -522,20 +575,25 @@ namespace Unity.DataFlowGraph
                     {
                         var args = ownedGraphDiff.ResizedDataBuffers[ownedGraphDiff.Commands[i].ContainerIndex];
 
-                        ref var node = ref simulationNodes[args.handle.VHandle.Index];
+                        // Avoid nodes that never existed, because they were deleted in the same batch...
+                        if (!m_Set.StillExists(args.Source.Handle))
+                            break;
+
+                        ref var node = ref simulationNodes[args.Source.Handle.VHandle.Index];
                         ref var traits = ref llTraits[node.TraitsIndex].Resolve();
 
-                        var outputs = traits.DataPorts.Outputs;
+                        var portNumber = traits.DataPorts.FindOutputDataPortNumber(args.Source.Port);
 
-                        // convert the "global" port id into local list of data port buffers
-                        for (int p = 0; p < outputs.Count; ++p)
-                        {
-                            if (outputs[p].PortNumber == args.port)
-                            {
-                                bufferResizeCommands.Add(new BufferResizeStruct { Handle = args.handle, DataPortIndex = p, BufferOffset = args.BufferOffset, Size = args.NewSize, ItemType = args.ItemType });
-                                break;
+                        bufferResizeCommands.Add(
+                            new BufferResizeStruct {
+                                Handle = args.Source.Handle,
+                                DataPortIndex = portNumber,
+                                LocalBufferOffset = args.LocalBufferOffset,
+                                Size = args.NewSize,
+                                ItemType = args.ItemType
                             }
-                        }
+                        );
+
                         break;
                     }
                     case GraphDiff.Command.ResizePortArray:
@@ -543,23 +601,23 @@ namespace Unity.DataFlowGraph
                         var args = ownedGraphDiff.ResizedPortArrays[ownedGraphDiff.Commands[i].ContainerIndex];
 
                         // Avoid nodes that never existed, because they were deleted in the same batch...
-                        if (!m_Set.Exists(args.handle))
+                        if (!m_Set.StillExists(args.Destination.Handle))
                             break;
 
-                        ref var node = ref simulationNodes[args.handle.VHandle.Index];
+                        ref var node = ref simulationNodes[args.Destination.Handle.VHandle.Index];
                         ref var traits = ref llTraits[node.TraitsIndex].Resolve();
 
-                        var inputs = traits.DataPorts.Inputs;
+                        var portNumber = traits.DataPorts.FindInputDataPortNumber(args.Destination.Port.PortID);
 
-                        // convert the "global" port id into local list of data port buffers
-                        for (int p = 0; p < inputs.Count; ++p)
-                        {
-                            if (inputs[p].PortNumber == args.port)
-                            {
-                                inputPortUpdateCommands.Add(new InputPortUpdateStruct { Operation = InputPortUpdateStruct.UpdateType.PortArrayResize, Handle = args.handle, DataPortIndex = p, SizeOrArrayIndex = args.NewSize });
-                                break;
+                        inputPortUpdateCommands.Add(
+                            new InputPortUpdateStruct {
+                                Operation = InputPortUpdateStruct.UpdateType.PortArrayResize,
+                                Handle = args.Destination.Handle,
+                                DataPortIndex = portNumber,
+                                SizeOrArrayIndex = args.NewSize
                             }
-                        }
+                        );
+
                         break;
                     }
                     case GraphDiff.Command.Create:
@@ -568,10 +626,10 @@ namespace Unity.DataFlowGraph
                         ref var node = ref simulationNodes[handle.VHandle.Index];
 
                         // Avoid constructing nodes that never existed, because they were deleted in the same batch...
-                        if (m_Set.Exists(handle))
+                        if (m_Set.StillExists(handle))
                         {
 
-                            if (Exists(handle))
+                            if (StillExists(handle))
                             {
                                 // TODO: This is an error condition that will only happen if worlds 
                                 // are misaligned; provided not to crash right now
@@ -591,7 +649,7 @@ namespace Unity.DataFlowGraph
 
                         // Only destroy the ones that for sure exist in our set (destroyed nodes can also be 
                         // non-kernel, which we don't care about)
-                        if (Exists(handleAndIndex.Handle))
+                        if (StillExists(handleAndIndex.Handle))
                         {
                             Destruct(handleAndIndex.Handle);
                         }
@@ -603,33 +661,29 @@ namespace Unity.DataFlowGraph
                         var args = ownedGraphDiff.MessagesArrivingAtDataPorts[ownedGraphDiff.Commands[i].ContainerIndex];
 
                         // Avoid messaging nodes that never existed, because they were deleted in the same batch...
-                        if (!m_Set.Exists(args.handle))
+                        if (!m_Set.StillExists(args.Destination.Handle))
                         {
                             UnsafeUtility.Free(args.msg, PortAllocator);
                             break;
                         }
 
-                        ref var node = ref simulationNodes[args.handle.VHandle.Index];
+                        ref var node = ref simulationNodes[args.Destination.Handle.VHandle.Index];
                         ref var traits = ref llTraits[node.TraitsIndex].Resolve();
 
-                        var inputs = traits.DataPorts.Inputs;
+                        var portNumber = traits.DataPorts.FindInputDataPortNumber(args.Destination.Port.PortID);
 
-                        // convert the "global" port id into local list of data port buffers
-                        int p;
-                        for (p = 0; p < inputs.Count; ++p)
-                        {
-                            if (inputs[p].PortNumber == args.port.PortID)
-                            {
-                                var op = args.msg == null
-                                    ? InputPortUpdateStruct.UpdateType.RetainData
-                                    : InputPortUpdateStruct.UpdateType.SetData;
-                                inputPortUpdateCommands.Add(new InputPortUpdateStruct { Operation = op, Handle = args.handle, DataPortIndex = p, SizeOrArrayIndex = args.port.IsArray ? args.port.ArrayIndex : (ushort)0, Data = args.msg });
-                                break;
+                        var op = args.msg == null ? InputPortUpdateStruct.UpdateType.RetainData : InputPortUpdateStruct.UpdateType.SetData;
+
+                        inputPortUpdateCommands.Add(
+                            new InputPortUpdateStruct {
+                                Operation = op,
+                                Handle = args.Destination.Handle,
+                                DataPortIndex = portNumber,
+                                SizeOrArrayIndex = args.Destination.Port.IsArray ? args.Destination.Port.ArrayIndex : (ushort)0,
+                                Data = args.msg
                             }
-                        }
-                        // This should never hapen.
-                        if (p >= inputs.Count)
-                            throw new InvalidOperationException("Could not map global port id to local data port index");
+                        );
+
                         break;
                     }
                     default:
@@ -637,23 +691,24 @@ namespace Unity.DataFlowGraph
                 }
             }
 
-            var array = new NativeArray<NodeHandle>(m_ExistingNodes, Allocator.TempJob);
+            var array = new NativeArray<ValidatedHandle>(m_ExistingNodes, Allocator.TempJob);
 
             // It's just way faster in Burst.
             AnalyseLiveNodes liveNodesJob;
             liveNodesJob.KernelNodes = m_Nodes;
             liveNodesJob.LiveNodes = array;
-            liveNodesJob.Schedule().Complete();
+            liveNodesJob.Marker = Markers.AnalyseLiveNodes;
+            liveNodesJob.Run();
 
             return array;
         }
 
-        bool Exists(NodeHandle handle)
+        bool StillExists(ValidatedHandle handle)
         {
-            return Exists(ref m_Nodes, handle);
+            return StillExists(ref m_Nodes, handle);
         }
 
-        internal static bool Exists(ref BlitList<KernelNode> nodes, NodeHandle handle)
+        internal static bool StillExists(ref BlitList<KernelNode> nodes, ValidatedHandle handle)
         {
             if (handle.VHandle.Index >= nodes.Count)
                 return false;
@@ -662,38 +717,38 @@ namespace Unity.DataFlowGraph
             return knode.AliveInRenderer && knode.Handle == handle;
         }
 
-        void Destruct(NodeHandle handle)
+        void Destruct(ValidatedHandle handle)
         {
             m_Nodes[handle.VHandle.Index].FreeInplace();
             m_ExistingNodes--;
         }
 
-        unsafe void Construct((NodeHandle handle, int traitsIndex, LLTraitsHandle traitsHandle) args)
+        unsafe void Construct((ValidatedHandle handle, int traitsIndex, LLTraitsHandle traitsHandle) args)
         {
             var index = args.handle.VHandle.Index;
             m_Nodes.EnsureSize(index + 1);
             ref var node = ref m_Nodes[index];
             ref var traits = ref args.traitsHandle.Resolve();
 
-            // TODO: Compact into one allocation (maybe, and then offset ptrs)
-            node.KernelData = (RenderKernelFunction.BaseData*)Utility.CAlloc(traits.Storage.KernelData, Allocator.Persistent);
-            node.Kernel = (RenderKernelFunction.BaseKernel*)Utility.CAlloc(traits.Storage.Kernel, Allocator.Persistent);
-            node.KernelPorts = (RenderKernelFunction.BasePort*)Utility.CAlloc(traits.Storage.KernelPorts, Allocator.Persistent);
+            node.Instance = traits.KernelLayout.Allocate(Allocator.Persistent);
             node.KernelDataSize = traits.Storage.KernelData.Size;
 
             // Assign owner IDs to data output buffers
             foreach (var offset in traits.DataPorts.OutputBufferOffsets)
             {
-                ref var buffer = ref Unsafe.AsRef<Buffer<byte>>((byte*)node.KernelPorts + offset);
-                buffer = new Buffer<byte>(null, 0, args.handle);
+                offset.AsUntyped(node.Instance.Ports) = new BufferDescription(null, 0, args.handle);
             }
 
             // TODO: Investigate why this needs to happen. The job system doesn't seem to do proper version validation.
             node.Fence = new JobHandle();
-            // Remove this.
-            node.TraitsIndex = args.traitsIndex;
             node.TraitsHandle = args.traitsHandle;
             node.Handle = args.handle;
+
+            if(traits.Storage.IsComponentNode)
+            {
+                InternalComponentNode.GetGraphKernel(node.Instance.Kernel).Create();
+            }
+
             m_ExistingNodes++;
         }
 

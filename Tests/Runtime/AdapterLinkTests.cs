@@ -5,9 +5,7 @@ namespace Unity.DataFlowGraph.Tests
 {
     public class AdapterLinkTests
     {
-        struct Data : INodeData { }
-
-        class TestNode : NodeDefinition<Data> { }
+        class TestNode : NodeDefinition<EmptyPorts> { }
 
         [Test]
         public void AdaptHandle_DoesNotThrow_OnInvalidAndDestroyedNodes()

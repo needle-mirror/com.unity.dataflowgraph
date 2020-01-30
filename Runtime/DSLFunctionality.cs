@@ -20,6 +20,7 @@ namespace Unity.DataFlowGraph
     /// implement so that the <see cref="DSLHandler{TDSLInterface}"/> can interact with them.
     /// </typeparam>
     public abstract class DSLHandler<TDSLInterface> : IDSLHandler
+        where TDSLInterface : class
     {
         protected struct ConnectionInfo
         {
@@ -30,22 +31,65 @@ namespace Unity.DataFlowGraph
 
         public void Connect(NodeSet set, NodeHandle source, OutputPortID sourcePort, NodeHandle destination, InputPortID destinationPort)
         {
-            var srcNodeFunc = set.GetFunctionality(source);
-            var destNodeFunc = set.GetFunctionality(destination);
+            var srcNodeFunc = set.GetDefinition(source);
+            var destNodeFunc = set.GetDefinition(destination);
+
+            var srcNodeDSL = set.GetDefinition(source) as TDSLInterface;
+            var destNodeDSL = set.GetDefinition(destination) as TDSLInterface;
+
+            if (srcNodeDSL == null || destNodeDSL == null)
+                throw new InvalidCastException();
+
             Connect(
-                new ConnectionInfo { Handle = source, Interface = (TDSLInterface)srcNodeFunc, DSLPortIndex = GetDSLPortIndex(sourcePort, srcNodeFunc.GetPortDescription(source).Outputs.Cast<PortDescription.IPort<OutputPortID>>()) },
-                new ConnectionInfo { Handle = destination, Interface = (TDSLInterface)destNodeFunc, DSLPortIndex = GetDSLPortIndex(destinationPort, destNodeFunc.GetPortDescription(destination).Inputs.Cast<PortDescription.IPort<InputPortID>>()) }
+                new ConnectionInfo {
+                    Handle = source,
+                    Interface = srcNodeDSL,
+                    DSLPortIndex = GetDSLPortIndex(
+                        sourcePort, 
+                        srcNodeFunc.GetPortDescription(source).Outputs.Cast<PortDescription.IPort<OutputPortID>>()
+                    )
+                },
+                new ConnectionInfo {
+                    Handle = destination,
+                    Interface = destNodeDSL,
+                    DSLPortIndex = GetDSLPortIndex(
+                        destinationPort, 
+                        destNodeFunc.GetPortDescription(destination).Inputs.Cast<PortDescription.IPort<InputPortID>>()
+                    )
+                }
             );
         }
 
         public void Disconnect(NodeSet set, NodeHandle source, OutputPortID sourcePort, NodeHandle destination, InputPortID destinationPort)
         {
-            var srcNodeFunc = set.GetFunctionality(source);
-            var destNodeFunc = set.GetFunctionality(destination);
+            var srcNodeFunc = set.GetDefinition(source);
+            var destNodeFunc = set.GetDefinition(destination);
+
+            var srcNodeDSL = set.GetDefinition(source) as TDSLInterface;
+            var destNodeDSL = set.GetDefinition(destination) as TDSLInterface;
+
+            if (srcNodeDSL == null || destNodeDSL == null)
+                throw new InvalidCastException();
+
             Disconnect(
-                new ConnectionInfo { Handle = source, Interface = (TDSLInterface)srcNodeFunc, DSLPortIndex = GetDSLPortIndex(sourcePort, srcNodeFunc.GetPortDescription(source).Outputs.Cast<PortDescription.IPort<OutputPortID>>()) },
-                new ConnectionInfo { Handle = destination, Interface = (TDSLInterface)destNodeFunc, DSLPortIndex = GetDSLPortIndex(destinationPort, destNodeFunc.GetPortDescription(destination).Inputs.Cast<PortDescription.IPort<InputPortID>>()) }
-            );
+                new ConnectionInfo
+                {
+                    Handle = source,
+                    Interface = srcNodeDSL,
+                    DSLPortIndex = GetDSLPortIndex(
+                        sourcePort,
+                        srcNodeFunc.GetPortDescription(source).Outputs.Cast<PortDescription.IPort<OutputPortID>>()
+                    )
+                },
+                new ConnectionInfo
+                {
+                    Handle = destination,
+                    Interface = destNodeDSL,
+                    DSLPortIndex = GetDSLPortIndex(
+                        destinationPort,
+                        destNodeFunc.GetPortDescription(destination).Inputs.Cast<PortDescription.IPort<InputPortID>>()
+                    )
+                });
         }
 
         protected abstract void Connect(ConnectionInfo left, ConnectionInfo right);
@@ -58,7 +102,7 @@ namespace Unity.DataFlowGraph
 
             foreach (var p in ports)
             {
-                if (p.PortUsage == Usage.DomainSpecific &&
+                if (p.Category == PortDescription.Category.DomainSpecific &&
                     p.Type == GetType())
                 {
                     if (p.Equals(port))
@@ -85,7 +129,7 @@ namespace Unity.DataFlowGraph
                 // FIXME: IWBN to get rid of this variant of GetDSLHandler taking a runtime type and exclusively use
                 // the generic method version which has a constraint requiring interface IDSLHandler
                 if (!typeof(IDSLHandler).IsAssignableFrom(type))
-                    throw new ArgumentException($"Cannot get DSL functionality for non IDSLHandler type ({type})");
+                    throw new ArgumentException($"Cannot get DSL handler for non IDSLHandler type ({type})");
 
                 handler = m_ConnectionHandlerMap[type] = (IDSLHandler)Activator.CreateInstance(type);
             }

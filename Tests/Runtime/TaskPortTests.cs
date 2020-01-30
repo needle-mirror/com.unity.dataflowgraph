@@ -12,9 +12,9 @@ namespace Unity.DataFlowGraph.Tests
         // Test that you cannot connect multiple outputs to a single input for data kernels
 
         public static (NodeHandle<T> Node, T Class) GetNodeAndClass<T>(NodeSet set)
-            where T : INodeDefinition, new()
+            where T : NodeDefinition, new()
         {
-            return (set.Create<T>(), set.GetFunctionality<T>());
+            return (set.Create<T>(), set.GetDefinition<T>());
         }
 
         public struct MessageContent
@@ -60,7 +60,7 @@ namespace Unity.DataFlowGraph.Tests
                 var a = GetNodeAndClass<MessageOutputNode>(set);
                 NodeHandle b = set.Create<MessageTaskPortHandlerNode>();
 
-                var f = set.GetFunctionality<MessageTaskPortHandlerNode>();
+                var f = set.GetDefinition<MessageTaskPortHandlerNode>();
                 set.Connect(a.Node, a.Class.GetPortDescription(a.Node).Outputs[0], b, f.GetPort(b));
 
                 set.Destroy(a.Node, b);
@@ -240,7 +240,7 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        class EmptyNode : NodeDefinition<NodeData>
+        class EmptyNode : NodeDefinition<EmptyPorts>
         {
         }
 

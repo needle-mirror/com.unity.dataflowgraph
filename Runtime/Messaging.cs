@@ -2,8 +2,10 @@ using System;
 
 namespace Unity.DataFlowGraph
 {
+    using Topology = TopologyAPI<NodeHandle, InputPortArrayID, OutputPortID>;
+
     /// <summary>
-    /// A context provided to a node's <see cref="INodeFunctionality.OnMessage"/> implementation which is invoked when a
+    /// A context provided to a node's <see cref="NodeDefinition.OnMessage"/> implementation which is invoked when a
     /// node receives a message on one of their MessageInputs.
     /// </summary>
     public readonly struct MessageContext
@@ -11,7 +13,7 @@ namespace Unity.DataFlowGraph
         /// <summary>
         /// A handle to the node receiving a message.
         /// </summary>
-        public readonly NodeHandle Handle;
+        public NodeHandle Handle => m_Handle.ToPublicHandle();
 
         /// <summary>
         /// The port ID of the <see cref="MessageInput{TDefinition, TMsg}"/> on which the message is being received.
@@ -33,12 +35,41 @@ namespace Unity.DataFlowGraph
             }
         }
 
-        readonly InputPortArrayID m_IndexedPort;
-
-        internal MessageContext(NodeHandle handle, InputPortArrayID port)
+        /// <summary>
+        /// Emit a message from yourself on a port. Everything connected to it
+        /// will receive your message.
+        /// </summary>
+        public void EmitMessage<T, TNodeDefinition>(MessageOutput<TNodeDefinition, T> port, in T msg)
+            where TNodeDefinition : NodeDefinition
         {
-            Handle = handle;
-            m_IndexedPort = port;
+            m_Set.EmitMessage(m_Handle, port.Port, msg);
+        }
+
+        readonly InputPortArrayID m_IndexedPort;
+        readonly ValidatedHandle m_Handle;
+        readonly NodeSet m_Set;
+
+        internal MessageContext(NodeSet set, in InputPair dest)
+        {
+            m_Set = set;
+            m_IndexedPort = dest.Port;
+            m_Handle = dest.Handle;
+        }
+
+        /// <summary>
+        /// Careful!!! No guarantee for the handle & port ID to pair up.
+        /// <seealso cref="InputPair"/>
+        /// </summary>
+        internal static MessageContext CreateUnverified(NodeSet set, ValidatedHandle handle, InputPortArrayID id)
+        {
+            return new MessageContext(set, handle, id);
+        }
+
+        MessageContext(NodeSet set, ValidatedHandle handle, InputPortArrayID id)
+        {
+            m_Set = set;
+            m_IndexedPort = id;
+            m_Handle = handle;
         }
     }
 
@@ -78,7 +109,7 @@ namespace Unity.DataFlowGraph
         /// targeting a port array with an index parameter.
         /// </summary>
         /// <exception cref="IndexOutOfRangeException">Thrown if the index is out of range with respect to the port array.</exception>
-        public void SendMessage<TMsg>(NodeHandle handle, InputPortID portArray, ushort index, in TMsg msg)
+        public void SendMessage<TMsg>(NodeHandle handle, InputPortID portArray, int index, in TMsg msg)
         {
             SendMessage(handle, new InputPortArrayID(portArray, index), msg);
         }
@@ -87,7 +118,7 @@ namespace Unity.DataFlowGraph
         /// See <see cref="SendMessage{TMsg}(Unity.DataFlowGraph.NodeHandle,Unity.DataFlowGraph.InputPortID,TMsg)"/>
         /// </summary>
         public void SendMessage<TMsg, TDefinition>(NodeHandle<TDefinition> handle, MessageInput<TDefinition, TMsg> port, in TMsg msg)
-            where TDefinition : INodeDefinition, IMsgHandler<TMsg>, new()
+            where TDefinition : NodeDefinition, IMsgHandler<TMsg>
         {
             SendMessage(handle, new InputPortArrayID((InputPortID)port), msg);
         }
@@ -97,24 +128,24 @@ namespace Unity.DataFlowGraph
         /// targeting a port array with an index parameter.
         /// </summary>
         /// <exception cref="IndexOutOfRangeException">Thrown if the index is out of range with respect to the port array.</exception>
-        public void SendMessage<TMsg, TDefinition>(NodeHandle<TDefinition> handle, PortArray<MessageInput<TDefinition, TMsg>> portArray, ushort index, in TMsg msg)
-            where TDefinition : INodeDefinition, IMsgHandler<TMsg>, new()
+        public void SendMessage<TMsg, TDefinition>(NodeHandle<TDefinition> handle, PortArray<MessageInput<TDefinition, TMsg>> portArray, int index, in TMsg msg)
+            where TDefinition : NodeDefinition, IMsgHandler<TMsg>
         {
             SendMessage(handle, new InputPortArrayID((InputPortID)portArray, index), msg);
         }
 
         public void SendMessage<TTask, TMsg, TDestination>(NodeInterfaceLink<TTask, TDestination> handle, in TMsg msg)
             where TTask : ITaskPort<TTask>
-            where TDestination : TTask, INodeDefinition, IMsgHandler<TMsg>
+            where TDestination : NodeDefinition, TTask, IMsgHandler<TMsg>, new()
         {
-            var f = (TTask)GetFunctionality(handle);
+            var f = GetDefinition(handle.TypedHandle);
             SendMessage(handle, f.GetPort(handle), msg);
         }
 
         public void SendMessage<TTask, TMsg>(NodeInterfaceLink<TTask> handle, in TMsg msg)
             where TTask : ITaskPort<TTask>
         {
-            var f = GetFunctionality(handle);
+            var f = GetDefinition(handle);
             if (f is TTask task)
             {
                 SendMessage(handle, task.GetPort(handle), msg);
@@ -148,7 +179,7 @@ namespace Unity.DataFlowGraph
         /// targeting a port array with an index parameter.
         /// </summary>
         /// <exception cref="IndexOutOfRangeException">Thrown if the index is out of range with respect to the port array.</exception>
-        public void SetData<TType>(NodeHandle handle, InputPortID portArray, ushort index, in TType data)
+        public void SetData<TType>(NodeHandle handle, InputPortID portArray, int index, in TType data)
             where TType : struct
         {
             SetData(handle, new InputPortArrayID(portArray, index), data);
@@ -158,7 +189,7 @@ namespace Unity.DataFlowGraph
         /// See <see cref="SetData{TType}(Unity.DataFlowGraph.NodeHandle,Unity.DataFlowGraph.InputPortID,TType)"/>
         /// </summary>
         public void SetData<TType, TDefinition>(NodeHandle<TDefinition> handle, DataInput<TDefinition, TType> port, in TType data)
-            where TDefinition : INodeDefinition, new()
+            where TDefinition : NodeDefinition
             where TType : struct
         {
             SetData(handle, new InputPortArrayID(port.Port), data);
@@ -169,47 +200,45 @@ namespace Unity.DataFlowGraph
         /// targeting a port array with an index parameter.
         /// </summary>
         /// <exception cref="IndexOutOfRangeException">Thrown if the index is out of range with respect to the port array.</exception>
-        public void SetData<TType, TDefinition>(NodeHandle<TDefinition> handle, PortArray<DataInput<TDefinition, TType>> portArray, ushort index, in TType data)
-            where TDefinition : INodeDefinition, new()
+        public void SetData<TType, TDefinition>(NodeHandle<TDefinition> handle, PortArray<DataInput<TDefinition, TType>> portArray, int index, in TType data)
+            where TDefinition : NodeDefinition
             where TType : struct
         {
             SetData(handle, new InputPortArrayID(portArray.Port, index), data);
         }
 
-        internal void EmitMessage<TMsg>(NodeHandle handle, OutputPortID port, in TMsg msg)
+        internal void EmitMessage<TMsg>(ValidatedHandle handle, OutputPortID port, in TMsg msg)
         {
-            // TODO: Internal code path, should not be needed...
-            NodeVersionCheck(handle.VHandle);
-
-            ref var topology = ref m_Topology.Indexes[handle.VHandle.Index];
+            if (!StillExists(handle))
+                throw new InvalidOperationException("Cannot emit a message from a destroyed node");
 
             bool foundAnyValidConnections = false;
 
-            for (var it = topology.OutputHeadConnection; it != TopologyDatabase.InvalidConnection; it = m_Topology.Connections[it].NextOutputConnection)
+            for(var it = m_Topology[handle].OutputHeadConnection; it != Topology.Database.InvalidConnection; it = m_Database[it].NextOutputConnection)
             {
-                ref var connection = ref m_Topology.Connections[it];
+                ref readonly var connection = ref m_Database[it];
 
-                if (connection.SourceOutputPort != port || connection.ConnectionType != TraversalFlags.Message)
+                if (connection.SourceOutputPort != port || connection.TraversalFlags != (uint)PortDescription.Category.Message)
                     continue;
 
                 foundAnyValidConnections = true;
 
-                ref var childNodeData = ref m_Nodes[connection.DestinationHandle.VHandle.Index];
-                var functionality = m_NodeFunctionalities[childNodeData.TraitsIndex];
+                ref var childNodeData = ref GetNode(connection.Destination);
+                var definition = m_NodeDefinitions[childNodeData.TraitsIndex];
 
-                functionality.OnMessage(new MessageContext(new NodeHandle(childNodeData.VHandle), connection.DestinationInputPort), msg);
+                definition.OnMessage(MessageContext.CreateUnverified(this, childNodeData.Self, connection.DestinationInputPort), msg);
             }
 
             if (!foundAnyValidConnections)
             {
-                for (var fP = m_Nodes[handle.VHandle.Index].ForwardedPortHead; fP != ForwardPortHandle.Invalid; fP = m_ForwardingTable[fP].NextIndex)
+                for (var fP = GetNode(handle).ForwardedPortHead; fP != ForwardPortHandle.Invalid; fP = m_ForwardingTable[fP].NextIndex)
                 {
                     ref var forward = ref m_ForwardingTable[fP];
 
                     if (forward.IsInput)
                         continue;
 
-                    // Forwarded port list are monotonically increasing by port, so we can break out early
+                    // Forwarded port list are monotonically increasing by port, so we can break out early	
                     if (forward.GetOriginPortCounter() > port.Port)
                         break;
 
@@ -220,92 +249,68 @@ namespace Unity.DataFlowGraph
         }
 
         void SendMessage<TMsg, TDefinition>(NodeHandle<TDefinition> handle, InputPortArrayID port, in TMsg msg)
-            where TDefinition : INodeDefinition, IMsgHandler<TMsg>, new()
+            where TDefinition : NodeDefinition, IMsgHandler<TMsg>
         {
-            NodeVersionCheck(handle.VHandle);
-
-            NodeHandle resolvedHandle = handle;
-            ResolvePublicDestination(ref resolvedHandle, ref port);
-
-            if (port.IsArray && port.ArrayIndex >= GetPortArraySize_Unchecked(resolvedHandle, port.PortID))
-                throw new IndexOutOfRangeException("PortArray index out of bounds.");
-
-            var functionality = m_NodeFunctionalities[m_Nodes[resolvedHandle.VHandle.Index].TraitsIndex];
-            functionality.OnMessage(new MessageContext(resolvedHandle, port), msg);
+            var destination = new InputPair(this, handle, port);
+            CheckPortArrayBounds(destination);
+            GetDefinitionInternal(destination.Handle).OnMessage(new MessageContext(this, destination), msg);
         }
 
         void SendMessage<TMsg>(NodeHandle handle, InputPortArrayID port, in TMsg msg)
         {
-            NodeVersionCheck(handle.VHandle);
+            var destination = new InputPair(this, handle, port);
 
-            ResolvePublicDestination(ref handle, ref port);
-
-            var functionality = m_NodeFunctionalities[m_Nodes[handle.VHandle.Index].TraitsIndex];
-
-            var portDef = functionality.GetPortDescription(handle).Inputs[port.PortID.Port];
+            var definition = GetDefinitionInternal(destination.Handle);
+            var portDef = GetFormalPort(destination);
 
             if (portDef.IsPortArray != port.IsArray)
                 throw new InvalidOperationException(portDef.IsPortArray
                     ? "An array index is required when sending a message to an array port."
                     : "An array index can only be given when sending a message to an array port.");
 
-            if (portDef.PortUsage != Usage.Message)
+            if (portDef.Category != PortDescription.Category.Message)
                 throw new InvalidOperationException($"Cannot send a message to a non-message typed port.");
 
-            if (port.IsArray && port.ArrayIndex >= GetPortArraySize_Unchecked(handle, port.PortID))
-                throw new IndexOutOfRangeException("PortArray index out of bounds.");
+            CheckPortArrayBounds(destination);
 
-            functionality.OnMessage(new MessageContext(handle, port), msg);
+            definition.OnMessage(new MessageContext(this, destination), msg);
         }
 
         void SetData<TType, TDefinition>(NodeHandle<TDefinition> handle, InputPortArrayID port, in TType data)
-            where TDefinition : INodeDefinition, new()
+            where TDefinition : NodeDefinition
             where TType : struct
         {
-            NodeHandle nHandle = handle;
-            NodeVersionCheck(nHandle.VHandle);
+            var destination = new InputPair(this, handle, port);
 
-            var portDef = GetFunctionality(handle).GetPortDescription(handle).Inputs[port.PortID.Port];
-            if (portDef.HasBuffers)
+            if (GetFormalPort(destination).HasBuffers)
                 throw new InvalidOperationException($"Cannot set data on a data port which includes buffers");
 
-            SetDataOnValidatedPort(nHandle, port, data);
+            SetDataOnValidatedPort(destination, data);
         }
 
-        unsafe void SetDataOnValidatedPort<TType>(NodeHandle handle, InputPortArrayID port, in TType data)
+        unsafe void SetDataOnValidatedPort<TType>(in InputPair destination, in TType data)
             where TType : struct
         {
-            ResolvePublicDestination(ref handle, ref port);
+            CheckPortArrayBounds(destination);
 
-            if (port.IsArray && port.ArrayIndex >= GetPortArraySize_Unchecked(handle, port.PortID))
-                throw new IndexOutOfRangeException();
-
-            ref var topo = ref m_Topology.Indexes[handle.VHandle.Index];
-            var it = topo.InputHeadConnection;
-            while (true)
+            for (var it = m_Topology[destination.Handle].InputHeadConnection; it != InvalidConnection; it = m_Database[it].NextInputConnection)
             {
-                ref var connection = ref m_Topology.Connections[it];
-                if (!connection.Valid)
-                    break;
-
-                if (connection.DestinationInputPort == port)
+                if (m_Database[it].DestinationInputPort == destination.Port)
                     throw new InvalidOperationException("Cannot send data to an already connected Data input port");
-
-                it = connection.NextInputConnection;
             }
 
             // Allocate and copy data and give ownership to the graph diff which will ultimately transfer ownership to the KernelNode.
-            m_Diff.SetData(handle, port, RenderGraph.AllocateAndCopyData(data));
+            m_Diff.SetData(destination, RenderGraph.AllocateAndCopyData(data));
         }
 
         void SetData<TType>(NodeHandle handle, InputPortArrayID port, in TType data)
             where TType : struct
         {
-            NodeVersionCheck(handle.VHandle);
+            var destination = new InputPair(this, handle, port);
 
-            var portDef = GetFunctionality(handle).GetPortDescription(handle).Inputs[port.PortID.Port];
+            var portDef = GetFormalPort(destination);
 
-            if (portDef.PortUsage != Usage.Data)
+            if (portDef.Category != PortDescription.Category.Data)
                 throw new InvalidOperationException("Cannot set data on a non-data port");
 
             if (portDef.HasBuffers)
@@ -320,7 +325,7 @@ namespace Unity.DataFlowGraph
                     ? "An array index is required when setting data on an array port."
                     : "An array index can only be given when setting data on an array port.");
 
-            SetDataOnValidatedPort(handle, port, data);
+            SetDataOnValidatedPort(destination, data);
         }
     }
 

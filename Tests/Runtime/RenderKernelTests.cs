@@ -95,11 +95,15 @@ namespace Unity.DataFlowGraph.Tests
 
         [Test]
         public void TestUserNodes_DoRunInsideBurst(
-            [Values] RenderExecutionModel model
+            [Values] NodeSet.RenderExecutionModel model
             )
         {
             if(!BurstConfig.IsBurstEnabled)
                 Assert.Ignore("Burst is not enabled");
+#if UNITY_EDITOR
+            if(!TestRunConfig.EnableBurstCompileSynchronously)
+                Assert.Ignore("Burst is not compiling synchronously");
+#endif
 
             using (var set = new NodeSet())
             {

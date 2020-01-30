@@ -14,21 +14,18 @@ namespace Unity.DataFlowGraph.Tour
          * requirements and features. There's only one node definition instance per set, no matter how many nodes 
          * you're creating. 
          * 
-         * The node definition always defines a "data instance description", a structure implementing INodeData.
-         * This particular structure is what is actually being instantiated, when you create a node from a node definition.
-         * We'll look at this in more detail in "B_Usage_HavingInstanceData.cs"
-         * 
          * The function of the node definition is otherwise custom event handling (construction, destruction, messages)
          * and static descriptions of your node's I/O contract: What messages it can receive and output, what DSLs it works
          * with and what data it will process.
          * 
          */
-        class MyNode : NodeDefinition<MyNode.MyInstanceData>
+        class MyNode : NodeDefinition<MyNode.MyPorts>
         {
             /*
-             * This is our instance data. Ignore this for now.
+             * A node is required to have a port definition - we'll use an empty one for now, but we'll come back to
+             * this later in D_Usage_DirectMessaging
              */
-            public struct MyInstanceData : INodeData { }
+            public struct MyPorts : ISimulationPortDefinition { }
 
             /*
              * Node definitions only exist once per set, so it might be useful
@@ -50,7 +47,7 @@ namespace Unity.DataFlowGraph.Tour
             /*
              * You can clean up shared resources in the Dispose() function.
              */
-            public override void Dispose()
+            protected override void Dispose()
             {
                 Debug.Log("My node's definition just got disposed");
             }
@@ -71,7 +68,7 @@ namespace Unity.DataFlowGraph.Tour
                  * Node definitions can be directly looked up by type,
                  * otherwise they are created lazily when creating nodes.
                  */
-                var myNodeDefinition = set.GetFunctionality<MyNode>();
+                var myNodeDefinition = set.GetDefinition<MyNode>();
                 myNodeDefinition.Hello();
             }
         }

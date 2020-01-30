@@ -9,8 +9,7 @@ namespace Unity.DataFlowGraph
 
     unsafe struct TransientInputBuffer
     {
-        public NodeHandle Target;
-        public InputPortArrayID Port;
+        public InputPair Destination;
         public void* Memory;
         public int Size;
     }
@@ -28,38 +27,11 @@ namespace Unity.DataFlowGraph
             m_RecordedInputBuffers = new NativeList<TransientInputBuffer>(capacity, allocator);
         }
 
-        public unsafe void SetTransientBuffer<TDefinition, TType>(NodeHandle<TDefinition> handle, DataInput<TDefinition, Buffer<TType>> port, NativeArray<TType> buffer)
-            where TDefinition : INodeDefinition
+        public unsafe void SetTransientBuffer<TType>(in InputPair destination, NativeArray<TType> buffer)
             where TType : struct
         {
             var transient = new TransientInputBuffer();
-            transient.Target = handle;
-            transient.Port = new InputPortArrayID(port.Port);
-            transient.Memory = buffer.GetUnsafeReadOnlyPtr();
-            transient.Size = buffer.Length;
-
-            m_RecordedInputBuffers.Add(transient);
-        }
-
-        public unsafe void SetTransientBuffer<TDefinition, TType>(NodeHandle<TDefinition> handle, PortArray<DataInput<TDefinition, Buffer<TType>>> port, ushort index, NativeArray<TType> buffer)
-            where TDefinition : INodeDefinition
-            where TType : struct
-        {
-            var transient = new TransientInputBuffer();
-            transient.Target = handle;
-            transient.Port = new InputPortArrayID(port.Port, index);
-            transient.Memory = buffer.GetUnsafeReadOnlyPtr();
-            transient.Size = buffer.Length;
-
-            m_RecordedInputBuffers.Add(transient);
-        }
-
-        public unsafe void SetTransientBuffer<TType>(NodeHandle handle, InputPortArrayID port, NativeArray<TType> buffer)
-            where TType : struct
-        {
-            var transient = new TransientInputBuffer();
-            transient.Target = handle;
-            transient.Port = port;
+            transient.Destination = destination;
             transient.Memory = buffer.GetUnsafeReadOnlyPtr();
             transient.Size = buffer.Length;
 
@@ -89,28 +61,32 @@ namespace Unity.DataFlowGraph
     {
         public struct InstalledPorts : IDisposable
         {
-            public ref DataOutput<InvalidFunctionalitySlot, Buffer<byte>> GetPort(int index)
+            public ref DataOutput<InvalidDefinitionSlot, BufferDescription> GetPort(int index)
             {
-                return ref Unsafe.AsRef<DataOutput<InvalidFunctionalitySlot, Buffer<byte>>>(GetPortMemory(index));
+                return ref Unsafe.AsRef<DataOutput<InvalidDefinitionSlot, BufferDescription>>(GetPortMemory(index));
             }
 
             public void* GetPortMemory(int index)
             {
+#if DFG_ASSERTIONS
                 if ((uint)index >= m_InstallCount)
                     throw new IndexOutOfRangeException();
 
                 if (m_InstalledMemory == null)
-                    throw new InvalidOperationException("Batch not installed yet");
+                    throw new AssertionException("Batch not installed yet");
+#endif
 
-                return (byte*)m_InstalledMemory + UnsafeUtility.SizeOf<DataOutput<InvalidFunctionalitySlot, Buffer<byte>>>() * index;
+                return (byte*)m_InstalledMemory + UnsafeUtility.SizeOf<DataOutput<InvalidDefinitionSlot, BufferDescription>>() * index;
             }
 
             public void AllocatePorts(NativeArray<TransientInputBuffer> transients)
             {
+#if DFG_ASSERTIONS
                 if (m_InstalledMemory != null)
-                    throw new InvalidOperationException("Batch already installed");
+                    throw new AssertionException("Batch already installed");
+#endif
 
-                var type = SimpleType.Create<DataOutput<InvalidFunctionalitySlot, Buffer<byte>>>(transients.Length);
+                var type = SimpleType.Create<DataOutput<InvalidDefinitionSlot, BufferDescription>>(transients.Length);
 
                 m_InstalledMemory = Utility.CAlloc(type, k_Alloc);
                 m_InstallCount = transients.Length;
@@ -177,7 +153,7 @@ namespace Unity.DataFlowGraph
 
     public partial class NodeSet
     {
-        VersionedList<InputBatch> m_Batches = new VersionedList<InputBatch>(Allocator.Persistent);
+        VersionedList<InputBatch> m_Batches;
 
         /// <summary>
         /// The returned handle can be used to acquire a JobHandle after the next update, 

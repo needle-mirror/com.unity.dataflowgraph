@@ -20,7 +20,7 @@ namespace Unity.DataFlowGraph.Tests
 
         public struct Data : IKernelData { }
 
-        class EmptyNode : NodeDefinition<Node> { }
+        class EmptyNode : NodeDefinition<EmptyPorts> { }
 
         public class NodeWithOneMessageIO : NodeDefinition<Node, NodeWithOneMessageIO.SimPorts>, IMsgHandler<int>
         {
@@ -132,7 +132,7 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        public class NodeWithNonStaticPorts_OutsideOfPortDefinition : NodeDefinition<Node>, IMsgHandler<int>
+        public class NodeWithNonStaticPorts_OutsideOfPortDefinition : NodeDefinition<EmptyPorts>, IMsgHandler<int>
         {
             public MessageInput<NodeWithNonStaticPorts_OutsideOfPortDefinition, int> Input;
             public MessageOutput<NodeWithNonStaticPorts_OutsideOfPortDefinition, int> Output;
@@ -140,7 +140,7 @@ namespace Unity.DataFlowGraph.Tests
             public void HandleMessage(in MessageContext ctx, in int msg) { }
         }
 
-        public class NodeWithStaticPorts_OutsideOfPortDefinition : NodeDefinition<Node>, IMsgHandler<int>
+        public class NodeWithStaticPorts_OutsideOfPortDefinition : NodeDefinition<EmptyPorts>, IMsgHandler<int>
         {
             public static MessageInput<NodeWithStaticPorts_OutsideOfPortDefinition, int> Input;
             public static MessageOutput<NodeWithStaticPorts_OutsideOfPortDefinition, int> Output;
@@ -234,7 +234,7 @@ namespace Unity.DataFlowGraph.Tests
             using (var set = new NodeSet())
             {
                 var node = set.Create<EmptyNode>();
-                var func = set.GetFunctionality(node);
+                var func = set.GetDefinition(node);
 
                 Assert.IsNotNull(func.GetPortDescription(node).Inputs);
                 Assert.IsNotNull(func.GetPortDescription(node).Outputs);
@@ -249,7 +249,7 @@ namespace Unity.DataFlowGraph.Tests
             using (var set = new NodeSet())
             {
                 var node = set.Create<EmptyNode>();
-                var func = set.GetFunctionality(node);
+                var func = set.GetDefinition(node);
 
                 Assert.Zero(func.GetPortDescription(node).Inputs.Count);
                 Assert.Zero(func.GetPortDescription(node).Outputs.Count);
@@ -259,18 +259,51 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
+        public void QueryingPortDescription_WithDefaultNode_ThrowsException()
+        {
+            using (var set = new NodeSet())
+            {
+                Assert.Throws<ArgumentException>(
+                    () => set.GetDefinition<EmptyNode>().GetPortDescription(new NodeHandle()));
+
+                var node = set.Create<EmptyNode>();
+                Assert.Throws<ArgumentException>(
+                    () => set.GetDefinition(node).GetPortDescription(new NodeHandle()));
+                set.Destroy(node);
+            }
+        }
+
+        [Test]
+        public void QueryingPortDescription_WithWrongNodeType_ThrowsException()
+        {
+            using (var set = new NodeSet())
+            {
+                var emptyNode = set.Create<EmptyNode>();
+
+                Assert.Throws<ArgumentException>(
+                    () => set.GetDefinition<NodeWithOneMessageIO>().GetPortDescription(emptyNode));
+
+                var msgNode = set.Create<NodeWithOneMessageIO>();
+                Assert.Throws<ArgumentException>(
+                    () => set.GetDefinition(msgNode).GetPortDescription(emptyNode));
+
+                set.Destroy(emptyNode, msgNode);
+            }
+        }
+
+        [Test]
         public void NodeWithMessageIO_IsCorrectlyInsertedInto_PortDescription()
         {
             using (var set = new NodeSet())
             {
                 var node = set.Create<NodeWithOneMessageIO>();
-                var func = set.GetFunctionality(node);
+                var func = set.GetDefinition(node);
 
                 Assert.AreEqual(1, func.GetPortDescription(node).Inputs.Count);
                 Assert.AreEqual(1, func.GetPortDescription(node).Outputs.Count);
 
-                Assert.IsTrue(func.GetPortDescription(node).Inputs.All(p => p.PortUsage == Usage.Message));
-                Assert.IsTrue(func.GetPortDescription(node).Outputs.All(p => p.PortUsage == Usage.Message));
+                Assert.IsTrue(func.GetPortDescription(node).Inputs.All(p => p.Category == PortDescription.Category.Message));
+                Assert.IsTrue(func.GetPortDescription(node).Outputs.All(p => p.Category == PortDescription.Category.Message));
 
                 set.Destroy(node);
             }
@@ -282,13 +315,13 @@ namespace Unity.DataFlowGraph.Tests
             using (var set = new NodeSet())
             {
                 var node = set.Create<NodeWithOneDSLIO>();
-                var func = set.GetFunctionality(node);
+                var func = set.GetDefinition(node);
 
                 Assert.AreEqual(1, func.GetPortDescription(node).Inputs.Count);
                 Assert.AreEqual(1, func.GetPortDescription(node).Outputs.Count);
 
-                Assert.IsTrue(func.GetPortDescription(node).Inputs.All(p => p.PortUsage == Usage.DomainSpecific));
-                Assert.IsTrue(func.GetPortDescription(node).Outputs.All(p => p.PortUsage == Usage.DomainSpecific));
+                Assert.IsTrue(func.GetPortDescription(node).Inputs.All(p => p.Category == PortDescription.Category.DomainSpecific));
+                Assert.IsTrue(func.GetPortDescription(node).Outputs.All(p => p.Category == PortDescription.Category.DomainSpecific));
 
                 set.Destroy(node);
             }
@@ -300,13 +333,13 @@ namespace Unity.DataFlowGraph.Tests
             using (var set = new NodeSet())
             {
                 var node = set.Create<NodeWithOneDataIO>();
-                var func = set.GetFunctionality(node);
+                var func = set.GetDefinition(node);
 
                 Assert.AreEqual(1, func.GetPortDescription(node).Inputs.Count);
                 Assert.AreEqual(3, func.GetPortDescription(node).Outputs.Count);
 
-                Assert.IsTrue(func.GetPortDescription(node).Inputs.All(p => p.PortUsage == Usage.Data));
-                Assert.IsTrue(func.GetPortDescription(node).Outputs.All(p => p.PortUsage == Usage.Data));
+                Assert.IsTrue(func.GetPortDescription(node).Inputs.All(p => p.Category == PortDescription.Category.Data));
+                Assert.IsTrue(func.GetPortDescription(node).Outputs.All(p => p.Category == PortDescription.Category.Data));
 
                 set.Destroy(node);
             }
@@ -318,13 +351,13 @@ namespace Unity.DataFlowGraph.Tests
             using (var set = new NodeSet())
             {
                 var node = set.Create<NodeWithMessageArrayInput>();
-                var func = set.GetFunctionality(node);
+                var func = set.GetDefinition(node);
 
                 Assert.AreEqual(1, func.GetPortDescription(node).Inputs.Count);
                 Assert.AreEqual(0, func.GetPortDescription(node).Outputs.Count);
 
-                Assert.IsTrue(func.GetPortDescription(node).Inputs.All(p => p.PortUsage == Usage.Message));
-                Assert.IsTrue(func.GetPortDescription(node).Outputs.All(p => p.PortUsage == Usage.Message));
+                Assert.IsTrue(func.GetPortDescription(node).Inputs.All(p => p.Category == PortDescription.Category.Message));
+                Assert.IsTrue(func.GetPortDescription(node).Outputs.All(p => p.Category == PortDescription.Category.Message));
 
                 Assert.AreEqual(func.GetPortDescription(node).Inputs.Count, 1);
                 Assert.IsTrue(func.GetPortDescription(node).Inputs[0].IsPortArray);
@@ -339,13 +372,13 @@ namespace Unity.DataFlowGraph.Tests
             using (var set = new NodeSet())
             {
                 var node = set.Create<NodeWithDataArrayInput>();
-                var func = set.GetFunctionality(node);
+                var func = set.GetDefinition(node);
 
                 Assert.AreEqual(1, func.GetPortDescription(node).Inputs.Count);
                 Assert.AreEqual(0, func.GetPortDescription(node).Outputs.Count);
 
-                Assert.IsTrue(func.GetPortDescription(node).Inputs.All(p => p.PortUsage == Usage.Data));
-                Assert.IsTrue(func.GetPortDescription(node).Outputs.All(p => p.PortUsage == Usage.Data));
+                Assert.IsTrue(func.GetPortDescription(node).Inputs.All(p => p.Category == PortDescription.Category.Data));
+                Assert.IsTrue(func.GetPortDescription(node).Outputs.All(p => p.Category == PortDescription.Category.Data));
 
                 Assert.AreEqual(func.GetPortDescription(node).Inputs.Count, 1);
                 Assert.IsTrue(func.GetPortDescription(node).Inputs[0].IsPortArray);
@@ -360,7 +393,7 @@ namespace Unity.DataFlowGraph.Tests
             using (var set = new NodeSet())
             {
                 var node = set.Create<NodeWithOneDataIO>();
-                var func = set.GetFunctionality(node);
+                var func = set.GetDefinition(node);
 
                 var outputs = func.GetPortDescription(node).Outputs;
 
@@ -419,7 +452,7 @@ namespace Unity.DataFlowGraph.Tests
             using (var set = new NodeSet())
             {
                 var node = set.Create<ComplexKernelAggregateNode>();
-                var func = set.GetFunctionality(node);
+                var func = set.GetDefinition(node);
 
                 var inputs = func.GetPortDescription(node).Inputs;
                 Assert.AreEqual(2, inputs.Count);
@@ -530,7 +563,7 @@ namespace Unity.DataFlowGraph.Tests
             using (var set = new NodeSet())
             {
                 var node = set.Create<NodeWithNonStaticPorts_OutsideOfPortDefinition>();
-                var func = set.GetFunctionality(node);
+                var func = set.GetDefinition(node);
 
                 Assert.AreEqual(0, func.GetPortDescription(node).Inputs.Count);
                 Assert.AreEqual(0, func.GetPortDescription(node).Outputs.Count);
@@ -545,7 +578,7 @@ namespace Unity.DataFlowGraph.Tests
             using (var set = new NodeSet())
             {
                 var node = set.Create<NodeWithStaticPorts_OutsideOfPortDefinition>();
-                var func = set.GetFunctionality(node);
+                var func = set.GetDefinition(node);
 
                 Assert.AreEqual(0, func.GetPortDescription(node).Inputs.Count);
                 Assert.AreEqual(0, func.GetPortDescription(node).Outputs.Count);
@@ -584,8 +617,8 @@ namespace Unity.DataFlowGraph.Tests
                 var inputNode = set.Create<NodeWithManyInputs>();
                 var outputNode = set.Create<NodeWithManyOutputs>();
 
-                var inputFunc = set.GetFunctionality(inputNode);
-                var outputFunc = set.GetFunctionality(outputNode);
+                var inputFunc = set.GetDefinition(inputNode);
+                var outputFunc = set.GetDefinition(outputNode);
 
                 var inputNodePorts = inputFunc.GetPortDescription(inputNode);
                 var outputNodePorts = outputFunc.GetPortDescription(outputNode);
@@ -628,7 +661,7 @@ namespace Unity.DataFlowGraph.Tests
             using (var set = new NodeSet())
             {
                 var inputNode = set.Create<NodeWithManyInputs>();
-                var inputFunc = set.GetFunctionality(inputNode);
+                var inputFunc = set.GetDefinition(inputNode);
                 var inputNodePorts = inputFunc.GetPortDescription(inputNode);
 
                 Assert.AreEqual(11, inputNodePorts.Inputs.Count);
@@ -671,7 +704,7 @@ namespace Unity.DataFlowGraph.Tests
             using (var set = new NodeSet())
             {
                 var node = set.Create<NodeWithMixedInputs>();
-                var func = set.GetFunctionality(node);
+                var func = set.GetDefinition(node);
                 var inputNodePorts = func.GetPortDescription(node);
 
                 int portIDCount = 0;
@@ -692,7 +725,7 @@ namespace Unity.DataFlowGraph.Tests
             {
                 var node = set.Create<NodeWithMixedInputs>();
 
-                var func = set.GetFunctionality(node);
+                var func = set.GetDefinition(node);
 
                 var inputNodePorts = func.GetPortDescription(node);
 
@@ -713,39 +746,13 @@ namespace Unity.DataFlowGraph.Tests
             using (var set = new NodeSet())
             {
                 var node = set.Create<NodeWithAllTypesOfPorts>();
-                var func = set.GetFunctionality(node);
+                var func = set.GetDefinition(node);
 
                 Assert.AreEqual(7, func.GetPortDescription(node).Inputs.Count);
                 Assert.AreEqual(4, func.GetPortDescription(node).Outputs.Count);
 
                 set.Destroy(node);
             }
-        }
-
-        public class NodeWithParametricPortType<T>
-            : NodeDefinition<Node, NodeWithParametricPortType<T>.SimPorts, Data, NodeWithParametricPortType<T>.KernelDefs, NodeWithParametricPortType<T>.Kernel>
-            , IMsgHandler<T>
-                where T : struct
-        {
-            public struct SimPorts : ISimulationPortDefinition
-            {
-                public MessageInput<NodeWithParametricPortType<T>, T> MessageIn;
-                public MessageOutput<NodeWithParametricPortType<T>, T> MessageOut;
-            }
-
-            public struct KernelDefs : IKernelPortDefinition
-            {
-                public DataInput<NodeWithParametricPortType<T>, T> Input;
-                public DataOutput<NodeWithParametricPortType<T>, T> Output;
-            }
-
-            [BurstCompile(CompileSynchronously = true)]
-            public struct Kernel : IGraphKernel<Data, KernelDefs>
-            {
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports) { }
-            }
-
-            public void HandleMessage(in MessageContext ctx, in T msg) { }
         }
 
         [Test]
@@ -768,7 +775,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 foreach (var node in new NodeHandle[] { intNode, floatNode, doubleNode })
                 {
-                    var func = set.GetFunctionality(node);
+                    var func = set.GetDefinition(node);
 
                     foreach (var inputPort in func.GetPortDescription(node).Inputs)
                     {
@@ -833,7 +840,7 @@ namespace Unity.DataFlowGraph.Tests
             {
                 var node = set.Create<NodeWithParametricPortTypeIncludingDSLs<int>>();
 
-                var func = set.GetFunctionality(node);
+                var func = set.GetDefinition(node);
 
                 Assert.AreEqual(3, func.GetPortDescription(node).Inputs.Count);
                 Assert.AreEqual(3, func.GetPortDescription(node).Outputs.Count);
@@ -941,7 +948,7 @@ namespace Unity.DataFlowGraph.Tests
         {
             using (var set = new NodeSet())
             {
-                var klass = set.GetFunctionality<NodeWithAllTypesOfPorts>();
+                var klass = set.GetDefinition<NodeWithAllTypesOfPorts>();
                 var node = set.Create<NodeWithAllTypesOfPorts>();
                 var desc = klass.GetPortDescription(node);
 
@@ -975,7 +982,7 @@ namespace Unity.DataFlowGraph.Tests
         {
             using (var set = new NodeSet())
             {
-                var klass = set.GetFunctionality<NodeWithAllTypesOfPorts>();
+                var klass = set.GetDefinition<NodeWithAllTypesOfPorts>();
                 var node = set.Create<NodeWithAllTypesOfPorts>();
                 var desc = klass.GetPortDescription(node);
 

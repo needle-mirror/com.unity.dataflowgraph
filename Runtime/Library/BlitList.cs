@@ -1,5 +1,3 @@
-#define HAS_REF_RETURNS
-
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -19,12 +17,12 @@ namespace Unity.Collections
     {
         IEnumerator<T> IEnumerable<T>.GetEnumerator()
         {
-            return new Enumerator(ref this);
+            return new Enumerator(this);
         }
 
         public Enumerator GetEnumerator()
         {
-            return new Enumerator(ref this);
+            return new Enumerator(this);
         }
 
         IEnumerator IEnumerable.GetEnumerator()
@@ -37,7 +35,7 @@ namespace Unity.Collections
             private BlitList<T> array;
             private int index;
 
-            public Enumerator(ref BlitList<T> array)
+            public Enumerator(in BlitList<T> array)
             {
                 this.array = array;
                 this.index = -1;

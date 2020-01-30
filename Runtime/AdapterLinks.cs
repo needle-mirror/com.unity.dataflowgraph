@@ -8,68 +8,68 @@ namespace Unity.DataFlowGraph
     {
         public NodeInterfaceLink<TInterface> To<TInterface>()
         {
-            if (!(m_Set.GetFunctionality(m_Handle) is TInterface))
+            if (!(Set.GetDefinition(TypedHandle) is TInterface))
                 throw new InvalidCastException($"Node could not be interpreted as {typeof(TInterface).Name}");
 
-            return new NodeInterfaceLink<TInterface>() { m_Handle = m_Handle };
+            return new NodeInterfaceLink<TInterface>() { TypedHandle = TypedHandle };
         }
 
-        internal NodeHandle m_Handle;
-        internal NodeSet m_Set;
+        internal NodeHandle TypedHandle;
+        internal NodeSet Set;
     }
 
     public struct NodeAdapter<TDefinition>
-        where TDefinition : INodeDefinition, new()
+        where TDefinition : NodeDefinition, new()
     {
         public NodeInterfaceLink<TInterface, TDefinition> To<TInterface>()
         {
-            if (!(m_Set.GetFunctionality(m_Handle) is TInterface))
+            if (!(Set.GetDefinition(m_Handle) is TInterface))
                 throw new InvalidCastException($"Node {typeof(TDefinition).Name} could not be interpreted as {typeof(TInterface).Name}");
 
-            return new NodeInterfaceLink<TInterface, TDefinition>() { m_Handle = m_Handle };
+            return new NodeInterfaceLink<TInterface, TDefinition>() { TypedHandle = m_Handle };
         }
 
         internal NodeHandle<TDefinition> m_Handle;
-        internal NodeSet m_Set;
+        internal NodeSet Set;
     }
 
     public partial class NodeSet
     {
         public NodeAdapter<TDefinition> Adapt<TDefinition>(NodeHandle<TDefinition> n)
-            where TDefinition : INodeDefinition, new() => new NodeAdapter<TDefinition>() { m_Set = this, m_Handle = n };
-        public NodeAdapter Adapt(NodeHandle n) => new NodeAdapter() { m_Set = this, m_Handle = n };
+            where TDefinition : NodeDefinition, new() => new NodeAdapter<TDefinition>() { Set = this, m_Handle = n };
+        public NodeAdapter Adapt(NodeHandle n) => new NodeAdapter() { Set = this, TypedHandle = n };
     }
 
-    [DebuggerDisplay("{m_Handle, nq}")]
+    [DebuggerDisplay("{TypedHandle, nq}")]
     public struct NodeInterfaceLink<TInterface>
     {
-        internal NodeHandle m_Handle;
+        internal NodeHandle TypedHandle;
 
         public static implicit operator NodeHandle(NodeInterfaceLink<TInterface> handle)
         {
-            return handle.m_Handle;
+            return handle.TypedHandle;
         }
     }
 
-    [DebuggerDisplay("{m_Handle, nq}")]
+    [DebuggerDisplay("{TypedHandle, nq}")]
     public struct NodeInterfaceLink<TInterface, TDefinition>
-        where TDefinition : INodeDefinition
+        where TDefinition : NodeDefinition
     {
         public static implicit operator NodeInterfaceLink<TInterface>(NodeInterfaceLink<TInterface, TDefinition> n)
         {
-            return new NodeInterfaceLink<TInterface> { m_Handle = n.m_Handle };
+            return new NodeInterfaceLink<TInterface> { TypedHandle = n.TypedHandle };
         }
 
         public static implicit operator NodeInterfaceLink<TInterface, TDefinition>(NodeHandle<TDefinition> n)
         {
-            return new NodeInterfaceLink<TInterface, TDefinition> { m_Handle = n };
+            return new NodeInterfaceLink<TInterface, TDefinition> { TypedHandle = n };
         }
 
         public static implicit operator NodeHandle(NodeInterfaceLink<TInterface, TDefinition> handle)
         {
-            return handle.m_Handle;
+            return handle.TypedHandle;
         }
 
-        internal NodeHandle<TDefinition> m_Handle;
+        internal NodeHandle<TDefinition> TypedHandle;
     }
 }

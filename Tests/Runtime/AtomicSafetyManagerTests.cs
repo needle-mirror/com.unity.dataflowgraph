@@ -264,6 +264,46 @@ namespace Unity.DataFlowGraph.Tests
 
         }
 
+        [Test]
+        public void MarkingZeroHandles_StillReturnsDependentJob()
+        {
+            JobThatProducesNativeArray.Reset();
+
+            using (NativeArray<int> array = new NativeArray<int>(1, Allocator.TempJob))
+            {
+
+                JobThatProducesNativeArray producer;
+                producer.array = array;
+
+                var dependency = producer.Schedule();
+
+                var protectedDependency = AtomicSafetyManager.MarkHandlesAsUsed(dependency, (AtomicSafetyHandleContainer*)null, 0);
+
+                JobThatUsesNativeArray consumer;
+                consumer.array = array;
+
+                Assert.True(JobThatProducesNativeArray.Wait);
+
+                try
+                {
+                    JobHandle missingDependencyFromDataFlowGraph = default;
+
+                    Assume.That(JobThatProducesNativeArray.Done, Is.False);
+                    Assert.Throws<InvalidOperationException>(() => consumer.Schedule(missingDependencyFromDataFlowGraph));
+                    JobThatProducesNativeArray.Wait = false;
+
+                    Assert.DoesNotThrow(() => consumer.Schedule(protectedDependency).Complete());
+                    Assert.True(JobThatProducesNativeArray.Done);
+                }
+                finally
+                {
+                    JobThatProducesNativeArray.Wait = false;
+                    protectedDependency.Complete();
+                }
+            }
+
+
+        }
 
         [Test]
         public void TestThatMarkHandles_DetectsInvalidInputDependencies()

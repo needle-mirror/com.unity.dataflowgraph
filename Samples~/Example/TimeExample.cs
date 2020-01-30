@@ -98,16 +98,16 @@ namespace Unity.DataFlowGraph.TimeExample
         public void HandleMessage(in MessageContext ctx, in PlayStateMessage msg) => GetNodeData(ctx.Handle).IsPlaying = msg.ShouldPlay ? 1 : 0;
         public void HandleMessage(in MessageContext ctx, in StreamType msg) => GetKernelData(ctx.Handle).Mask = msg;
 
-        public override void OnUpdate(NodeHandle handle)
+        protected override void OnUpdate(in UpdateContext ctx)
         {
-            ref var data = ref GetNodeData(handle);
+            ref var data = ref GetNodeData(ctx.Handle);
 
             if (data.IsPlaying > 0)
             {
                 data.Time += Time.deltaTime * data.Speed;
             }
 
-            GetKernelData(handle).Time = data.Time;
+            GetKernelData(ctx.Handle).Time = data.Time;
         }
     }
 
@@ -189,39 +189,39 @@ namespace Unity.DataFlowGraph.TimeExample
         {
             ref var data = ref GetNodeData(ctx.Handle);
             data.Time = msg.Time;
-            EmitMessage(ctx.Handle, SimulationPorts.SeekOut, new SeekMessage {Time = data.Time - data.Origin});
+            ctx.EmitMessage(SimulationPorts.SeekOut, new SeekMessage {Time = data.Time - data.Origin});
         }
 
         public void HandleMessage(in MessageContext ctx, in SpeedMessage msg)
         {
             GetNodeData(ctx.Handle).Speed = msg.Scale;
-            EmitMessage(ctx.Handle, SimulationPorts.SpeedOut, msg);
+            ctx.EmitMessage(SimulationPorts.SpeedOut, msg);
         }
 
         public void HandleMessage(in MessageContext ctx, in PlayStateMessage msg) => GetNodeData(ctx.Handle).IsPlaying = msg.ShouldPlay ? 1 : 0;
         public void HandleMessage(in MessageContext ctx, in TimeOffsetMessage msg) => GetNodeData(ctx.Handle).Origin = msg.Origin;
 
-        public override void OnUpdate(NodeHandle handle)
+        protected override void OnUpdate(in UpdateContext ctx)
         {
-            ref var data = ref GetNodeData(handle);
+            ref var data = ref GetNodeData(ctx.Handle);
 
             if (data.IsPlaying > 0)
             {
                 data.Time += Time.deltaTime * data.Speed;
                 if (data.Time >= data.Origin && data.WasPlaying == 0)
                 {
-                    EmitMessage(handle, SimulationPorts.PlayOut, new PlayStateMessage { ShouldPlay = true});
+                    ctx.EmitMessage(SimulationPorts.PlayOut, new PlayStateMessage { ShouldPlay = true});
                     data.WasPlaying = 1;
                 }
                 else if (data.WasPlaying == 1)
                 {
-                    EmitMessage(handle, SimulationPorts.PlayOut, new PlayStateMessage { ShouldPlay = false });
+                    ctx.EmitMessage(SimulationPorts.PlayOut, new PlayStateMessage { ShouldPlay = false });
                     data.WasPlaying = 0;
                 }
             } 
             else if (data.WasPlaying == 1)
             {
-                EmitMessage(handle, SimulationPorts.PlayOut, new PlayStateMessage { ShouldPlay = false });
+                ctx.EmitMessage(SimulationPorts.PlayOut, new PlayStateMessage { ShouldPlay = false });
                 data.WasPlaying = 0;
             }
         }
@@ -252,9 +252,9 @@ namespace Unity.DataFlowGraph.TimeExample
         InputPortID ITaskPort<ISpeed>.GetPort(NodeHandle handle) => (InputPortID)SimulationPorts.SpeedPort;
         InputPortID ITaskPort<IPlayable>.GetPort(NodeHandle handle) => (InputPortID)SimulationPorts.PlayPort;
 
-        public void HandleMessage(in MessageContext ctx, in SeekMessage msg) => EmitMessage(ctx.Handle, SimulationPorts.SeekOut, msg);
-        public void HandleMessage(in MessageContext ctx, in SpeedMessage msg) => EmitMessage(ctx.Handle, SimulationPorts.SpeedOut, msg);
-        public void HandleMessage(in MessageContext ctx, in PlayStateMessage msg) => EmitMessage(ctx.Handle, SimulationPorts.PlayOut, msg);
+        public void HandleMessage(in MessageContext ctx, in SeekMessage msg) => ctx.EmitMessage(SimulationPorts.SeekOut, msg);
+        public void HandleMessage(in MessageContext ctx, in SpeedMessage msg) => ctx.EmitMessage(SimulationPorts.SpeedOut, msg);
+        public void HandleMessage(in MessageContext ctx, in PlayStateMessage msg) => ctx.EmitMessage(SimulationPorts.PlayOut, msg);
     }
 
 

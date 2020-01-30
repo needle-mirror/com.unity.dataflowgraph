@@ -10,20 +10,21 @@ namespace Unity.DataFlowGraph
     /// The effect is that any external connection made to those forwarded ports are converted into a direct connection between the 3rd party and the the node forwarded to.
     /// This is invisible to anyone external to the node, and handled transparently by the node set.
     /// This system allows a node to create sub graphs that appear as single node to everyone else.
-    /// <seealso cref="INodeFunctionality.Init(InitContext)"/>
+    /// <seealso cref="NodeDefinition.Init(InitContext)"/>
     /// </summary>
     /// <remarks>
-    /// Any port forwarding actions only take effect after <see cref="INodeFunctionality.Init(InitContext)"/> has returned.
+    /// Any port forwarding actions only take effect after <see cref="NodeDefinition.Init(InitContext)"/> has returned.
     /// </remarks>
     public struct InitContext
     {
         /// <summary>
         /// A handle uniquely identifying the currently initializing node.
         /// </summary>
-        public readonly NodeHandle Handle;
+        public NodeHandle Handle => m_Handle.ToPublicHandle();
 
         // Exceedingly hard to pass down a stack local, but that's all this is.
         internal readonly unsafe void* m_ForwardedConnectionsMemory;
+        internal readonly ValidatedHandle m_Handle;
         internal readonly int TypeIndex;
 
         #region StrongOverloads
@@ -32,121 +33,121 @@ namespace Unity.DataFlowGraph
         /// Sets up forwarding of the given input port to another input port on a different (sub) node.
         /// </summary>
         public void ForwardInput<TDefinition, TForwardedDefinition, TMsg>(MessageInput<TDefinition, TMsg> origin, NodeHandle<TForwardedDefinition> replacedNode, MessageInput<TForwardedDefinition, TMsg> replacement)
-            where TDefinition : INodeDefinition, IMsgHandler<TMsg>, new()
-            where TForwardedDefinition : INodeDefinition, IMsgHandler<TMsg>
+            where TDefinition : NodeDefinition, IMsgHandler<TMsg>, new()
+            where TForwardedDefinition : NodeDefinition, IMsgHandler<TMsg>
         {
             CommonChecks<TDefinition>(replacedNode, (InputPortID)origin);
-            GetForwardingBuffer().Add(ForwardedPort.Input(origin.Port, replacedNode, replacement.Port));
+            GetForwardingBuffer().Add(ForwardedPort.Unchecked.Input(origin.Port, replacedNode, replacement.Port));
         }
 
         /// <summary>
-        /// See <see cref="ForwardInput{TDefinition,TForwardedDefinition,TMsg}(Unity.DataFlowGraph.MessageInput{TDefinition,TMsg},Unity.DataFlowGraph.NodeHandle{TForwardedDefinition},Unity.DataFlowGraph.MessageInput{TForwardedDefinition,TMsg})"/>.
+        /// See <see cref="ForwardInput{TDefinition,TForwardedDefinition,TMsg}(MessageInput{TDefinition,TMsg}, NodeHandle{TForwardedDefinition}, MessageInput{TForwardedDefinition,TMsg})"/>.
         /// </summary>
         public void ForwardInput<TDefinition, TForwardedDefinition, TMsg>(PortArray<MessageInput<TDefinition, TMsg>> origin, NodeHandle<TForwardedDefinition> replacedNode, PortArray<MessageInput<TForwardedDefinition, TMsg>> replacement)
-            where TDefinition : INodeDefinition, IMsgHandler<TMsg>, new()
-            where TForwardedDefinition : INodeDefinition, IMsgHandler<TMsg>
+            where TDefinition : NodeDefinition, IMsgHandler<TMsg>, new()
+            where TForwardedDefinition : NodeDefinition, IMsgHandler<TMsg>
         {
             CommonChecks<TDefinition>(replacedNode, (InputPortID)origin);
-            GetForwardingBuffer().Add(ForwardedPort.Input(origin.Port, replacedNode, replacement.Port));
+            GetForwardingBuffer().Add(ForwardedPort.Unchecked.Input(origin.Port, replacedNode, replacement.Port));
         }
 
         /// <summary>
-        /// See <see cref="ForwardInput{TDefinition,TForwardedDefinition,TMsg}(Unity.DataFlowGraph.MessageInput{TDefinition,TMsg},Unity.DataFlowGraph.NodeHandle{TForwardedDefinition},Unity.DataFlowGraph.MessageInput{TForwardedDefinition,TMsg})"/>.
+        /// See <see cref="ForwardInput{TDefinition,TForwardedDefinition,TMsg}(MessageInput{TDefinition,TMsg}, NodeHandle{TForwardedDefinition}, MessageInput{TForwardedDefinition,TMsg})"/>.
         /// </summary>
         public void ForwardInput<TDefinition, TForwardedDefinition, TType>(DataInput<TDefinition, TType> origin, NodeHandle<TForwardedDefinition> replacedNode, DataInput<TForwardedDefinition, TType> replacement)
-            where TDefinition : INodeDefinition
-            where TForwardedDefinition : INodeDefinition
+            where TDefinition : NodeDefinition
+            where TForwardedDefinition : NodeDefinition
             where TType : struct
         {
             CommonChecks<TDefinition>(replacedNode, (InputPortID)origin);
-            GetForwardingBuffer().Add(ForwardedPort.Input(origin.Port, replacedNode, replacement.Port));
+            GetForwardingBuffer().Add(ForwardedPort.Unchecked.Input(origin.Port, replacedNode, replacement.Port));
         }
 
         /// <summary>
-        /// See <see cref="ForwardInput{TDefinition,TForwardedDefinition,TMsg}(Unity.DataFlowGraph.MessageInput{TDefinition,TMsg},Unity.DataFlowGraph.NodeHandle{TForwardedDefinition},Unity.DataFlowGraph.MessageInput{TForwardedDefinition,TMsg})"/>.
+        /// See <see cref="ForwardInput{TDefinition,TForwardedDefinition,TMsg}(MessageInput{TDefinition,TMsg}, NodeHandle{TForwardedDefinition}, MessageInput{TForwardedDefinition,TMsg})"/>.
         /// </summary>
         public void ForwardInput<TDefinition, TForwardedDefinition, TType>(PortArray<DataInput<TDefinition, TType>> origin, NodeHandle<TForwardedDefinition> replacedNode, PortArray<DataInput<TForwardedDefinition, TType>> replacement)
-            where TDefinition : INodeDefinition
-            where TForwardedDefinition : INodeDefinition
+            where TDefinition : NodeDefinition
+            where TForwardedDefinition : NodeDefinition
             where TType : struct
         {
             CommonChecks<TDefinition>(replacedNode, (InputPortID)origin);
-            GetForwardingBuffer().Add(ForwardedPort.Input(origin.Port, replacedNode, replacement.Port));
+            GetForwardingBuffer().Add(ForwardedPort.Unchecked.Input(origin.Port, replacedNode, replacement.Port));
         }
 
         /// <summary>
-        /// See <see cref="ForwardInput{TDefinition,TForwardedDefinition,TMsg}(Unity.DataFlowGraph.MessageInput{TDefinition,TMsg},Unity.DataFlowGraph.NodeHandle{TForwardedDefinition},Unity.DataFlowGraph.MessageInput{TForwardedDefinition,TMsg})"/>.
+        /// See <see cref="ForwardInput{TDefinition,TForwardedDefinition,TMsg}(MessageInput{TDefinition,TMsg}, NodeHandle{TForwardedDefinition}, MessageInput{TForwardedDefinition,TMsg})"/>.
         /// </summary>
         public void ForwardInput<TDefinition, TForwardedDefinition, TDSLDefinition, IDSL>(
             DSLInput<TDefinition, TDSLDefinition, IDSL> origin,
             NodeHandle<TForwardedDefinition> replacedNode,
             DSLInput<TForwardedDefinition, TDSLDefinition, IDSL> replacement
         )
-            where TDefinition : INodeDefinition, IDSL
-            where TForwardedDefinition : INodeDefinition, IDSL
+            where TDefinition : NodeDefinition, IDSL
+            where TForwardedDefinition : NodeDefinition, IDSL
             where TDSLDefinition : DSLHandler<IDSL>, new()
             where IDSL : class
         {
             CommonChecks<TDefinition>(replacedNode, (InputPortID)origin);
-            GetForwardingBuffer().Add(ForwardedPort.Input(origin.Port, replacedNode, replacement.Port));
+            GetForwardingBuffer().Add(ForwardedPort.Unchecked.Input(origin.Port, replacedNode, replacement.Port));
         }
 
         /// <summary>
         /// Sets up forwarding of the given output port to another output port on a different (sub) node.
         /// </summary>
         public void ForwardOutput<TDefinition, TForwardedDefinition, TMsg>(MessageOutput<TDefinition, TMsg> origin, NodeHandle<TForwardedDefinition> replacedNode, MessageOutput<TForwardedDefinition, TMsg> replacement)
-            where TDefinition : INodeDefinition, new()
-            where TForwardedDefinition : INodeDefinition
+            where TDefinition : NodeDefinition, new()
+            where TForwardedDefinition : NodeDefinition
         {
             CommonChecks<TDefinition>(replacedNode, (OutputPortID)origin);
-            GetForwardingBuffer().Add(ForwardedPort.Output(origin.Port, replacedNode, replacement.Port));
+            GetForwardingBuffer().Add(ForwardedPort.Unchecked.Output(origin.Port, replacedNode, replacement.Port));
         }
 
         /// <summary>
-        /// See <see cref="ForwardOutput{TDefinition,TForwardedDefinition,TMsg}(Unity.DataFlowGraph.MessageOutput{TDefinition,TMsg},Unity.DataFlowGraph.NodeHandle{TForwardedDefinition},Unity.DataFlowGraph.MessageOutput{TForwardedDefinition,TMsg})"/>.
+        /// See <see cref="ForwardOutput{TDefinition,TForwardedDefinition,TMsg}(MessageOutput{TDefinition,TMsg}, NodeHandle{TForwardedDefinition}, MessageOutput{TForwardedDefinition,TMsg})"/>.
         /// </summary>
         public void ForwardOutput<TDefinition, TForwardedDefinition, TType>(DataOutput<TDefinition, TType> origin, NodeHandle<TForwardedDefinition> replacedNode, DataOutput<TForwardedDefinition, TType> replacement)
-            where TDefinition : INodeDefinition
-            where TForwardedDefinition : INodeDefinition
+            where TDefinition : NodeDefinition
+            where TForwardedDefinition : NodeDefinition
             where TType : struct
         {
             CommonChecks<TDefinition>(replacedNode, (OutputPortID)origin);
-            GetForwardingBuffer().Add(ForwardedPort.Output(origin.Port, replacedNode, replacement.Port));
+            GetForwardingBuffer().Add(ForwardedPort.Unchecked.Output(origin.Port, replacedNode, replacement.Port));
         }
 
         /// <summary>
-        /// See <see cref="ForwardOutput{TDefinition,TForwardedDefinition,TMsg}(Unity.DataFlowGraph.MessageOutput{TDefinition,TMsg},Unity.DataFlowGraph.NodeHandle{TForwardedDefinition},Unity.DataFlowGraph.MessageOutput{TForwardedDefinition,TMsg})"/>.
+        /// See <see cref="ForwardOutput{TDefinition,TForwardedDefinition,TMsg}(MessageOutput{TDefinition,TMsg}, NodeHandle{TForwardedDefinition}, MessageOutput{TForwardedDefinition,TMsg})"/>.
         /// </summary>
         public void ForwardOutput<TDefinition, TForwardedDefinition, TDSLDefinition, IDSL>(
             DSLOutput<TDefinition, TDSLDefinition, IDSL> origin,
             NodeHandle<TForwardedDefinition> replacedNode,
             DSLOutput<TForwardedDefinition, TDSLDefinition, IDSL> replacement
         )
-            where TDefinition : INodeDefinition, IDSL
-            where TForwardedDefinition : INodeDefinition, IDSL
+            where TDefinition : NodeDefinition, IDSL
+            where TForwardedDefinition : NodeDefinition, IDSL
             where TDSLDefinition : DSLHandler<IDSL>, new()
             where IDSL : class
         {
             CommonChecks<TDefinition>(replacedNode, (OutputPortID)origin);
-            GetForwardingBuffer().Add(ForwardedPort.Output(origin.Port, replacedNode, replacement.Port));
+            GetForwardingBuffer().Add(ForwardedPort.Unchecked.Output(origin.Port, replacedNode, replacement.Port));
         }
 
         #endregion
 
         void CommonChecks<TDefinition>(NodeHandle replacedNode, InputPortID originPort)
-            where TDefinition : INodeDefinition
+            where TDefinition : NodeDefinition
         {
-            CommonChecks<TDefinition>(replacedNode, true, originPort.Port);
+            CommonChecks<TDefinition>(replacedNode, true, originPort.Storage.DFGPortIndex);
         }
 
         void CommonChecks<TDefinition>(NodeHandle replacedNode, OutputPortID originPort)
-            where TDefinition : INodeDefinition
+            where TDefinition : NodeDefinition
         {
-            CommonChecks<TDefinition>(replacedNode, false, originPort.Port);
+            CommonChecks<TDefinition>(replacedNode, false, originPort.Storage.DFGPortIndex);
         }
 
         void CommonChecks<TDefinition>(NodeHandle replacedNode, bool isInput, ushort originPort)
-            where TDefinition : INodeDefinition
+            where TDefinition : NodeDefinition
         {
             ref var buffer = ref GetForwardingBuffer();
 
@@ -170,7 +171,7 @@ namespace Unity.DataFlowGraph
         }
 
         void CommonChecks<TDefinition>(NodeHandle replacedNode)
-            where TDefinition : INodeDefinition
+            where TDefinition : NodeDefinition
         {
             if (TypeIndex != NodeDefinitionTypeIndex<TDefinition>.Index)
                 throw new ArgumentException($"Unrelated type {typeof(TDefinition)} given for origin port");
@@ -179,19 +180,19 @@ namespace Unity.DataFlowGraph
                 throw new ArgumentException("Cannot forward to self");
         }
 
-        internal unsafe InitContext(NodeHandle handle, int typeIndex, ref BlitList<ForwardedPort> stackList)
+        internal unsafe InitContext(ValidatedHandle handle, int typeIndex, ref BlitList<ForwardedPort.Unchecked> stackList)
         {
-            Handle = handle;
+            m_Handle = handle;
             TypeIndex = typeIndex;
             m_ForwardedConnectionsMemory = Unsafe.AsPointer(ref stackList);
         }
 
-        unsafe ref BlitList<ForwardedPort> GetForwardingBuffer()
+        unsafe ref BlitList<ForwardedPort.Unchecked> GetForwardingBuffer()
         {
-            ref BlitList<ForwardedPort> buffer = ref Unsafe.AsRef<BlitList<ForwardedPort>>(m_ForwardedConnectionsMemory);
+            ref BlitList<ForwardedPort.Unchecked> buffer = ref Unsafe.AsRef<BlitList<ForwardedPort.Unchecked>>(m_ForwardedConnectionsMemory);
 
             if (!buffer.IsCreated)
-                buffer = new BlitList<ForwardedPort>(0, Allocator.Temp);
+                buffer = new BlitList<ForwardedPort.Unchecked>(0, Allocator.Temp);
 
             return ref buffer;
         }

@@ -8,7 +8,7 @@ namespace Unity.DataFlowGraph.Tests
     {
         struct NodeData : INodeData { }
 
-        class TestNode : NodeDefinition<NodeData>
+        class TestNode : NodeDefinition<EmptyPorts>
         {
 
         }
@@ -18,8 +18,8 @@ namespace Unity.DataFlowGraph.Tests
         {
             using (var set = new NodeSet())
             {
-                var functionality = set.GetFunctionality<TestNode>();
-                Assert.AreEqual(set, functionality.BaseTraits.Set);
+                var definition = set.GetDefinition<TestNode>();
+                Assert.AreEqual(set, definition.BaseTraits.Set);
             }
         }
     }

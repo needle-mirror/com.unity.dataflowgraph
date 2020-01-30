@@ -22,7 +22,7 @@ namespace Unity.DataFlowGraph.Tour
          * 2) At runtime, the node set can verify that weakly typed operations are safe
          * 
          * In particular, every node definition carries a port description. This is a list of every input port 
-         * and output port declared by the node definition, including what declared type it is and its usage:
+         * and output port declared by the node definition, including what declared type it is and its category:
          * data / message / DSL etc.
          * 
          * A node's port identifiers are declared in its node definition (e.g. DataInput<MyNode, float> or MessageOutput<MyNode, long>). The 
@@ -58,7 +58,7 @@ namespace Unity.DataFlowGraph.Tour
             public void HandleMessage(in MessageContext ctx, in float msg)
             {
                 Debug.Log($"Got a message {msg}");
-                EmitMessage(ctx.Handle, SimulationPorts.Output, msg + 2);
+                ctx.EmitMessage(SimulationPorts.Output, msg + 2);
             }
         }
 
@@ -75,17 +75,17 @@ namespace Unity.DataFlowGraph.Tour
 
                 /*
                  * In this case, we know both nodes are of the same type. This can also be tested, using Is<>, As<>
-                 * or definition comparison - GetFunctionality().
+                 * or definition comparison - GetDefinition().
                  */
-                var functionality = set.GetFunctionality<MyNode>();
+                var definition = set.GetDefinition<MyNode>();
 
                 /*
-                 * The port description for a node can be acquired through the functionality's GetPortDescription()
+                 * The port description for a node can be acquired through the definition's GetPortDescription()
                  * function, given some node.
                  */
                 PortDescription 
-                    portsForA = functionality.GetPortDescription(a),
-                    portsForB = functionality.GetPortDescription(b);
+                    portsForA = definition.GetPortDescription(a),
+                    portsForB = definition.GetPortDescription(b);
                 
                 /*
                  * Let's pretty-print the I/O port configuration on node A (same procedure for node B).
@@ -93,10 +93,10 @@ namespace Unity.DataFlowGraph.Tour
                 Debug.Log("Ports on node A: ");
 
                 foreach (var input in portsForA.Inputs)
-                    Debug.Log($"\t{input.Name} {input.PortUsage}Input<{input.Type}>");
+                    Debug.Log($"\t{input.Name} {input.Category}Input<{input.Type}>");
 
                 foreach (var output in portsForA.Outputs)
-                    Debug.Log($"\t{output.Name} {output.PortUsage}Output<{output.Type}>");
+                    Debug.Log($"\t{output.Name} {output.Category}Output<{output.Type}>");
 
                 /*
                  * Now let's connect message ports together.
@@ -104,12 +104,12 @@ namespace Unity.DataFlowGraph.Tour
                  */
                 OutputPortID messageOutputOnA = portsForA
                     .Outputs
-                    .Where(p => p.PortUsage == Usage.Message)
+                    .Where(p => p.Category == PortDescription.Category.Message)
                     .First();
 
                 InputPortID messageInputOnB = portsForB
                     .Inputs
-                    .Where(p => p.PortUsage == Usage.Message)
+                    .Where(p => p.Category == PortDescription.Category.Message)
                     .First();
 
                 /*
@@ -128,7 +128,7 @@ namespace Unity.DataFlowGraph.Tour
                  */
                 var messageInputOnA = portsForA
                     .Inputs
-                    .Where(p => p.PortUsage == Usage.Message)
+                    .Where(p => p.Category == PortDescription.Category.Message)
                     .First();
 
                 set.SendMessage(a, messageInputOnA, Mathf.PI);

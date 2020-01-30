@@ -6,10 +6,10 @@ namespace Unity.DataFlowGraph.Tour
     public class B_Usage_HavingInstanceData : MonoBehaviour
     {
         /*
-         * The node definition always defines a "data instance description", a structure implementing INodeData.
+         * The node definition can define a "data instance description", a structure implementing INodeData.
          * This particular structure is what is actually being instantiated, when you create a node from a node definition.
          */
-        class MyNode : NodeDefinition<MyNode.MyInstanceData>
+        class MyNode : NodeDefinition<MyNode.MyInstanceData, MyNode.MyPorts>
         {
             /*
              * This is our per-node instance data. 
@@ -24,6 +24,8 @@ namespace Unity.DataFlowGraph.Tour
                 public int NodeNumber;
             }
 
+            public struct MyPorts : ISimulationPortDefinition { }
+
             /// <summary>
             /// A counter to identify created nodes.
             /// </summary>
@@ -35,7 +37,7 @@ namespace Unity.DataFlowGraph.Tour
              * Overriding Init() allows you to do custom initialization for your node data,
              * whenever a user creates a new node of your kind.
              */
-            public override void Init(InitContext ctx)
+            protected override void Init(InitContext ctx)
             {
                 /*
                  * You can retrieve the contents of the node that was just created using GetNodeData + the initialization 
@@ -54,13 +56,13 @@ namespace Unity.DataFlowGraph.Tour
             /*
              * Similarly, we can do custom destruction for a node by overriding Destroy().
              */
-            public override void Destroy(NodeHandle handle)
+            protected override void Destroy(NodeHandle handle)
             {
                 var data = GetNodeData(handle);
                 Debug.Log($"Destroyed node number: {data.NodeNumber}");
             }
 
-            public override void Dispose() => Debug.Log("My node's definition just got disposed");
+            protected override void Dispose() => Debug.Log("My node's definition just got disposed");
         }
 
         List<NodeHandle> m_NodeList = new List<NodeHandle>();

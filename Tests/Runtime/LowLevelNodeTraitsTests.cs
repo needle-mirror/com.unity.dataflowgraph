@@ -42,23 +42,27 @@ namespace Unity.DataFlowGraph.Tests
 
         class KernelNodeWithIO : NodeDefinition<Node, Data, KernelNodeWithIO.KernelDefs, KernelNodeWithIO.Kernel>
         {
+#pragma warning disable 649  // Assigned through internal DataFlowGraph reflection
+            public struct NestedAggregate
+            {
+                public Aggregate SubAggr;
+            }
+
             public struct Aggregate
             {
-                #pragma warning disable 649  // Assigned through internal DataFlowGraph reflection
                 public Buffer<int> SubBuffer1;
                 public Buffer<int> SubBuffer2;
-                #pragma warning restore 649
             }
 
             public struct KernelDefs : IKernelPortDefinition
             {
-                #pragma warning disable 649  // Assigned through internal DataFlowGraph reflection
                 public DataInput<KernelNodeWithIO, int> Input1, Input2, Input3;
                 public DataOutput<KernelNodeWithIO, int> Output1, Output2;
                 public DataOutput<KernelNodeWithIO, Buffer<int>> Output3;
                 public DataOutput<KernelNodeWithIO, Aggregate> Output4;
-                #pragma warning restore 649
+                public DataOutput<KernelNodeWithIO, NestedAggregate> Output5;
             }
+#pragma warning restore 649
 
             [BurstCompile(CompileSynchronously = true)]
             public unsafe struct Kernel : IGraphKernel<Data, KernelDefs>
@@ -99,9 +103,7 @@ namespace Unity.DataFlowGraph.Tests
         {
         }
 
-        class SimpleNode : NodeDefinition<Node>
-        {
-        }
+        class SimpleNode : NodeDefinition<Node, EmptyPorts> {}
 
         void CompareSimpleTypes(SimpleType original, SimpleType analysed)
         {
@@ -117,8 +119,7 @@ namespace Unity.DataFlowGraph.Tests
             {
                 var node = type == NodeType.Kernel ? (NodeHandle)set.Create<KernelNodeWithIO>() : set.Create<SimpleNode>();
 
-                var nodes = set.GetInternalData();
-                ref var llTraits = ref set.GetLLTraits()[nodes[node.VHandle.Index].TraitsIndex].Resolve();
+                ref readonly var llTraits = ref set.GetNodeTraits(node);
 
                 Assert.IsTrue(llTraits.IsCreated);
                 set.Destroy(node);
@@ -134,8 +135,7 @@ namespace Unity.DataFlowGraph.Tests
             {
                 var node = shouldHaveKernelData ? (NodeHandle)set.Create<KernelNodeWithIO>() : set.Create<SimpleNode>();
 
-                var nodes = set.GetInternalData();
-                ref var llTraits = ref set.GetLLTraits()[nodes[node.VHandle.Index].TraitsIndex].Resolve();
+                ref readonly var llTraits = ref set.GetNodeTraits(node);
 
                 Assert.AreEqual(shouldHaveKernelData, llTraits.HasKernelData);
 
@@ -149,8 +149,8 @@ namespace Unity.DataFlowGraph.Tests
             using (var set = new NodeSet())
             {
                 NodeHandle node = set.Create<KernelNodeWithIO>();
-                var nodes = set.GetInternalData();
-                ref var llTraits = ref set.GetLLTraits()[nodes[node.VHandle.Index].TraitsIndex].Resolve();
+
+                ref readonly var llTraits = ref set.GetNodeTraits(node);
 
                 CompareSimpleTypes(SimpleType.Create<KernelNodeWithIO.Kernel>(), llTraits.Storage.Kernel);
                 CompareSimpleTypes(SimpleType.Create<KernelNodeWithIO.KernelDefs>(), llTraits.Storage.KernelPorts);
@@ -168,10 +168,7 @@ namespace Unity.DataFlowGraph.Tests
             {
                 NodeHandle node = type == NodeType.Kernel ? (NodeHandle)set.Create<KernelNodeWithIO>() : set.Create<SimpleNode>();
 
-                var nodes = set.GetInternalData();
-                ref var llTraits = ref set.GetLLTraits()[nodes[node.VHandle.Index].TraitsIndex].Resolve();
-
-                Assert.AreNotEqual(new SimpleType(), llTraits.Storage.SimPorts);
+                Assert.AreNotEqual(new SimpleType(), set.GetNodeTraits(node).Storage.SimPorts);
 
                 set.Destroy(node);
             }
@@ -184,8 +181,7 @@ namespace Unity.DataFlowGraph.Tests
             {
                 NodeHandle node = type == NodeType.Kernel ? (NodeHandle)set.Create<KernelNodeWithIO>() : set.Create<SimpleNode>();
 
-                var nodes = set.GetInternalData();
-                ref var llTraits = ref set.GetLLTraits()[nodes[node.VHandle.Index].TraitsIndex].Resolve();
+                ref readonly var llTraits = ref set.GetNodeTraits(node);
 
                 Assert.AreNotEqual(new LowLevelNodeTraits.VirtualTable(), llTraits.VTable.KernelFunction.JobData);
                 Assert.AreNotEqual(IntPtr.Zero, llTraits.VTable.KernelFunction.JobData);
@@ -203,10 +199,7 @@ namespace Unity.DataFlowGraph.Tests
             {
                 NodeHandle node = isKernelType ? (NodeHandle)set.Create<KernelNodeWithIO>() : set.Create<SimpleNode>();
 
-                var nodes = set.GetInternalData();
-                ref var llTraits = ref set.GetLLTraits()[nodes[node.VHandle.Index].TraitsIndex].Resolve();
-
-                Assert.AreEqual(isKernelType, !llTraits.VTable.KernelFunction.IsPureVirtual);
+                Assert.AreEqual(isKernelType, LowLevelNodeTraits.VirtualTable.IsMethodImplemented(set.GetNodeTraits(node).VTable.KernelFunction));
 
                 set.Destroy(node);
             }
@@ -216,7 +209,7 @@ namespace Unity.DataFlowGraph.Tests
         public void CreatedVirtualTable_ContainsOnlyPureVirtualFunctions()
         {
             var function = LowLevelNodeTraits.VirtualTable.Create();
-            Assert.IsTrue(function.KernelFunction.IsPureVirtual);
+            Assert.IsFalse(LowLevelNodeTraits.VirtualTable.IsMethodImplemented(function.KernelFunction));
         }
 
         [Test]
@@ -228,7 +221,7 @@ namespace Unity.DataFlowGraph.Tests
 
             try
             {
-                function.KernelFunction.Invoke(new RenderContext(), null, null, null);
+                function.KernelFunction.Invoke(new RenderContext(), new KernelLayout.Pointers());
             }
             catch (Exception e)
             {
@@ -236,33 +229,32 @@ namespace Unity.DataFlowGraph.Tests
             }
 
             LogAssert.Expect(LogType.Exception, new Regex("Pure virtual function"));
-            function.KernelFunction.Schedule(new JobHandle(), new RenderContext(), null, null, null).Complete();
+            function.KernelFunction.Schedule(new JobHandle(), new RenderContext(), new KernelLayout.Pointers()).Complete();
         }
 
         [TestCase(CompilationFlags.Managed), TestCase(CompilationFlags.Bursted)]
         public unsafe void OverridenVirtualFunctions_CanBeScheduledAndInvoked(CompilationFlags flags)
         {
-#if ENABLE_IL2CPP
-            if (flags == CompilationFlags.Managed)
-                Assert.Ignore("Skipping test since IL2CPP is broken for non-bursted Kernels");
-#endif
-
             using (var set = new NodeSet())
             {
                 NodeHandle node = flags == CompilationFlags.Bursted ? (NodeHandle)set.Create<BurstedEmptyKernelNode>() : set.Create<EmptyKernelNode>();
 
-                var nodes = set.GetInternalData();
-                ref var llTraits = ref set.GetLLTraits()[nodes[node.VHandle.Index].TraitsIndex].Resolve();
+                ref readonly var llTraits = ref set.GetNodeTraits(node);
 
                 Data data;
                 BurstedEmptyKernel bkernel;
                 EmptyKernel kernel;
                 EmptyKernelDefs defs;
 
-                var kernelPointer = flags == CompilationFlags.Bursted ? (RenderKernelFunction.BaseKernel*)&bkernel : (RenderKernelFunction.BaseKernel*)&kernel;
+                var instance = new KernelLayout.Pointers
+                (
+                    kernel: flags == CompilationFlags.Bursted ? (RenderKernelFunction.BaseKernel*)&bkernel : (RenderKernelFunction.BaseKernel*)&kernel,
+                    data: (RenderKernelFunction.BaseData*)&data,
+                    ports: (RenderKernelFunction.BasePort*)&defs
+                );
 
-                llTraits.VTable.KernelFunction.Invoke(new RenderContext(), kernelPointer, (RenderKernelFunction.BaseData*)&data, (RenderKernelFunction.BasePort*)&defs);
-                llTraits.VTable.KernelFunction.Schedule(new JobHandle(), new RenderContext(), kernelPointer, (RenderKernelFunction.BaseData*)&data, (RenderKernelFunction.BasePort*)&defs).Complete();
+                llTraits.VTable.KernelFunction.Invoke(new RenderContext(), instance);
+                llTraits.VTable.KernelFunction.Schedule(new JobHandle(), new RenderContext(), instance).Complete();
 
                 set.Destroy(node);
             }
@@ -317,7 +309,7 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test, Explicit]
-        public unsafe void FailedBurstCompilationOfKernel_FallsBackToManagedKernel([Values] RenderExecutionModel meansOfComputation)
+        public unsafe void FailedBurstCompilationOfKernel_FallsBackToManagedKernel([Values] NodeSet.RenderExecutionModel meansOfComputation)
         {
             Assume.That(JobsUtility.JobCompilerEnabled, Is.True);
 
@@ -351,8 +343,8 @@ namespace Unity.DataFlowGraph.Tests
 
                 // Check the reflection data on the KernelFunction to identify if this is indeed the Managed version of
                 // the kernel's compilation as opposed to the Bursted one.
-                var nodes = set.GetInternalData();
-                ref var llTraits = ref set.GetLLTraits()[nodes[node.VHandle.Index].TraitsIndex].Resolve();
+                ref readonly var llTraits = ref set.GetNodeTraits(node);
+
                 Assert.AreEqual(
                     llTraits.VTable.KernelFunction.ReflectionData,
                     RenderKernelFunction.GetManagedFunction<Data, InvalidForBurstKernelNodeWithIO.KernelDefs, InvalidForBurstKernelNodeWithIO.InvalidForBurstKernel>().ReflectionData
@@ -360,7 +352,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 var knodes = set.DataGraph.GetInternalData();
                 ref var inode = ref knodes[node.VHandle.Index];
-                var ports = Unsafe.AsRef<InvalidForBurstKernelNodeWithIO.KernelDefs>(inode.KernelPorts);
+                var ports = Unsafe.AsRef<InvalidForBurstKernelNodeWithIO.KernelDefs>(inode.Instance.Ports);
                 Assert.AreEqual(ports.Output1.m_Value, 11);
                 Assert.AreEqual(ports.Output2.m_Value, 12);
 
@@ -375,8 +367,7 @@ namespace Unity.DataFlowGraph.Tests
             {
                 NodeHandle node = set.Create<SimpleNode>();
 
-                var nodes = set.GetInternalData();
-                ref var llTraits = ref set.GetLLTraits()[nodes[node.VHandle.Index].TraitsIndex].Resolve();
+                ref readonly var llTraits = ref set.GetNodeTraits(node);
 
                 CompareSimpleTypes(new SimpleType(), llTraits.Storage.Kernel);
                 CompareSimpleTypes(new SimpleType(), llTraits.Storage.KernelPorts);
@@ -393,12 +384,11 @@ namespace Unity.DataFlowGraph.Tests
             using (var set = new NodeSet())
             {
                 NodeHandle node = set.Create<KernelNodeWithIO>();
-                var portDeclaration = set.GetFunctionality(node).GetPortDescription(node);
-                var nodes = set.GetInternalData();
-                ref var llTraits = ref set.GetLLTraits()[nodes[node.VHandle.Index].TraitsIndex].Resolve();
+                var portDeclaration = set.GetDefinition(node).GetPortDescription(node);
+                ref readonly var llTraits = ref set.GetNodeTraits(node);
 
-                Assert.AreEqual(portDeclaration.Inputs.Count(p => p.PortUsage == Usage.Data), llTraits.DataPorts.Inputs.Count);
-                Assert.AreEqual(portDeclaration.Outputs.Count(p => p.PortUsage == Usage.Data), llTraits.DataPorts.Outputs.Count);
+                Assert.AreEqual(portDeclaration.Inputs.Count(p => p.Category == PortDescription.Category.Data), llTraits.DataPorts.Inputs.Count);
+                Assert.AreEqual(portDeclaration.Outputs.Count(p => p.Category == PortDescription.Category.Data), llTraits.DataPorts.Outputs.Count);
 
                 set.Destroy(node);
             }
@@ -410,16 +400,16 @@ namespace Unity.DataFlowGraph.Tests
             using (var set = new NodeSet())
             {
                 NodeHandle node = set.Create<KernelNodeWithIO>();
-                var portDeclaration = set.GetFunctionality(node).GetPortDescription(node);
-                var nodes = set.GetInternalData();
-                ref var llTraits = ref set.GetLLTraits()[nodes[node.VHandle.Index].TraitsIndex].Resolve();
+                var portDeclaration = set.GetDefinition(node).GetPortDescription(node);
+                ref readonly var llTraits = ref set.GetNodeTraits(node);
 
                 int numDataBuffers = 0;
                 foreach (var port in portDeclaration.Outputs)
                     numDataBuffers += port.BufferInfos.Count;
 
                 var bufferOffsets = llTraits.DataPorts.OutputBufferOffsets;
-                Assert.AreEqual(numDataBuffers, bufferOffsets.Count);
+                Assert.AreEqual(5, numDataBuffers);
+                Assert.AreEqual(5, bufferOffsets.Count);
 
                 foreach (var port in portDeclaration.Outputs)
                 {
@@ -429,7 +419,7 @@ namespace Unity.DataFlowGraph.Tests
                     {
                         for (int i = 0; i < bufferOffsets.Count; ++i)
                         {
-                            if (buf.Offset + portOffset == bufferOffsets[i])
+                            if (buf.Offset + portOffset == bufferOffsets[i].Offset)
                             {
                                 bufferOffsets.Remove(i, 1);
                                 break;
@@ -449,8 +439,7 @@ namespace Unity.DataFlowGraph.Tests
             using (var set = new NodeSet())
             {
                 NodeHandle node = set.Create<KernelNodeWithIO>();
-                var nodes = set.GetInternalData();
-                ref var llTraits = ref set.GetLLTraits()[nodes[node.VHandle.Index].TraitsIndex].Resolve();
+                ref readonly var llTraits = ref set.GetNodeTraits(node);
 
                 Assert.AreEqual(KernelNodeWithIO.KernelPorts.Input1.Port, llTraits.DataPorts.Inputs[0].PortNumber);
                 Assert.AreEqual(KernelNodeWithIO.KernelPorts.Input2.Port, llTraits.DataPorts.Inputs[1].PortNumber);
@@ -469,8 +458,7 @@ namespace Unity.DataFlowGraph.Tests
             using (var set = new NodeSet())
             {
                 NodeHandle node = set.Create<KernelNodeWithIO>();
-                var nodes = set.GetInternalData();
-                ref var llTraits = ref set.GetLLTraits()[nodes[node.VHandle.Index].TraitsIndex].Resolve();
+                ref readonly var llTraits = ref set.GetNodeTraits(node);
 
                 var runningOffset = -1;
 
@@ -497,8 +485,12 @@ namespace Unity.DataFlowGraph.Tests
 
             Assert.Throws<ObjectDisposedException>(() => traits.Dispose());
 
-            using (var rawNodeDefinition = new KernelNodeWithIO())
+            KernelNodeWithIO rawNodeDefinition = default;
+
+            try
             {
+                rawNodeDefinition = new KernelNodeWithIO();
+
                 LLTraitsHandle handle = new LLTraitsHandle();
                 Assert.DoesNotThrow(() => handle = rawNodeDefinition.BaseTraits.CreateNodeTraits(rawNodeDefinition.GetType()));
 
@@ -507,6 +499,56 @@ namespace Unity.DataFlowGraph.Tests
                 handle.Dispose();
 
                 Assert.Throws<ObjectDisposedException>(() => handle.Dispose());
+            }
+            finally
+            {
+                rawNodeDefinition?.Dispose();
+            }
+        }
+
+        unsafe struct PrettyUniqueStructSize
+        {
+            public const int kPadSize = 0x237;
+            fixed byte Pad[kPadSize];
+        }
+
+        [Test]
+        public void OutputDeclaration_ElementOrType_ReflectsSizeCorrectly_ForScalars()
+        {
+            using (var set = new NodeSet())
+            {
+                var node = set.Create<NodeWithParametricPortType<PrettyUniqueStructSize>>();
+                var decl = set
+                    .GetNodeTraits(node)
+                    .DataPorts
+                    .FindOutputDataPort(NodeWithParametricPortType<PrettyUniqueStructSize>.KernelPorts.Output.Port);
+
+                Assert.AreEqual(SimpleType.Create<PrettyUniqueStructSize>().Size, decl.ElementOrType.Size);
+
+                set.Destroy(node);
+            }
+        }
+
+        unsafe struct DifferentButUniqueStructSize
+        {
+            public const int kPadSize = 0x733;
+            fixed byte Pad[kPadSize];
+        }
+
+        [Test]
+        public void OutputDeclaration_ElementOrType_ReflectsNestedBuffer_ElementSize()
+        {
+            using (var set = new NodeSet())
+            {
+                var node = set.Create<NodeWithParametricPortType<Buffer<DifferentButUniqueStructSize>>>();
+                var decl = set
+                    .GetNodeTraits(node)
+                    .DataPorts
+                    .FindOutputDataPort(NodeWithParametricPortType<Buffer<DifferentButUniqueStructSize>>.KernelPorts.Output.Port);
+
+                Assert.AreEqual(SimpleType.Create<DifferentButUniqueStructSize>().Size, decl.ElementOrType.Size);
+
+                set.Destroy(node);
             }
         }
     }

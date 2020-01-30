@@ -121,7 +121,7 @@ namespace Unity.DataFlowGraph.PolynomialCubeRotatorExample
                 }
             }
 
-            public override void Init(InitContext ctx)
+            protected override void Init(InitContext ctx)
             {
                 GetKernelData(ctx.Handle).RNG = new Mathematics.Random((uint)UnityEngine.Random.Range(1, 127));
             }
@@ -166,11 +166,11 @@ namespace Unity.DataFlowGraph.PolynomialCubeRotatorExample
                     nodeData.TimeScale = msg;
             }
 
-            public override void OnUpdate(NodeHandle handle)
+            protected override void OnUpdate(in UpdateContext ctx)
             {
-                ref var nodeData = ref GetNodeData(handle);
+                ref var nodeData = ref GetNodeData(ctx.Handle);
                 nodeData.Time += Time.deltaTime * nodeData.TimeScale;
-                GetKernelData(handle).Time = nodeData.Time;
+                GetKernelData(ctx.Handle).Time = nodeData.Time;
             }
         }
 

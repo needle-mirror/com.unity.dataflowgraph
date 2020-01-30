@@ -23,32 +23,23 @@ namespace Unity.DataFlowGraph
         internal VersionedHandle Handle;
     }
 
-    unsafe struct DataOutputValue
+    unsafe struct DataOutputValue : IVersionedNode
     {
-        public bool IsAlive => m_IsCreated != 0;
+        public bool Valid => m_IsCreated != 0;
         public bool IsLinkedToGraph => FutureMemory != null;
+
+        public VersionedHandle VHandle { get; set; }
 
         public void* FutureMemory;
         public JobHandle Dependency;
 
-        public VersionedHandle VHandle;
-        public NodeHandle Node;
-        public OutputPortID Port;
+        public OutputPair Source;
         byte m_IsCreated;
 
-        public void Release()
-        {
-            var vhandle = VHandle;
-            this = new DataOutputValue();
-            VHandle = vhandle;
-            VHandle.Version++;
-        }
-
-        public void Emplace<T>(NodeHandle handle, OutputPortID port)
+        public void Emplace<T>(in OutputPair source)
             where T : struct
         {
-            Node = handle;
-            Port = port;
+            Source = source;
             m_IsCreated = 1;
         }
 
@@ -60,6 +51,14 @@ namespace Unity.DataFlowGraph
                 return new T();
 
             return Unsafe.AsRef<T>(FutureMemory);
+        }
+
+        internal void Clear()
+        {
+            FutureMemory = null;
+            Dependency = default;
+            Source = default;
+            m_IsCreated = 0;
         }
     }
 
@@ -111,7 +110,7 @@ namespace Unity.DataFlowGraph
             var value = Values[handle.Handle.Index];
 
             // Secondary invalidation check
-            if (!RenderGraph.Exists(ref KernelNodes, value.Node))
+            if (!RenderGraph.StillExists(ref KernelNodes, value.Source.Handle))
             {
                 throw new ObjectDisposedException("GraphValue's target node handle is disposed or invalid");
             }
@@ -151,12 +150,13 @@ namespace Unity.DataFlowGraph
                 return ret;
             }
         }
+
+        internal unsafe bool IsValid => Manager != null;
     }
 
     public partial class NodeSet
     {
-        BlitList<DataOutputValue> m_GraphValues = new BlitList<DataOutputValue>(0);
-        BlitList<int> m_FreeGraphValues = new BlitList<int>(0);
+        VersionedList<DataOutputValue> m_GraphValues;
 
         /// <summary>
         /// Graph values can exist in two states:
@@ -167,6 +167,7 @@ namespace Unity.DataFlowGraph
         /// that was created before the last current render.
         /// </summary>
         NativeList<DataOutputValue> m_PostRenderValues = new NativeList<DataOutputValue>(Allocator.Persistent);
+        (GraphValueResolver Resolver, JobHandle Dependency) m_CurrentGraphValueResolver;
         BlitList<JobHandle> m_ReaderFences = new BlitList<JobHandle>(0, Allocator.Persistent);
 
         /// <summary>
@@ -183,15 +184,16 @@ namespace Unity.DataFlowGraph
         /// <exception cref="ArgumentException">Thrown if the target node is invalid or disposed</exception>
         /// <exception cref="IndexOutOfRangeException">Thrown if the output port is out of bounds</exception>
         public GraphValue<T> CreateGraphValue<T, TDefinition>(NodeHandle<TDefinition> node, DataOutput<TDefinition, T> output)
-            where TDefinition : INodeDefinition
+            where TDefinition : NodeDefinition
             where T : struct
         {
-            NodeHandle handle = node;
-            NodeVersionCheck(handle.VHandle);
-            ResolvePublicSource(ref handle, ref output.Port);
+            var source = new OutputPair(this, node, output.Port);
 
-            ref var value = ref AllocateValue();
-            value.Emplace<T>(handle, output.Port);
+            // To ensure the port actually exists.
+            GetFormalPort(source);
+
+            ref var value = ref m_GraphValues.Allocate();
+            value.Emplace<T>(source);
 
             return new GraphValue<T> { Handle = value.VHandle };
         }
@@ -206,18 +208,18 @@ namespace Unity.DataFlowGraph
         public GraphValue<T> CreateGraphValue<T>(NodeHandle handle, OutputPortID output)
             where T : struct
         {
-            var sourcePortDef = GetFunctionality(handle).GetPortDescription(handle).Outputs[output.Port];
+            var source = new OutputPair(this, handle, output);
 
-            if (sourcePortDef.PortUsage != Usage.Data)
+            var sourcePortDef = GetFormalPort(source);
+
+            if (sourcePortDef.Category != PortDescription.Category.Data)
                 throw new InvalidOperationException($"Graph values can only point to data outputs");
 
             if (sourcePortDef.Type != typeof(T))
                 throw new InvalidOperationException($"Cannot create a graph value of type {typeof(T)} pointing to a data output of type {sourcePortDef.Type}");
 
-            ResolvePublicSource(ref handle, ref output);
-
-            ref var value = ref AllocateValue();
-            value.Emplace<T>(handle, output);
+            ref var value = ref m_GraphValues.Allocate();
+            value.Emplace<T>(source);
 
             return new GraphValue<T> { Handle = value.VHandle };
         }
@@ -229,10 +231,7 @@ namespace Unity.DataFlowGraph
         public void ReleaseGraphValue<T>(GraphValue<T> graphValue)
         {
             ValueVersionCheck(graphValue.Handle);
-
-            ref var value = ref m_GraphValues[graphValue.Handle.Index];
-
-            DestroyValue(ref value);
+            DestroyValue(ref m_GraphValues[graphValue.Handle.Index]);
         }
 
         /// <summary>
@@ -251,7 +250,7 @@ namespace Unity.DataFlowGraph
             ValueVersionCheck(graphValue.Handle);
             ref var value = ref m_GraphValues[graphValue.Handle.Index];
 
-            if (!Exists(value.Node))
+            if (!StillExists(value.Source.Handle))
                 throw new ObjectDisposedException("The node that the graph value refers to is destroyed");
 
             if (value.IsLinkedToGraph)
@@ -265,7 +264,7 @@ namespace Unity.DataFlowGraph
         /// </summary>
         public bool ValueExists<T>(GraphValue<T> graphValue)
         {
-            return graphValue.Handle.Index < m_GraphValues.Count && graphValue.Handle.Version == m_GraphValues[graphValue.Handle.Index].VHandle.Version;
+            return m_GraphValues.Exists(graphValue.Handle);
         }
 
         /// <summary>
@@ -303,40 +302,24 @@ namespace Unity.DataFlowGraph
         {
             // TODO: Here we take dependency on every graph value in the graph.
             // We could make a "filter" or similar.
-            var results = DataGraph.CombineAndProtectDependencies(m_PostRenderValues);
-            resultDependency = results.Dependency;
-            return results.Resolver;
+            if (!m_CurrentGraphValueResolver.Resolver.IsValid)
+                m_CurrentGraphValueResolver = DataGraph.CombineAndProtectDependencies(m_PostRenderValues);
+            resultDependency = m_CurrentGraphValueResolver.Dependency;
+            return m_CurrentGraphValueResolver.Resolver;
         }
 
         internal void ValueVersionCheck(VersionedHandle handle)
         {
-            if (handle.Index >= m_GraphValues.Count || handle.Version != m_GraphValues[handle.Index].VHandle.Version)
+            if (!m_GraphValues.Exists(handle))
             {
                 throw new ObjectDisposedException("GraphValue is disposed or invalid");
             }
         }
 
-        ref DataOutputValue AllocateValue()
-        {
-            if (m_FreeGraphValues.Count > 0)
-            {
-                var index = m_FreeGraphValues[m_FreeGraphValues.Count - 1];
-                m_FreeGraphValues.PopBack();
-                return ref m_GraphValues[index];
-            }
-
-            var value = new DataOutputValue();
-            value.VHandle.Version = 1;
-            value.VHandle.Index = m_GraphValues.Count;
-            m_GraphValues.Add(value);
-
-            return ref m_GraphValues[m_GraphValues.Count - 1];
-        }
-
         void DestroyValue(ref DataOutputValue value)
         {
-            value.Release();
-            m_FreeGraphValues.Add(value.VHandle.Index);
+            value.Clear();
+            m_GraphValues.Release(value);
         }
 
         unsafe void FenceOutputConsumers()
@@ -350,11 +333,11 @@ namespace Unity.DataFlowGraph
         unsafe void SwapGraphValues()
         {
             // If this throws, then any input job handles were bad.
-            m_PostRenderValues.ResizeUninitialized(m_GraphValues.Count);
-            UnsafeUtility.MemCpy(m_PostRenderValues.GetUnsafePtr(), m_GraphValues.Pointer, m_GraphValues.Count * sizeof(DataOutputValue));
+            m_GraphValues.CopyTo(m_PostRenderValues);
+            m_CurrentGraphValueResolver = default;
         }
 
-        internal BlitList<DataOutputValue> GetOutputValues()
+        internal VersionedList<DataOutputValue> GetOutputValues()
         {
             return m_GraphValues;
         }

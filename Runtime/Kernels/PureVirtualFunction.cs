@@ -1,11 +1,12 @@
 ﻿using System;
+
 namespace Unity.DataFlowGraph
 {
     struct PureVirtualFunction : IGraphNodeExecutor
     {
         public void Execute()
         {
-            throw new InvalidOperationException("Pure virtual function called. This is an internal bug.");
+            throw new InternalException("Pure virtual function called.");
         }
 
         public static IntPtr GetReflectionData()

@@ -5,6 +5,7 @@ using Unity.Jobs.LowLevel.Unsafe;
 
 namespace Unity.DataFlowGraph
 {
+    using Topology = TopologyAPI<ValidatedHandle, InputPortArrayID, OutputPortID>;
 
     partial class RenderGraph
     {
@@ -24,15 +25,15 @@ namespace Unity.DataFlowGraph
 
                 switch (m_Model)
                 {
-                    case RenderExecutionModel.MaximallyParallel:
+                    case NodeSet.RenderExecutionModel.MaximallyParallel:
 
-                        var rootCacheWalker = new RootCacheWalker(m_Cache);
+                        var rootCacheWalker = new Topology.RootCacheWalker(Cache);
 
                         using (var tempHandles = new NativeList<JobHandle>(rootCacheWalker.Count, Allocator.Temp))
                         {
                             foreach (var nodeCache in rootCacheWalker)
                             {
-                                ref var node = ref m_Nodes[nodeCache.Handle.VHandle.Index];
+                                ref var node = ref m_Nodes[nodeCache.Vertex.VHandle.Index];
                                 tempHandles.Add(node.Fence);
                             }
 
@@ -43,8 +44,8 @@ namespace Unity.DataFlowGraph
                         }
                         break;
 
-                    case RenderExecutionModel.SingleThreaded:
-                    case RenderExecutionModel.Islands:
+                    case NodeSet.RenderExecutionModel.SingleThreaded:
+                    case NodeSet.RenderExecutionModel.Islands:
 
                         m_ComputedRootFence = JobHandleUnsafeUtility.CombineDependencies(
                             (JobHandle*)m_IslandFences.GetUnsafePtr(),
@@ -101,6 +102,17 @@ namespace Unity.DataFlowGraph
                 temp.Dispose();
             }
 
+        }
+
+        static Topology.SortingAlgorithm AlgorithmFromModel(NodeSet.RenderExecutionModel model)
+        {
+            switch (model)
+            {
+                case NodeSet.RenderExecutionModel.Islands:
+                    return Topology.SortingAlgorithm.LocalDepthFirst;
+                default:
+                    return Topology.SortingAlgorithm.GlobalBreadthFirst;
+            }
         }
     }
 }
