@@ -4,6 +4,10 @@ All notable changes to this package will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [0.12.0-preview.7] - 2020-02-18
+### Fixed
+- Disabled warnings-as-errors locally in package. Soft-obsoletion of APIs in dependencies no longer causes compilation failures.
+
 ## [0.12.0-preview.6] - 2020-01-30
 ### Fixed
 - Trying to use a NodeHandle in a NodeSet other than the one in which it was created is now detected and throws an exception.

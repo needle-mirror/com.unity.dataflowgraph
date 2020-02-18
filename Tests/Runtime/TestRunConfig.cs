@@ -13,11 +13,15 @@ using PackageManager = UnityEditor.PackageManager;
 
 namespace Unity.DataFlowGraph.Tests
 {
+#if UNITY_EDITOR
+    [InitializeOnLoad]
+#endif
     public class TestRunConfig : IPrebuildSetup
     {
-        static readonly string ForceIL2CPPBuildEnvVar = "FORCE_IL2CPP_BUILD";
-        static readonly string ForceBurstCompileEnvVar = "FORCE_BURST_COMPILE";
-        static readonly string ForceSamplesImportEnvVar = "FORCE_SAMPLES_IMPORT";
+        static readonly string ForceIL2CPPBuildEnvVar = "FORCE_DFG_CI_IL2CPP_BUILD";
+        static readonly string ForceBurstCompileEnvVar = "FORCE_DFG_CI_BURST_COMPILE";
+        static readonly string ForceWarningsAsErrorsEnvVar = "FORCE_DFG_CI_WARNINGS_AS_ERRORS";
+        static readonly string ForceSamplesImportEnvVar = "FORCE_DFG_CI_SAMPLES_IMPORT";
         static readonly string ForceDFGInternalAssertionsEnvVar = "FORCE_DFG_INTERNAL_ASSERTIONS";
 
         static bool? GetEnvVarEnabled(string name) =>
@@ -30,13 +34,19 @@ namespace Unity.DataFlowGraph.Tests
 #endif
 
 #if UNITY_EDITOR
-        static void BakeEnvVarToBuild(string name) =>
-            new GameObject(name + ((bool)GetEnvVarEnabled(name) ? "=true" : "=false"));
+        static void BakeEnvVarToBuild(string name)
+        {
+            var envVar = GetEnvVarEnabled(name);
+            if (envVar != null)
+                new GameObject(name + ((bool) envVar ? "=true" : "=false"));
+        }
 #endif
 
         static bool? ForceIL2CPPBuild => GetEnvVarEnabled(ForceIL2CPPBuildEnvVar);
 
         static bool? ForceBurstCompile => GetEnvVarEnabled(ForceBurstCompileEnvVar);
+
+        static bool? ForceWarningsAsErrors => GetEnvVarEnabled(ForceWarningsAsErrorsEnvVar);	
 
         static bool? ForceSamplesImport => GetEnvVarEnabled(ForceSamplesImportEnvVar);
 
@@ -72,32 +82,40 @@ namespace Unity.DataFlowGraph.Tests
         {
             // FIXME: Burst Editor Settings are not properly exposed. Use reflection to hack into it.
             //   static bool Burst.Editor.BurstEditorOptions.EnableBurstCompilation
+            // Issue #245
+
+            // NOTE: Silent failure on failed reflection is intentional.  Problems setting up Burst compilation
+            // (eg. due to change of private API) will be picked up by the Burst_IsEnabled() test below.
             get =>
                 (bool)AppDomain.CurrentDomain.Load("Unity.Burst.Editor")
-                    .GetType("Unity.Burst.Editor.BurstEditorOptions")
-                    .GetMethod("get_EnableBurstCompilation")
-                    .Invoke(null, null);
+                    ?.GetType("Unity.Burst.Editor.BurstEditorOptions")
+                    ?.GetMethod("get_EnableBurstCompilation")
+                    ?.Invoke(null, null);
             set =>
                 AppDomain.CurrentDomain.Load("Unity.Burst.Editor")
-                    .GetType("Unity.Burst.Editor.BurstEditorOptions")
-                    .GetMethod("set_EnableBurstCompilation")
-                    .Invoke(null, new object[] {value});
+                    ?.GetType("Unity.Burst.Editor.BurstEditorOptions")
+                    ?.GetMethod("set_EnableBurstCompilation")
+                    ?.Invoke(null, new object[] {value});
         }
 
         public static bool EnableBurstCompileSynchronously
         {
             // FIXME: Burst Editor Settings are not properly exposed. Use reflection to hack into it.
             //   static bool Burst.Editor.BurstEditorOptions.EnableBurstCompileSynchronously
+            // Issue #245
+
+            // NOTE: Silent failure on failed reflection is intentional.  Problems setting up Burst compilation
+            // (eg. due to change of private API) will be picked up by the Burst_IsEnabled() test below.
             get =>
                 (bool)AppDomain.CurrentDomain.Load("Unity.Burst.Editor")
-                    .GetType("Unity.Burst.Editor.BurstEditorOptions")
-                    .GetMethod("get_EnableBurstCompileSynchronously")
-                    .Invoke(null, null);
+                    ?.GetType("Unity.Burst.Editor.BurstEditorOptions")
+                    ?.GetMethod("get_EnableBurstCompileSynchronously")
+                    ?.Invoke(null, null);
             set =>
                 AppDomain.CurrentDomain.Load("Unity.Burst.Editor")
-                    .GetType("Unity.Burst.Editor.BurstEditorOptions")
-                    .GetMethod("set_EnableBurstCompileSynchronously")
-                    .Invoke(null, new object[] {value});
+                    ?.GetType("Unity.Burst.Editor.BurstEditorOptions")
+                    ?.GetMethod("set_EnableBurstCompileSynchronously")
+                    ?.Invoke(null, new object[] {value});
         }
 #endif
 
@@ -115,9 +133,9 @@ namespace Unity.DataFlowGraph.Tests
             false;
 #endif
 
-        public void Setup()
-        {
 #if UNITY_EDITOR
+        static TestRunConfig()
+        {
             if (ForceIL2CPPBuild != null)
             {
                 foreach (BuildTargetGroup targetGroup in ValidBuildTargetGroups)
@@ -126,7 +144,6 @@ namespace Unity.DataFlowGraph.Tests
                         targetGroup,
                         (bool) ForceIL2CPPBuild ? ScriptingImplementation.IL2CPP : ScriptingImplementation.Mono2x);
                 }
-                BakeEnvVarToBuild(ForceIL2CPPBuildEnvVar);
             }
 
             if (ForceBurstCompile != null)
@@ -139,34 +156,39 @@ namespace Unity.DataFlowGraph.Tests
                 //       Burst.Editor.BurstPlatformAotSettings.GetOrCreateSettings(target);
                 //   burstAOTSettings.DisableBurstCompilation = !(bool) ForceBurstCompile;
                 //   burstAOTSettings.Save(target);
+                // Issue #245
 
                 var burstAOTSettingsType =
                     AppDomain.CurrentDomain.Load("Unity.Burst.Editor")
-                        .GetType("Unity.Burst.Editor.BurstPlatformAotSettings");
+                        ?.GetType("Unity.Burst.Editor.BurstPlatformAotSettings");
 
                 foreach (BuildTarget target in ValidBuildTargets)
                 {
+                    // NOTE: Silent failure on failed reflection is intentional.  Problems setting up Burst compilation
+                    // (eg. due to change of private API) will be picked up by the Burst_IsEnabled() test below.
                     var burstAOTSettings =
-                        burstAOTSettingsType.GetMethod("GetOrCreateSettings", BindingFlags.Static | BindingFlags.NonPublic)
-                            .Invoke(null, new object[] {target});
+                        burstAOTSettingsType
+                            ?.GetMethod("GetOrCreateSettings", BindingFlags.Static | BindingFlags.NonPublic)
+                            ?.Invoke(null, new object[] {target});
 
-                    burstAOTSettingsType.GetField("DisableBurstCompilation", BindingFlags.NonPublic | BindingFlags.Instance)
-                        .SetValue(burstAOTSettings, !(bool) ForceBurstCompile);
+                    if (burstAOTSettings != null)
+                    {
+                        burstAOTSettingsType.GetField("DisableBurstCompilation", BindingFlags.NonPublic | BindingFlags.Instance)
+                            ?.SetValue(burstAOTSettings, !(bool) ForceBurstCompile);
 
-                    burstAOTSettingsType.GetMethod("Save", BindingFlags.NonPublic | BindingFlags.Instance)
-                        .Invoke(burstAOTSettings, new object[] {target});
+                        burstAOTSettingsType.GetMethod("Save", BindingFlags.NonPublic | BindingFlags.Instance)
+                            ?.Invoke(burstAOTSettings, new object[] {target});
+                    }
                 }
-
-                BakeEnvVarToBuild(ForceBurstCompileEnvVar);
             }
 
+            var needAssetDBRefresh = false;
             if (ForceSamplesImport != null && (bool) ForceSamplesImport)
             {
                 var thisPkg = PackageManager.PackageInfo.FindForAssembly(Assembly.GetExecutingAssembly());
 
                 // Try to import the samples the Package Manager way, if not, do it ourselves.
                 // (This fails because the Package Manager list is still refreshing at initial application launch)
-                var needAssetDBRefresh = false;
                 var importedSamplesRoot = Path.Combine(Application.dataPath, "Samples");
                 var samples = PackageManager.UI.Sample.FindByPackage(thisPkg.name, thisPkg.version);
                 if (samples.Any())
@@ -185,7 +207,6 @@ namespace Unity.DataFlowGraph.Tests
                     }
                     if (importedSamplesRoot.Length == 0)
                         throw new InvalidOperationException("Could not find common part of path for imported samples");
-                    PreventRecompilationDuringTestRun();
                 }
                 else if (!Directory.Exists(importedSamplesRoot))
                 {
@@ -201,25 +222,14 @@ namespace Unity.DataFlowGraph.Tests
                     needAssetDBRefresh = true;
                 }
 
-                // Add in an assembly definition file and preprocessor config to turn on warnings-as-errors.
-                if (!Directory.Exists(Path.Combine(importedSamplesRoot, "Samples.asmdef")))
+                if (!File.Exists(Path.Combine(importedSamplesRoot, "Samples.asmdef")))
                 {
                     File.WriteAllText(Path.Combine(importedSamplesRoot, "Samples.asmdef"), SamplesAsmDefText);
                     needAssetDBRefresh = true;
                 }
-                if (!Directory.Exists(Path.Combine(importedSamplesRoot, "csc.rsp")))
-                {
-                    File.WriteAllText(Path.Combine(importedSamplesRoot, "csc.rsp"), "-warnaserror+");
-                    needAssetDBRefresh = true;
-                }
 
-                if (needAssetDBRefresh)
-                {
-                    AssetDatabase.Refresh();
-                    PreventRecompilationDuringTestRun();
-                }
-
-                BakeEnvVarToBuild(ForceSamplesImportEnvVar);
+                if (ForceWarningsAsErrors != null)
+                    needAssetDBRefresh |= EnableWarningsAsErrorsForAssembliesInPath(importedSamplesRoot, (bool) ForceWarningsAsErrors);
             }
 
             if (ForceDFGInternalAssertions != null)
@@ -232,17 +242,68 @@ namespace Unity.DataFlowGraph.Tests
                     {
                         globalDefines += (globalDefines.Length > 0 ? ";" : "") + "DFG_ASSERTIONS";
                         PlayerSettings.SetScriptingDefineSymbolsForGroup(targetGroup, globalDefines);
-                        PreventRecompilationDuringTestRun();
                     }
                     else if (!(bool) ForceDFGInternalAssertions && globalDefines.Split(';').Contains("DFG_ASSERTIONS"))
                     {
                         globalDefines = String.Join(";", globalDefines.Split(';').Where(s => s != "DFG_ASSERTIONS").ToArray());
                         PlayerSettings.SetScriptingDefineSymbolsForGroup(targetGroup, globalDefines);
-                        PreventRecompilationDuringTestRun();
                     }
                 }
+            }
 
-                BakeEnvVarToBuild(ForceDFGInternalAssertionsEnvVar);
+            if (ForceWarningsAsErrors != null)
+            {
+                var thisPkg = PackageManager.PackageInfo.FindForAssembly(Assembly.GetExecutingAssembly());
+                needAssetDBRefresh |= EnableWarningsAsErrorsForAssembliesInPath(thisPkg.resolvedPath, (bool) ForceWarningsAsErrors);
+            }
+
+            if (needAssetDBRefresh)
+                AssetDatabase.Refresh();
+        }
+
+        static bool EnableWarningsAsErrorsForAssembliesInPath(string path, bool enable)
+        {
+            bool requiresAssetDBRefresh = false;
+
+            var preprocessorConfigs = Directory.EnumerateFiles(path, "*.asmdef", SearchOption.AllDirectories)
+                .Where(d => !d.Contains(Path.Combine("", ".Editor", "")))
+                .Select(d => Path.Combine(Path.GetDirectoryName(d), "csc.rsp"));
+
+            foreach (var preprocessorConfig in preprocessorConfigs)
+            {
+                if (!File.Exists(preprocessorConfig) || new FileInfo(preprocessorConfig).Length == 0)
+                {
+                    if (enable)
+                    {
+                        File.WriteAllText(preprocessorConfig, "-warnaserror+");
+                        requiresAssetDBRefresh = true;
+                    }
+                }
+                else if (File.ReadAllText(preprocessorConfig) == "-warnaserror+")
+                {
+                    if (!enable)
+                    {
+                        File.WriteAllText(preprocessorConfig, "");
+                        requiresAssetDBRefresh = true;
+                    }
+                }
+                else
+                {
+                    throw new InvalidOperationException(
+                        "Preprocessor config already exists but does not include \"Warnings as Errors\"");
+                }
+            }
+
+            return requiresAssetDBRefresh;
+        }
+#endif // UNITY_EDITOR
+
+        public void Setup()
+        {
+#if UNITY_EDITOR
+            foreach (var envVar in new[] {ForceIL2CPPBuildEnvVar, ForceBurstCompileEnvVar, ForceWarningsAsErrorsEnvVar, ForceSamplesImportEnvVar, ForceDFGInternalAssertionsEnvVar})
+            {
+                BakeEnvVarToBuild(envVar);
             }
 #endif // UNITY_EDITOR
         }
@@ -319,20 +380,5 @@ namespace Unity.DataFlowGraph.Tests
             if (!sampleDetected)
                 Assert.Ignore("Package samples not detected.");
         }
-
-#if UNITY_EDITOR
-        void PreventRecompilationDuringTestRun()
-        {
-            // Workaround required as we upgraded to ECS 0.3.0.
-            // Importing Samples during our IPrebuildStep() causes a recompilation/domain-reload to occur (as expected),
-            // however, as of the new ECS, once tests start to run, we see a second unexplained recompilation which occurs
-            // while tests are ongoing. Ultimately, the post-recompilation domain-reload occurs mid test which causes
-            // crashes. We avoid this by setting the player preference to "Recompile After Finished Playing".
-            //
-            // RecompileAfterFinishedPlaying = 1 from EditorApplication.cs
-            //
-            EditorPrefs.SetInt("ScriptCompilationDuringPlay", 1); 
-        }
-#endif
     }
 }

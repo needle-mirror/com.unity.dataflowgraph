@@ -1,7 +1,7 @@
 {
   "name": "com.unity.dataflowgraph",
   "displayName": "Data Flow Graph",
-  "version": "0.12.0-preview.6",
+  "version": "0.12.0-preview.7",
   "unity": "2019.3",
   "description": "Data Flow Graph delivers DOTS-optimized code for graph-like problems, i.e., where order-of-execution is important.\n\nThis is a highly experimental package and should NOT be considered suitable for production situations.",
   "keywords": [
@@ -16,9 +16,10 @@
     "com.unity.burst": "1.2.0-preview.9"
   },
   "repository": {
+    "footprint": "222ba8de256cfbcd9749c1b8cb983e8c708eeb7d",
     "type": "git",
     "url": "https://github.cds.internal.unity3d.com/unity/com.unity.dataflowgraph.git",
-    "revision": "1e0de74c8f25a23ce039d26b0c2893a873817665"
+    "revision": "450a35db3030b6a36c7dbbfe94c34575a66024e1"
   },
   "samples": [
     {
