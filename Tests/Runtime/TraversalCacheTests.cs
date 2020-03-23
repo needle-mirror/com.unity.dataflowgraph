@@ -253,6 +253,11 @@ namespace Unity.DataFlowGraph.Tests
         [Test]
         public void CacheUpdate_IsComputed_InExpectedExecutionVehicle([Values] Topology.SortingAlgorithm algo, [Values] ComputeType jobified)
         {
+#if UNITY_EDITOR
+            if (BurstConfig.IsBurstEnabled && !TestRunConfig.EnableBurstCompileSynchronously)
+                Assert.Ignore("Burst is not compiling synchronously");
+#endif
+
             using (var test = new Test(algo, jobified))
             {
                 for (int i = 0; i < 5; ++i)

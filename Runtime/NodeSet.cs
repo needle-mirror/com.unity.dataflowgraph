@@ -1,12 +1,9 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Runtime.CompilerServices;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Profiling;
-using UnityEngine;
-using UnityEngine.Profiling;
 
 namespace Unity.DataFlowGraph
 {
@@ -78,6 +75,8 @@ namespace Unity.DataFlowGraph
 
             m_Batches = new VersionedList<InputBatch>(Allocator.Persistent, NodeSetID);
             m_GraphValues = new VersionedList<DataOutputValue>(Allocator.Persistent, NodeSetID);
+
+            DebugInfo.RegisterNodeSetCreation(this);
         }
 
         /// <summary>
@@ -118,7 +117,7 @@ namespace Unity.DataFlowGraph
             }
 
             BlitList<ForwardedPort.Unchecked> forwardedConnections = default;
-            var context = new InitContext(handle, def.Index, ref forwardedConnections);
+            var context = new InitContext(handle, def.Index, this, ref forwardedConnections);
 
             try
             {
@@ -382,6 +381,8 @@ namespace Unity.DataFlowGraph
                 }
 #endif
 
+                DebugInfo.RegisterNodeSetDisposed(this);
+
                 foreach (var handler in m_ConnectionHandlerMap)
                 {
                     handler.Value.Dispose();
@@ -598,6 +599,24 @@ namespace Unity.DataFlowGraph
                 }
                 if (requestedSize.Size >= 0)
                     m_Diff.NodeBufferResized(source, bufferInfo.Offset, requestedSize.Size, bufferInfo.ItemType);
+            }
+        }
+
+        internal unsafe void SetKernelBufferSize<TGraphKernel>(ValidatedHandle handle, in TGraphKernel requestedSize)
+            where TGraphKernel : IGraphKernel
+        {
+            var llTraits = GetLLTraits()[GetNode(handle).TraitsIndex].Resolve();
+            if (!typeof(TGraphKernel).TypeHandle.Equals(llTraits.Storage.KernelType))
+                throw new ArgumentException($"Graph Kernel type {typeof(TGraphKernel)} does not match NodeDefinition");
+
+            foreach (var bufferInfo in llTraits.Storage.KernelBufferInfos)
+            {
+                var requestedSizeBuf = bufferInfo.Offset.AsUntyped((RenderKernelFunction.BaseKernel*)Unsafe.AsPointer(ref Unsafe.AsRef(requestedSize)));
+                var sizeRequest = requestedSizeBuf.GetSizeRequest();
+                if (!sizeRequest.IsValid)
+                    throw new InvalidOperationException($"Expecting the return value of Buffer<T>.SizeRequest() on individual fields of {typeof(TGraphKernel)} for sizes being set.");
+                if (sizeRequest.Size >= 0)
+                    m_Diff.KernelBufferResized(handle, bufferInfo.Offset.Offset, sizeRequest.Size, bufferInfo.ItemType);
             }
         }
 

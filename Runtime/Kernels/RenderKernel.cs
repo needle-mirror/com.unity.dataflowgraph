@@ -24,6 +24,8 @@ namespace Unity.DataFlowGraph
     /// </summary>
     public interface IKernelPortDefinition { }
 
+    public interface IGraphKernel { };
+
     /// <summary>
     /// Interface to be implemented on a struct which represents the functor responsible for processing a node's
     /// <see cref="DataInput{TDefinition,TType}"/>s and filling out its <see cref="DataOutput{TDefinition,TType}"/>s
@@ -36,7 +38,7 @@ namespace Unity.DataFlowGraph
     /// Implementing structs may be tagged with the <see cref="BurstCompileAttribute"/> to take advantage of improved performance.
     /// </summary>
     [JobProducerType(typeof(GraphKernel<,,>))]
-    public interface IGraphKernel<TKernelData, TKernelPortDefinition>
+    public interface IGraphKernel<TKernelData, TKernelPortDefinition> : IGraphKernel
        where TKernelPortDefinition : IKernelPortDefinition
        where TKernelData : IKernelData
     {

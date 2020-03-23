@@ -4,6 +4,33 @@ All notable changes to this package will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [0.13.0-preview.2] - 2020-03-23
+### Added
+- PortDescription.InputPort.IsPortArray is now available
+
+### Fixed
+- Possible crash when destroying a NodeSet containing ComponentNodes during ECS shutdown
+
+## [0.13.0-preview.1] - 2020-03-13
+### Added
+- Scripting define DFG_PER_NODE_PROFILING: Enables profiler markers for individual kernel rendering invocations. This has a non-trivial performance penalty on the order of many milliseconds per 100k nodes, but, is more efficient than explicit profile markers in GraphKernel code. May also lead to more indeterministic runtime.
+- Support for connecting one or many Message output ports to an otherwise unconnected Data input port of matching type (issue #13)
+- Improved IDE debugger displays for NodeHandles (it is now possible to see node instance data and peers) in Simulation
+- Support for allocating/resizing kernel buffer storage from simulation (resulting buffer only accessible in kernel). See SetKernelBufferSize() in Init/Update/MessageContext.
+
+### Changed
+- Upgraded dependency com.unity.entities to 0.8.0-preview.8
+- Upgraded dependency com.unity.jobs to 0.2.7-preview.11
+- Upgraded dependency com.unity.collections to 0.7.0-preview.2
+- Upgraded dependency com.unity.burst to 1.3.0-preview.6
+
+### Deprecated
+- INodeMemoryInputTag, NodeMemoryInput, NativeAllowReinterpretationAttribute and MemoryInputSystem are now soft deprecated. Use ComponentNodes instead.
+
+### Fixed
+- Multiple Data connections to the same Data input port will now throw an exception up-front when the connection is made rather than produce a deferred error during rendering (issue #134)
+- Throw an exception if a message of a given type is sent to a MessageInput of incompatible type through the weak API (issue #116)
+
 ## [0.12.0-preview.7] - 2020-02-18
 ### Fixed
 - Disabled warnings-as-errors locally in package. Soft-obsoletion of APIs in dependencies no longer causes compilation failures.

@@ -25,9 +25,8 @@ namespace Unity.DataFlowGraph
         // Exceedingly hard to pass down a stack local, but that's all this is.
         internal readonly unsafe void* m_ForwardedConnectionsMemory;
         internal readonly ValidatedHandle m_Handle;
+        readonly NodeSet m_Set;
         internal readonly int TypeIndex;
-
-        #region StrongOverloads
 
         /// <summary>
         /// Sets up forwarding of the given input port to another input port on a different (sub) node.
@@ -132,7 +131,18 @@ namespace Unity.DataFlowGraph
             GetForwardingBuffer().Add(ForwardedPort.Unchecked.Output(origin.Port, replacedNode, replacement.Port));
         }
 
-        #endregion
+        /// <summary>
+        /// Set the size of a <see cref="Buffer{T}"/> appearing in this node's <see cref="IGraphKernel{TKernelData,TKernelPortDefinition}"/>.
+        /// Pass an instance of the node's <see cref="IGraphKernel{TKernelData,TKernelPortDefinition}"/> as the <paramref name="requestedSize"/>
+        /// parameter with <see cref="Buffer{T}"/> instances within it having been set using <see cref="Buffer{T}.SizeRequest(int)"/>. 
+        /// Any <see cref="Buffer{T}"/> instances within the given struct that have not been set using 
+        /// <see cref="Buffer{T}.SizeRequest(int)"/> will be unaffected by the call.
+        /// </summary>
+        public void SetKernelBufferSize<TGraphKernel>(in TGraphKernel requestedSize)
+            where TGraphKernel : IGraphKernel
+        {
+            m_Set.SetKernelBufferSize(m_Handle, requestedSize);
+        }
 
         void CommonChecks<TDefinition>(NodeHandle replacedNode, InputPortID originPort)
             where TDefinition : NodeDefinition
@@ -180,11 +190,12 @@ namespace Unity.DataFlowGraph
                 throw new ArgumentException("Cannot forward to self");
         }
 
-        internal unsafe InitContext(ValidatedHandle handle, int typeIndex, ref BlitList<ForwardedPort.Unchecked> stackList)
+        internal unsafe InitContext(ValidatedHandle handle, int typeIndex, NodeSet set, ref BlitList<ForwardedPort.Unchecked> stackList)
         {
             m_Handle = handle;
             TypeIndex = typeIndex;
             m_ForwardedConnectionsMemory = Unsafe.AsPointer(ref stackList);
+            m_Set = set;
         }
 
         unsafe ref BlitList<ForwardedPort.Unchecked> GetForwardingBuffer()

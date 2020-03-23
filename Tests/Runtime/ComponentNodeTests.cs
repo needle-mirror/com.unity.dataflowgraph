@@ -420,7 +420,10 @@ namespace Unity.DataFlowGraph.Tests
         {
             public int DataArgument;
 
-            protected struct ProcessJob : IJobForEach<SimpleData>
+            protected struct ProcessJob
+#pragma warning disable 618  // warning CS0618: 'IJobForEach' is obsolete: 'Please use Entities.ForEach or IJobChunk to schedule jobs that work on Entities. (RemovedAfter 2020-06-20)
+                : IJobForEach<SimpleData>
+#pragma warning restore 618
             {
                 public int Arg;
 

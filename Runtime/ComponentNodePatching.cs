@@ -18,7 +18,10 @@ namespace Unity.DataFlowGraph
     /// if not necessary. Instead, chunks should be collected and walked, checking for versions.
     /// </remarks>
     [BurstCompile]
-    unsafe struct RepatchDFGInputsIfNeededJob : IJobForEachWithEntity_EB<NodeSetAttachment>
+    unsafe struct RepatchDFGInputsIfNeededJob
+#pragma warning disable 618  // warning CS0618: 'IJobForEach' is obsolete: 'Please use Entities.ForEach or IJobChunk to schedule jobs that work on Entities. (RemovedAfter 2020-06-20)
+        : IJobForEachWithEntity_EB<NodeSetAttachment>
+#pragma warning restore 618
     {
         public BlitList<RenderGraph.KernelNode> KernelNodes;
         [NativeDisableUnsafePtrRestriction]
@@ -81,7 +84,10 @@ namespace Unity.DataFlowGraph
     /// This job runs before any port patching, to start with a clean state.
     /// </summary>
     [BurstCompile]
-    unsafe struct ClearLocalECSInputsAndOutputsJob : IJobForEach_B<NodeSetAttachment>
+    unsafe struct ClearLocalECSInputsAndOutputsJob
+#pragma warning disable 618  // warning CS0618: 'IJobForEach' is obsolete: 'Please use Entities.ForEach or IJobChunk to schedule jobs that work on Entities. (RemovedAfter 2020-06-20)
+        : IJobForEach_B<NodeSetAttachment>
+#pragma warning restore 618
     {
         public BlitList<RenderGraph.KernelNode> KernelNodes;
         [NativeDisableUnsafePtrRestriction]

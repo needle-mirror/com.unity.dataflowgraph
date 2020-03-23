@@ -154,7 +154,7 @@ namespace Unity.DataFlowGraph.Tests
                 // FIXME: Burst AOT Settings are not properly exposed. Use reflection to hack into it.
                 //   var burstAOTSettings =
                 //       Burst.Editor.BurstPlatformAotSettings.GetOrCreateSettings(target);
-                //   burstAOTSettings.DisableBurstCompilation = !(bool) ForceBurstCompile;
+                //   burstAOTSettings.EnableBurstCompilation = (bool) ForceBurstCompile;
                 //   burstAOTSettings.Save(target);
                 // Issue #245
 
@@ -173,8 +173,8 @@ namespace Unity.DataFlowGraph.Tests
 
                     if (burstAOTSettings != null)
                     {
-                        burstAOTSettingsType.GetField("DisableBurstCompilation", BindingFlags.NonPublic | BindingFlags.Instance)
-                            ?.SetValue(burstAOTSettings, !(bool) ForceBurstCompile);
+                        burstAOTSettingsType.GetField("EnableBurstCompilation", BindingFlags.NonPublic | BindingFlags.Instance)
+                            ?.SetValue(burstAOTSettings, (bool) ForceBurstCompile);
 
                         burstAOTSettingsType.GetMethod("Save", BindingFlags.NonPublic | BindingFlags.Instance)
                             ?.Invoke(burstAOTSettings, new object[] {target});
@@ -227,7 +227,6 @@ namespace Unity.DataFlowGraph.Tests
                     File.WriteAllText(Path.Combine(importedSamplesRoot, "Samples.asmdef"), SamplesAsmDefText);
                     needAssetDBRefresh = true;
                 }
-
                 if (ForceWarningsAsErrors != null)
                     needAssetDBRefresh |= EnableWarningsAsErrorsForAssembliesInPath(importedSamplesRoot, (bool) ForceWarningsAsErrors);
             }

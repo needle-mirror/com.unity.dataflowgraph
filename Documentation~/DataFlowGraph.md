@@ -32,19 +32,17 @@ This version of DataFlowGraph package is compatible with the following versions 
 
 ## Known limitations
 
-DataFlowGraph version 0.12 includes the following known limitations:
+DataFlowGraph version 0.13 includes the following known limitations:
 
 * The DataFlowGraph package is an experimental feature 
 * This version of DataFlowGraph consists of features that mainly cater to the needs of DOTS Animation
 * _GetNodeData_ for incompatibly typed node handles may return incorrect results
-* Nested buffers in Ports inside nested structures will not be detected
-* Multiple data inputs to a port, while not supported, is not handled gracefully
-* _SendMessage_ APIs do not detect invalid port IDs
 * Default initialized port definitions/IDs may currently be valid
-* Cycles between Data ports, while not supported, is not handled gracefully
-* NodeHandle can be valid in multiple node sets
 * There is currently no support for port forwarding to multiple nodes
 
+## Scripting defines
+* DFG_PER_NODE_PROFILING: Enables profiler markers for individual kernel rendering invocations. This has a non-trivial performance penalty on the order of many milliseconds per 100k nodes, but it is more efficient than explicit profile markers in GraphKernel code. May also lead to more indeterministic runtime.
+* DFG_ASSERTIONS: Enable additional internal confidence / consistency checks. High performance penalty.
 
 ## Package contents
 
@@ -61,4 +59,5 @@ DataFlowGraph version 0.12 includes the following known limitations:
  
 |Date|Reason|
 |---|---|
+|February 13, 2020|Added scripting define usages, updated known limitations.|
 |August 30, 2019|Unedited. Published to package.|

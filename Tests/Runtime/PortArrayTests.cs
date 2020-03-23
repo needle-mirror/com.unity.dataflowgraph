@@ -291,11 +291,18 @@ namespace Unity.DataFlowGraph.Tests
         [Test]
         public void AccessingArrayIndex_OnMessageContext_ThrowsForNonArrayTarget()
         {
-            ushort arrayIndex;
-            InputPortArrayID id = new InputPortArrayID(portId: default);
-            MessageContext context = MessageContext.CreateUnverified(null, handle: default, id);
+            using (var set = new NodeSet())
+            {
+                var node = set.Create<PassthroughTest<int>>();
 
-            Assert.Throws<InvalidOperationException>(() => arrayIndex = context.ArrayIndex);
+                ushort arrayIndex;
+                InputPortArrayID id = new InputPortArrayID((InputPortID)PassthroughTest<int>.SimulationPorts.Input);
+                MessageContext context = new MessageContext(set, new InputPair(set, node, id));
+
+                Assert.Throws<InvalidOperationException>(() => arrayIndex = context.ArrayIndex);
+
+                set.Destroy(node);
+            }
         }
 
         static UInt16[] s_ResizeParameters = new ushort[] {

@@ -18,11 +18,23 @@ namespace Unity.DataFlowGraph
         /// Emit a message from yourself on a port. Everything connected to it
         /// will receive your message.
         /// </summary>
-        /// 
         public void EmitMessage<T, TNodeDefinition>(MessageOutput<TNodeDefinition, T> port, in T msg)
             where TNodeDefinition : NodeDefinition
         {
             m_Set.EmitMessage(m_Handle, port.Port, msg);
+        }
+
+        /// <summary>
+        /// Set the size of a <see cref="Buffer{T}"/> appearing in this node's <see cref="IGraphKernel{TKernelData,TKernelPortDefinition}"/>.
+        /// Pass an instance of the node's <see cref="IGraphKernel{TKernelData,TKernelPortDefinition}"/> as the <paramref name="requestedSize"/>
+        /// parameter with <see cref="Buffer{T}"/> instances within it having been set using <see cref="Buffer{T}.SizeRequest(int)"/>. 
+        /// Any <see cref="Buffer{T}"/> instances within the given struct that have not been set using 
+        /// <see cref="Buffer{T}.SizeRequest(int)"/> will be unaffected by the call.
+        /// </summary>
+        public void SetKernelBufferSize<TGraphKernel>(in TGraphKernel requestedSize)
+            where TGraphKernel : IGraphKernel
+        {
+            m_Set.SetKernelBufferSize(m_Handle, requestedSize);
         }
 
         readonly ValidatedHandle m_Handle;

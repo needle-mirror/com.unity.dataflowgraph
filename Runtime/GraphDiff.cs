@@ -30,7 +30,8 @@ namespace Unity.DataFlowGraph
 
         public struct BufferResizedTuple
         {
-            public OutputPair Source;
+            public ValidatedHandle Handle;
+            public OutputPortID Port;
             /// <summary>
             /// Local offset from start of the port.
             /// </summary>
@@ -85,10 +86,16 @@ namespace Unity.DataFlowGraph
             DeletedNodes.Add(new DeletedTuple { Handle = handle, Class = definitionIndex });
         }
 
-        public void NodeBufferResized(in OutputPair source, int bufferOffset, int size, SimpleType itemType)
+        public void NodeBufferResized(in OutputPair target, int bufferOffset, int size, SimpleType itemType)
         {
             Commands.Add(new CommandTuple { command = Command.ResizeBuffer, ContainerIndex = ResizedDataBuffers.Count });
-            ResizedDataBuffers.Add(new BufferResizedTuple { Source = source, LocalBufferOffset = bufferOffset, NewSize = size, ItemType = itemType });
+            ResizedDataBuffers.Add(new BufferResizedTuple { Handle = target.Handle, Port = target.Port, LocalBufferOffset = bufferOffset, NewSize = size, ItemType = itemType });
+        }
+
+        public void KernelBufferResized(in ValidatedHandle target, int bufferOffset, int size, SimpleType itemType)
+        {
+            Commands.Add(new CommandTuple { command = Command.ResizeBuffer, ContainerIndex = ResizedDataBuffers.Count });
+            ResizedDataBuffers.Add(new BufferResizedTuple { Handle = target, Port = OutputPortID.Invalid, LocalBufferOffset = bufferOffset, NewSize = size, ItemType = itemType });
         }
 
         public void PortArrayResized(in InputPair dest, ushort size)

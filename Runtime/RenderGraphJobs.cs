@@ -528,14 +528,7 @@ namespace Unity.DataFlowGraph
                     if (!StillExists(ref Nodes, handle))
                         continue;
 
-                    ref var nodeKernel = ref Nodes[handle.VHandle.Index];
-                    ref var traits = ref nodeKernel.TraitsHandle.Resolve();
-
-                    ref var buffer = ref traits
-                        .DataPorts
-                        .Outputs[command.DataPortIndex]
-                        .GetAggregateBufferAt(nodeKernel.Instance.Ports, command.LocalBufferOffset);
-
+                    ref var buffer = ref GetBufferDescription(ref Nodes[handle.VHandle.Index], ref command);
                     var oldSize = buffer.Size;
 
                     // We will need to realloc if the new size is larger than the previous size.
@@ -570,6 +563,20 @@ namespace Unity.DataFlowGraph
                 OwnedCommands.Dispose();
 
                 Marker.End();
+            }
+
+            static ref BufferDescription GetBufferDescription(ref KernelNode nodeKernel, ref BufferResizeStruct command)
+            {
+                if (command.DataPortIndex == BufferResizeStruct.KernelBufferResizeHint)
+                {
+                    return ref nodeKernel.GetKernelBufferAt(command.LocalBufferOffset);
+                }
+
+                ref var traits = ref nodeKernel.TraitsHandle.Resolve();
+                return ref traits
+                    .DataPorts
+                    .Outputs[command.DataPortIndex]
+                    .GetAggregateBufferAt(nodeKernel.Instance.Ports, command.LocalBufferOffset);
             }
         }
 
@@ -659,7 +666,15 @@ namespace Unity.DataFlowGraph
                     var index = nodeCache.Vertex.VHandle.Index;
                     ref var node = ref Nodes[index];
                     ref var traits = ref node.TraitsHandle.Resolve();
+#if DFG_PER_NODE_PROFILING
+                    traits.VTable.KernelMarker.Begin();
+#endif
+
                     traits.VTable.KernelFunction.Invoke(new RenderContext(nodeCache.Vertex, Shared.SafetyManager), node.Instance);
+
+#if DFG_PER_NODE_PROFILING
+                    traits.VTable.KernelMarker.End();
+#endif
                 }
             }
         }
@@ -678,7 +693,16 @@ namespace Unity.DataFlowGraph
                     var index = nodeCache.Vertex.VHandle.Index;
                     ref var node = ref Nodes[index];
                     ref var traits = ref node.TraitsHandle.Resolve();
+
+#if DFG_PER_NODE_PROFILING
+                    traits.VTable.KernelMarker.Begin();
+#endif
+
                     traits.VTable.KernelFunction.Invoke(new RenderContext(nodeCache.Vertex, Shared.SafetyManager), node.Instance);
+
+#if DFG_PER_NODE_PROFILING
+                    traits.VTable.KernelMarker.End();
+#endif
                 }
             }
         }

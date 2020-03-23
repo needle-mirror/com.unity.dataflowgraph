@@ -1,5 +1,5 @@
 ﻿using System;
-using System.Linq;
+using System.Collections.Generic;
 using NUnit.Framework;
 using Unity.Entities;
 using UnityEngine.Scripting;
@@ -81,6 +81,26 @@ namespace Unity.DataFlowGraph.Tests
             Assert.False(new PortStorage(0).IsECSPort);
             Assert.True(new PortStorage(new ComponentType()).IsECSPort);
         }
-    }
 
+        [Test]
+        public void ConnectionCategories_DoNotClash()
+        {
+            var connectionCategories = new List<uint>();
+            foreach (PortDescription.Category portCategory in Enum.GetValues(typeof(PortDescription.Category)))
+            {
+                foreach (PortDescription.CategoryShift shift in Enum.GetValues(typeof(PortDescription.CategoryShift)))
+                {
+                    if (shift == PortDescription.CategoryShift.Max)
+                        continue;
+                    var connectionCategory = (uint) portCategory << (int) shift;
+                    connectionCategories.Add(connectionCategory);
+                }
+            }
+
+            connectionCategories.Add(PortDescription.MessageToDataConnectionCategory);
+
+            CollectionAssert.AllItemsAreUnique(connectionCategories);
+            Assert.AreEqual(10, connectionCategories.Count);
+        }
+    }
 }

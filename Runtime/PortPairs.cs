@@ -2,10 +2,22 @@
 
 namespace Unity.DataFlowGraph
 {
+    using Topology = TopologyAPI<ValidatedHandle, InputPortArrayID, OutputPortID>;
+
     readonly struct InputPair
     {
         public readonly ValidatedHandle Handle;
         public readonly InputPortArrayID Port;
+
+        /// <remarks>
+        /// Does not do node validation or port forwarding resolution as an existing connection should have had both done
+        /// during the <see cref="NodeSet.Connect"/>.
+        /// </remarks>
+        public InputPair(Topology.Connection connection)
+        {
+            Handle = connection.Destination;
+            Port = connection.DestinationInputPort;
+        }
 
         public InputPair(NodeSet set, NodeHandle destHandle, InputPortArrayID destinationPort)
         {
@@ -47,6 +59,16 @@ namespace Unity.DataFlowGraph
     {
         public readonly ValidatedHandle Handle;
         public readonly OutputPortID Port;
+
+        /// <remarks>
+        /// Does not do node validation or port forwarding resolution as an existing connection should have had both done
+        /// during the <see cref="NodeSet.Connect"/>.
+        /// </remarks>
+        public OutputPair(Topology.Connection connection)
+        {
+            Handle = connection.Source;
+            Port = connection.SourceOutputPort;
+        }
 
         public OutputPair(NodeSet set, NodeHandle sourceHandle, OutputPortID sourcePort)
         {

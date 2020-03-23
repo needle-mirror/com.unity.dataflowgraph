@@ -4,6 +4,9 @@
     {
         internal NodeSet Set { get; set; }
         internal abstract LLTraitsHandle CreateNodeTraits(System.Type superType);
+
+        internal virtual INodeData DebugGetNodeData(NodeHandle handle) => null;
+        internal virtual IKernelData DebugGetKernelData(NodeHandle handle) => null;
     }
 
     public sealed class NodeTraits<TSimPorts> : NodeTraitsBase
@@ -18,8 +21,6 @@
         where TNodeData : struct, INodeData
         where TSimPorts : struct, ISimulationPortDefinition
     {
-        internal override LLTraitsHandle CreateNodeTraits(System.Type superType) => LowLevelTraitsFactory<TNodeData, TSimPorts>.Create(superType);
-
         /// <summary>
         /// Returns a reference to a node's instance memory.
         /// </summary>
@@ -27,6 +28,10 @@
         /// Thrown if the <paramref name="handle"/> does not refer to a valid node.
         /// </exception>
         public ref TNodeData GetNodeData(NodeHandle handle) => ref Set.GetNodeData<TNodeData>(handle);
+
+        internal override INodeData DebugGetNodeData(NodeHandle handle) => GetNodeData(handle);
+
+        internal override LLTraitsHandle CreateNodeTraits(System.Type superType) => LowLevelTraitsFactory<TNodeData, TSimPorts>.Create(superType);
     }
 
     public sealed class NodeTraits<TKernelData, TKernelPortDefinition, TKernel> : NodeTraitsBase
@@ -46,6 +51,8 @@
         /// Thrown if the <paramref name="handle"/> does not refer to a valid node.
         /// </exception>
         public ref TKernelData GetKernelData(NodeHandle handle) => ref Set.GetKernelData<TKernelData>(handle);
+
+        internal override IKernelData DebugGetKernelData(NodeHandle handle) => GetKernelData(handle);
 
         internal override LLTraitsHandle CreateNodeTraits(System.Type superType) => LowLevelTraitsFactory<EmptyData, EmptySimPorts, TKernelData, TKernelPortDefinition, TKernel>.Create(superType);
     }
@@ -71,6 +78,9 @@
         /// See <see cref="NodeTraits{TNodeData, TSimPorts}.GetNodeData(NodeHandle)"/>
         /// </summary>
         public ref TNodeData GetNodeData(NodeHandle handle) => ref Set.GetNodeData<TNodeData>(handle);
+
+        internal override IKernelData DebugGetKernelData(NodeHandle handle) => GetKernelData(handle);
+        internal override INodeData DebugGetNodeData(NodeHandle handle) => GetNodeData(handle);
 
         internal override LLTraitsHandle CreateNodeTraits(System.Type superType) => LowLevelTraitsFactory<TNodeData, TSimPorts, TKernelData, TKernelPortDefinition, TKernel>.Create(superType);
     }

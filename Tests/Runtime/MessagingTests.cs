@@ -381,6 +381,39 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
+        [Test]
+        public void CannotSendMessageToWrongPort()
+        {
+            using (var set = new NodeSet())
+            {
+                NodeHandle node = set.Create<DifferentHandlers>();
+
+                // Must touch the Node type first to ensure PortIDs have been assigned.
+                set.GetDefinition<NodeWithParametricPortType<float>>();
+                set.GetDefinition<SimpleMessageNode>();
+
+                // Try sending to port but using the wrong type.
+                Assert.Throws<InvalidOperationException>(() => set.SendMessage(node, (InputPortID)DifferentHandlers.SimulationPorts.Input1, 5f));
+
+                // Try sending to port of a type which node doesn't supports.
+                var otherNodesMessagePort = (InputPortID)SimpleMessageNode.SimulationPorts.Input;
+                Assume.That(otherNodesMessagePort == (InputPortID)DifferentHandlers.SimulationPorts.Input1);
+                Assert.Throws<InvalidOperationException>(() => set.SendMessage(node, otherNodesMessagePort, new Message(10)));
+
+                // Try sending to port of a type which the node supports but incorrect port ID.
+                var otherNodesFloatPort = (InputPortID)NodeWithParametricPortType<float>.SimulationPorts.MessageIn;
+                Assume.That(otherNodesFloatPort != (InputPortID)DifferentHandlers.SimulationPorts.Input2);
+                Assert.Throws<InvalidOperationException>(() => set.SendMessage(node, otherNodesFloatPort, 5f));
+
+                var data = set.GetNodeData<Node>(node);
+
+                Assert.AreEqual(0, data.Contents);
+                Assert.AreEqual(0, data.OtherContents);
+
+                set.Destroy(node);
+            }
+        }
+
         public class KernelNode : NodeDefinition<KernelNode.Node, KernelNode.Data, KernelNode.KernelDefs, KernelNode.Kernel>
         {
             public struct Node : INodeData { }
@@ -426,6 +459,142 @@ namespace Unity.DataFlowGraph.Tests
 
                 set.Destroy(node1);
                 set.Destroy(node2);
+            }
+        }
+
+        public enum APIType
+        {
+            StronglyTyped,
+            WeaklyTyped
+        }
+
+        [Test]
+        public void CanConnect_MessagePort_ToDataPort([Values] APIType apiType)
+        {
+            using (var set = new NodeSet())
+            {
+                var msgNode = set.Create<PassthroughTest<int>>();
+                var dataNode = set.Create<PassthroughTest<int>>();
+
+                GraphValue<int> gv = set.CreateGraphValue(dataNode, PassthroughTest<int>.KernelPorts.Output);
+
+                if (apiType == APIType.StronglyTyped)
+                    set.Connect(msgNode, PassthroughTest<int>.SimulationPorts.Output, dataNode, PassthroughTest<int>.KernelPorts.Input);
+                else
+                    set.Connect(msgNode, (OutputPortID)PassthroughTest<int>.SimulationPorts.Output, dataNode, (InputPortID)PassthroughTest<int>.KernelPorts.Input);
+
+                set.Update();
+                Assert.AreEqual(0, set.GetValueBlocking(gv));
+
+                set.SendMessage(msgNode, PassthroughTest<int>.SimulationPorts.Input, 5);
+                set.Update();
+                Assert.AreEqual(5, set.GetValueBlocking(gv));
+
+                set.ReleaseGraphValue(gv);
+
+                set.Destroy(msgNode, dataNode);
+            }
+        }
+
+        public enum DisconnectApiType
+        {
+            StronglyTyped,
+            WeaklyTyped,
+            WeaklyTypedRetain
+        }
+
+        [Test]
+        public void CanConnect_Multiple_MessagePorts_ToDataPort()
+        {
+            using (var set = new NodeSet())
+            {
+                var msgNode1 = set.Create<PassthroughTest<int>>();
+                var msgNode2 = set.Create<PassthroughTest<int>>();
+                var dataNode = set.Create<PassthroughTest<int>>();
+
+                GraphValue<int> gv = set.CreateGraphValue(dataNode, PassthroughTest<int>.KernelPorts.Output);
+
+                set.Connect(msgNode1, PassthroughTest<int>.SimulationPorts.Output, dataNode, PassthroughTest<int>.KernelPorts.Input);
+                set.Connect(msgNode2, PassthroughTest<int>.SimulationPorts.Output, dataNode, PassthroughTest<int>.KernelPorts.Input);
+
+                set.Update();
+                Assert.AreEqual(0, set.GetValueBlocking(gv));
+
+                set.SendMessage(msgNode1, PassthroughTest<int>.SimulationPorts.Input, 5);
+                set.Update();
+                Assert.AreEqual(5, set.GetValueBlocking(gv));
+
+                set.SendMessage(msgNode2, PassthroughTest<int>.SimulationPorts.Input, 7);
+                set.Update();
+                Assert.AreEqual(7, set.GetValueBlocking(gv));
+
+                set.ReleaseGraphValue(gv);
+
+                set.Destroy(msgNode1, msgNode2, dataNode);
+            }
+        }
+
+        [Test]
+        public void Disconnect_MessagePort_FromDataPort_RetainsData([Values] DisconnectApiType apiType)
+        {
+            using (var set = new NodeSet())
+            {
+                var msgNode = set.Create<PassthroughTest<int>>();
+                var dataNode = set.Create<PassthroughTest<int>>();
+
+                GraphValue<int> gv = set.CreateGraphValue(dataNode, PassthroughTest<int>.KernelPorts.Output);
+
+                set.Connect(msgNode, PassthroughTest<int>.SimulationPorts.Output, dataNode, PassthroughTest<int>.KernelPorts.Input);
+
+                set.SendMessage(msgNode, PassthroughTest<int>.SimulationPorts.Input, 5);
+
+                // Note: For a Message->Data connection, disconnection _always_ just leaves the last value transmitted to
+                // the DataInput in place. Thus, there is no strong API DisconnectAndRetain (it would be redundant).
+                if (apiType == DisconnectApiType.StronglyTyped)
+                    set.Disconnect(msgNode, PassthroughTest<int>.SimulationPorts.Output, dataNode, PassthroughTest<int>.KernelPorts.Input);
+                else if (apiType == DisconnectApiType.WeaklyTypedRetain)
+                    set.DisconnectAndRetainValue(msgNode, (OutputPortID)PassthroughTest<int>.SimulationPorts.Output, dataNode, (InputPortID)PassthroughTest<int>.KernelPorts.Input);
+                else
+                    set.Disconnect(msgNode, (OutputPortID)PassthroughTest<int>.SimulationPorts.Output, dataNode, (InputPortID)PassthroughTest<int>.KernelPorts.Input);
+
+                set.Update();
+                Assert.AreEqual(5, set.GetValueBlocking(gv));
+
+                set.ReleaseGraphValue(gv);
+
+                set.Destroy(msgNode, dataNode);
+            }
+        }
+
+        [Test]
+        public void CannotConnect_MessagePort_ToAlreadyConnected_DataPort()
+        {
+            using (var set = new NodeSet())
+            {
+                var msgNode = set.Create<PassthroughTest<int>>();
+                var dataNode1 = set.Create<PassthroughTest<int>>();
+                var dataNode2 = set.Create<PassthroughTest<int>>();
+
+                set.Connect(dataNode1, PassthroughTest<int>.KernelPorts.Output, dataNode2, PassthroughTest<int>.KernelPorts.Input);
+                Assert.Throws<ArgumentException>(() => set.Connect(msgNode, PassthroughTest<int>.SimulationPorts.Output, dataNode2, PassthroughTest<int>.KernelPorts.Input));
+
+                set.Destroy(msgNode, dataNode1, dataNode2);
+            }
+        }
+
+        [Test]
+        public void CannotConnect_DataPort_ToAlreadyConnected_MessageToDataPort()
+        {
+            using (var set = new NodeSet())
+            {
+                var msgNode = set.Create<PassthroughTest<int>>();
+                var dataNode1 = set.Create<PassthroughTest<int>>();
+                var dataNode2 = set.Create<PassthroughTest<int>>();
+
+                set.Connect(msgNode, PassthroughTest<int>.SimulationPorts.Output, dataNode2, PassthroughTest<int>.KernelPorts.Input);
+                Assert.Throws<ArgumentException>(() => set.Connect(dataNode1, PassthroughTest<int>.KernelPorts.Output, dataNode2, PassthroughTest<int>.KernelPorts.Input));
+
+                set.Destroy(msgNode, dataNode1, dataNode2);
             }
         }
     }

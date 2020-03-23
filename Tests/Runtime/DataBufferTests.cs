@@ -6,6 +6,8 @@ using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs.LowLevel.Unsafe;
 using Unity.Mathematics;
+using UnityEngine;
+using UnityEngine.TestTools;
 
 namespace Unity.DataFlowGraph.Tests
 {
@@ -950,5 +952,116 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
+
+        public class StatefulKernelNode : NodeDefinition<Node, Data, StatefulKernelNode.KernelDefs, StatefulKernelNode.Kernel>
+        {
+            public struct KernelDefs : IKernelPortDefinition
+            {
+                public DataInput<StatefulKernelNode, Buffer<long>> Input;
+                public DataOutput<StatefulKernelNode, Buffer<long>> Output;
+            }
+
+            protected internal override void Init(InitContext ctx)
+            {
+                ctx.SetKernelBufferSize(new Kernel {stateBuffer = Buffer<long>.SizeRequest(10)});
+            }
+
+            [BurstCompile(CompileSynchronously = true)]
+            public struct Kernel : IGraphKernel<Data, KernelDefs>
+            {
+                internal Buffer<long> stateBuffer;
+
+                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
+                {
+                    var input = ctx.Resolve(ports.Input);
+                    var output = ctx.Resolve(ref ports.Output);
+                    var state = ctx.Resolve(stateBuffer);
+
+                    for (int i = 0; i < output.Length; ++i)
+                        output[i] = (i < input.Length ? input[i] : 0) + (i < state.Length ? state[i] : 0);
+
+                    for (int i = 0; i < state.Length; ++i)
+                        state[i] = i < input.Length ? input[i] : 0;
+                }
+            }
+        }
+
+        [Test]
+        public void CanSetSize_OnKernelBuffers_UsingInternalAPI()
+        {
+            using (var set = new NodeSet())
+            {
+                var node = set.Create<StatefulKernelNode>();
+
+                set.SetKernelBufferSize(set.GetNodeChecked(node).Self, new StatefulKernelNode.Kernel {stateBuffer = Buffer<long>.SizeRequest(1)});
+                set.Update();
+
+                set.Destroy(node);
+            }
+        }
+
+        [Test]
+        public void Kernel_CanHave_StateBuffer()
+        {
+            using (var set = new NodeSet())
+            {
+                var stateNode = set.Create<StatefulKernelNode>();
+                var srcNode = set.Create<KernelBufferOutputNode>();
+                var sumNode = set.Create<KernelBufferInputNode>();
+
+                set.SetBufferSize(srcNode, KernelBufferOutputNode.KernelPorts.Output1, Buffer<long>.SizeRequest(20));
+                set.SetBufferSize(stateNode, StatefulKernelNode.KernelPorts.Output, Buffer<long>.SizeRequest(20));
+                set.Connect(srcNode, KernelBufferOutputNode.KernelPorts.Output1, stateNode, StatefulKernelNode.KernelPorts.Input);
+                set.Connect(stateNode, StatefulKernelNode.KernelPorts.Output, sumNode, KernelBufferInputNode.KernelPorts.Input1);
+
+                var value = set.CreateGraphValue(sumNode, KernelBufferInputNode.KernelPorts.Sum);
+
+                set.Update();
+
+                Assert.AreEqual(20*(20+1)/2, set.GetValueBlocking(value));
+
+                set.Update();
+
+                Assert.AreEqual(20*(20+1)/2 + 10*(10+1)/2, set.GetValueBlocking(value));
+
+                set.ReleaseGraphValue(value);
+                set.Destroy(srcNode, stateNode, sumNode);
+            }
+        }
+
+        public class KernelNodeWithInvalidSetKernelBufferSize : NodeDefinition<Node, Data, KernelNodeWithInvalidSetKernelBufferSize.KernelDefs, KernelNodeWithInvalidSetKernelBufferSize.Kernel>
+        {
+            public struct KernelDefs : IKernelPortDefinition {}
+
+            protected internal override void Init(InitContext ctx)
+            {
+                try
+                {
+                    // This is invalid as it doesn't pass in the right IGraphKernel type
+                    ctx.SetKernelBufferSize(new StatefulKernelNode.Kernel {stateBuffer = Buffer<long>.SizeRequest(10)});
+                }
+                catch (ArgumentException)
+                {
+                    Debug.Log("All is good");
+                }
+            }
+
+            [BurstCompile(CompileSynchronously = true)]
+            public struct Kernel : IGraphKernel<Data, KernelDefs>
+            {
+                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports) {}
+            }
+        }
+
+        [Test]
+        public void CannotSetSize_OnKernelBuffers_WithWrongKernelType()
+        {
+            using (var set = new NodeSet())
+            {
+                LogAssert.Expect(LogType.Log, "All is good");
+                var node = set.Create<KernelNodeWithInvalidSetKernelBufferSize>();
+                set.Destroy(node);
+            }
+        }
     }
 }

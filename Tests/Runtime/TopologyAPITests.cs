@@ -3,7 +3,7 @@ using NUnit.Framework;
 
 namespace Unity.DataFlowGraph.Tests
 {
-    class TopologyTests
+    class TopologyAPITests
     {
         public struct Node : INodeData
         {
@@ -89,6 +89,25 @@ namespace Unity.DataFlowGraph.Tests
                 set.Connect(a, InOutTestNode.SimulationPorts.Output, b, InOutTestNode.SimulationPorts.Input);
 
                 set.Destroy(a, b);
+            }
+        }
+
+        [Test]
+        public void CannotMakeTwoDataConnectionsToTheSamePort()
+        {
+            using (var set = new NodeSet())
+            {
+                NodeHandle<KernelAdderNode>
+                    a = set.Create<KernelAdderNode>(),
+                    b = set.Create<KernelAdderNode>(),
+                    c = set.Create<KernelAdderNode>();
+
+                set.Connect(a, KernelAdderNode.KernelPorts.Output, c, KernelAdderNode.KernelPorts.Input);
+                Assert.Throws<ArgumentException>(() => set.Connect(b, KernelAdderNode.KernelPorts.Output, c, KernelAdderNode.KernelPorts.Input));
+                set.Disconnect(a, KernelAdderNode.KernelPorts.Output, c, KernelAdderNode.KernelPorts.Input);
+                set.Connect(a, KernelAdderNode.KernelPorts.Output, c, KernelAdderNode.KernelPorts.Input);
+
+                set.Destroy(a, b, c);
             }
         }
 

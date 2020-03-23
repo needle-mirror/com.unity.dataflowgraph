@@ -142,9 +142,13 @@ namespace Unity.DataFlowGraph
                     ? "An array index is required when connecting to an array port."
                     : "An array index can only be given when connecting to an array port.");
 
-            // TODO: Handle Msg -> data
+            uint connectionCategory = (uint)sourcePortDef.Category;
             if (sourcePortDef.Category != destPortDef.Category)
-                throw new InvalidOperationException($"Port category between source ({sourcePortDef.Category}) and destination ({destPortDef.Category}) are not compatible");
+            {
+                if (sourcePortDef.Category != PortDescription.Category.Message || destPortDef.Category != PortDescription.Category.Data)
+                    throw new InvalidOperationException($"Port category between source ({sourcePortDef.Category}) and destination ({destPortDef.Category}) are not compatible");
+                connectionCategory = PortDescription.MessageToDataConnectionCategory;
+            }
 
             if (dataConnectionType != ConnectionType.Normal && sourcePortDef.Category != PortDescription.Category.Data)
                 throw new InvalidOperationException($"Cannot create a feedback connection for non-Data Port");
@@ -153,7 +157,7 @@ namespace Unity.DataFlowGraph
             if (sourcePortDef.Type != destPortDef.Type)
                 throw new InvalidOperationException($"Cannot connect source type ({sourcePortDef.Type}) to destination type ({destPortDef.Type})");
 
-            Connect((sourcePortDef.Category, sourcePortDef.Type, dataConnectionType), source, dest);
+            Connect((connectionCategory, sourcePortDef.Type, dataConnectionType), source, dest);
         }
 
         void Disconnect(NodeHandle sourceHandle, OutputPortID sourcePort, NodeHandle destHandle, InputPortArrayID destinationPort)
@@ -214,7 +218,7 @@ namespace Unity.DataFlowGraph
             SignalTopologyChanged();
         }
 
-        internal void Connect((PortDescription.Category Category, Type Type, ConnectionType ConnType) semantics, in OutputPair source, in InputPair dest)
+        internal void Connect((uint Category, Type Type, ConnectionType ConnType) semantics, in OutputPair source, in InputPair dest)
         {
             // TODO: Not ideal, but we cannot detect entity -> entity connections ahead of time,
             // so we need to dynamically test and keep track of dependencies.
@@ -232,14 +236,28 @@ namespace Unity.DataFlowGraph
 #endif
             }
 
-
             CheckPortArrayBounds(dest);
+
+            if ((semantics.Category & ((uint)PortDescription.Category.Data | PortDescription.MessageToDataConnectionCategory)) != 0)
+            {
+                // Ensure we don't end up with multiple connections on the same Data input. The only exception is if we
+                // have only Message->Data connections all to the same input.
+                for (var it = m_Topology[dest.Handle].InputHeadConnection; it != InvalidConnection; it = m_Database[it].NextInputConnection)
+                {
+                    ref readonly var conn = ref m_Database[it];
+                    if (conn.DestinationInputPort != dest.Port)
+                        continue;
+                    if (semantics.Category == PortDescription.MessageToDataConnectionCategory && conn.TraversalFlags == PortDescription.MessageToDataConnectionCategory)
+                        continue;
+                    throw new ArgumentException("Cannot connect to an already connected Data input port");
+                }
+            }
 
             // TODO: Check recursion at some point - as well.
             if (m_Database.ConnectionExists(ref m_Topology, source.Handle, source.Port, dest.Handle, dest.Port))
                 throw new ArgumentException("Connection already exists!");
 
-            if (semantics.Category == PortDescription.Category.DomainSpecific)
+            if (semantics.Category == (uint)PortDescription.Category.DomainSpecific)
             {
                 var handler = GetDSLHandler(semantics.Type);
                 handler.Connect(this, source.Handle.ToPublicHandle(), source.Port, dest.Handle.ToPublicHandle(), dest.Port.PortID);
@@ -247,14 +265,14 @@ namespace Unity.DataFlowGraph
 
             if (semantics.ConnType != ConnectionType.Feedback)
             {
-                m_Database.Connect(ref m_Topology, (uint)semantics.Category, source.Handle, source.Port, dest.Handle, dest.Port);
+                m_Database.Connect(ref m_Topology, semantics.Category, source.Handle, source.Port, dest.Handle, dest.Port);
             }
             else
             {
-                m_Database.Connect(ref m_Topology, (uint)semantics.Category << (int)PortDescription.CategoryShift.FeedbackConnection, source.Handle, source.Port, dest.Handle, dest.Port);
+                m_Database.Connect(ref m_Topology, semantics.Category << (int)PortDescription.CategoryShift.FeedbackConnection, source.Handle, source.Port, dest.Handle, dest.Port);
                 // Create the backwards dependency so that traversal order is correct.
                 m_Database.Connect(
-                    ref m_Topology, (uint) semantics.Category << (int)PortDescription.CategoryShift.BackConnection,
+                    ref m_Topology, semantics.Category << (int)PortDescription.CategoryShift.BackConnection,
                     dest.Handle, OutputPortID.Invalid, 
                     source.Handle, InputPortArrayID.Invalid);
             }

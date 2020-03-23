@@ -1,6 +1,5 @@
 using System;
 using System.Diagnostics;
-using System.Runtime.InteropServices;
 using Unity.Collections;
 
 namespace Unity.DataFlowGraph
@@ -36,6 +35,8 @@ namespace Unity.DataFlowGraph
     /// <seealso cref="NodeSet.Create{TDefinition}"/>
     /// <seealso cref="NodeSet.Destroy(NodeHandle)"/>
     /// </summary>
+    [DebuggerDisplay("{DebugDisplay(), nq}")]
+    [DebuggerTypeProxy(typeof(NodeHandleDebugView))]
     public readonly struct NodeHandle : IEquatable<NodeHandle>
     {
         internal readonly VersionedHandle VHandle;
@@ -77,6 +78,8 @@ namespace Unity.DataFlowGraph
         {
             return $"Index: {VHandle.Index}, Version: {VHandle.Version}, NodeSetID: {NodeSetID}";
         }
+
+        string DebugDisplay() => NodeHandleDebugView.DebugDisplay(this);
     }
 
     /// <summary>
@@ -91,7 +94,8 @@ namespace Unity.DataFlowGraph
     /// 
     /// <seealso cref="NodeSet.CastHandle{TDefinition}(NodeHandle)"/>
     /// </summary>
-    [DebuggerDisplay("{m_UntypedHandle, nq}")]
+    [DebuggerDisplay("{DebugDisplay(), nq}")]
+    [DebuggerTypeProxy(typeof(NodeHandleDebugView<>))]
     public struct NodeHandle<TDefinition> : IEquatable<NodeHandle<TDefinition>>
         where TDefinition : NodeDefinition
     {
@@ -132,6 +136,8 @@ namespace Unity.DataFlowGraph
         {
             return left.m_UntypedHandle != right.m_UntypedHandle;
         }
+
+        string DebugDisplay() => NodeHandleDebugView.DebugDisplay(this);
     }
 
     /// <summary>

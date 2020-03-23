@@ -1,9 +1,11 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Burst;
 using Unity.Collections;
+using static Unity.DataFlowGraph.ReflectionTools;
 
 namespace Unity.DataFlowGraph
 {
@@ -121,6 +123,10 @@ namespace Unity.DataFlowGraph
 
             var vtable = LowLevelNodeTraits.VirtualTable.Create();
 
+#if DFG_PER_NODE_PROFILING
+            vtable.KernelMarker = new Profiling.ProfilerMarker(hostNodeType.Name);
+#endif
+
             if (BurstConfig.IsBurstEnabled && typeof(TUserKernel).GetCustomAttributes().Any(a => a is BurstCompileAttribute))
                 vtable.KernelFunction = RenderKernelFunction.GetBurstedFunction<TKernelData, TKernelPortDefinition, TUserKernel>();
             else
@@ -140,6 +146,11 @@ namespace Unity.DataFlowGraph
 
         static LowLevelNodeTraits.StorageDefinition CreateStorage(bool nodeDataIsManaged, bool isComponentNode)
         {
+            var kernelBuffers = new BlitList<LowLevelNodeTraits.StorageDefinition.BufferInfo>(0);
+            foreach (var field in  WalkTypeInstanceFields(typeof(TUserKernel), BindingFlags.Public | BindingFlags.NonPublic, IsBufferDefinition))
+            {
+                kernelBuffers.Add(new LowLevelNodeTraits.StorageDefinition.BufferInfo(UnsafeUtility.GetFieldOffset(field), new SimpleType(field.FieldType.GetGenericArguments()[0])));
+            }
             return new LowLevelNodeTraits.StorageDefinition(
                 nodeDataIsManaged,
                 isComponentNode: isComponentNode,
@@ -147,7 +158,9 @@ namespace Unity.DataFlowGraph
                 SimpleType.Create<TSimPorts>(),
                 SimpleType.Create<TKernelData>(),
                 SimpleType.Create<TKernelPortDefinition>(),
-                SimpleType.Create<TUserKernel>()
+                SimpleType.Create<TUserKernel>(),
+                typeof(TUserKernel),
+                kernelBuffers
             );
         }
 
@@ -187,10 +200,7 @@ namespace Unity.DataFlowGraph
                 nodeDataIsManaged, 
                 isComponentNode: false,
                 SimpleType.Create<TNodeData>(), 
-                SimpleType.Create<TSimPorts>(), 
-                new SimpleType(), 
-                new SimpleType(), 
-                new SimpleType()
+                SimpleType.Create<TSimPorts>()
             );
         }
 

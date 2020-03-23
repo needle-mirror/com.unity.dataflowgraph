@@ -522,8 +522,10 @@ namespace Unity.DataFlowGraph
         /// </summary>
         internal enum CategoryShift
         {
-            FeedbackConnection = 1,
-            BackConnection = 2
+            None,
+            FeedbackConnection,
+            BackConnection,
+            Max
         }
 
         /// <summary>
@@ -533,9 +535,15 @@ namespace Unity.DataFlowGraph
         public enum Category
         {
             Message = 1 << 0,
-            Data = 1 << 3,
-            DomainSpecific = 1 << 6
+            Data = Message << CategoryShift.Max,
+            DomainSpecific = Data << CategoryShift.Max
         }
+
+        /// <remarks>
+        /// Generally, the connection traversal mask is the category of its two endpoints, but in a Message->Data
+        /// connection, the two endpoint categories do not match, thus, a special value is used.
+        /// </remarks>
+        internal const uint MessageToDataConnectionCategory = (uint)Category.DomainSpecific << (int)CategoryShift.Max;
 
         internal interface IPort<TPortID> : IEquatable<TPortID>
             where TPortID : IPortID
@@ -583,7 +591,7 @@ namespace Unity.DataFlowGraph
             /// <summary>
             /// True if the port is a <see cref="PortArray{TInputPort}"/>.
             /// </summary>
-            internal bool IsPortArray => m_IsPortArray;
+            public bool IsPortArray => m_IsPortArray;
 
             internal static InputPort Data(Type type, ushort port, bool hasBuffers, bool isPortArray, string name)
             {

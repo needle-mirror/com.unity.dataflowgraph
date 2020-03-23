@@ -551,6 +551,8 @@ namespace Unity.DataFlowGraph.Tests
         {
             public static volatile int s_RenderCount;
 
+            public static void Reset() => s_RenderCount = 0;
+
             public struct KernelDefs : IKernelPortDefinition
             {
 #pragma warning disable 649  // never assigned
@@ -574,6 +576,7 @@ namespace Unity.DataFlowGraph.Tests
         [Test]
         public void FencingOnRootFence_StopsAllOngoingRender_AndProducesExpectedRenderCount()
         {
+            SlowNode.Reset();
             const int k_NumRoots = 5;
 
             using (var set = new NodeSet())

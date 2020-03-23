@@ -700,19 +700,19 @@ namespace Unity.DataFlowGraph.Tests
         {
             using (var test = new Test<OneMessageOneData>(ComputeType.NonJobified, traversalType))
             {
-                int numParents = traversalType == PortDescription.Category.Data ? 2 : 0;
-                int numChildren = traversalType == PortDescription.Category.Message ? 2 : 0;
+                int numChildren = traversalType == PortDescription.Category.Data ? 2 : 0;
+                int numParents = traversalType == PortDescription.Category.Message ? 2 : 0;
 
                 for (int i = 0; i < 5; ++i)
                 {
                     test.Nodes.Add(test.Set.Create<OneMessageOneData>());
                 }
 
-                test.Set.Connect(test.Nodes[0], OneMessageOneData.KernelPorts.DataOutput, test.Nodes[2], OneMessageOneData.KernelPorts.DataInput);
-                test.Set.Connect(test.Nodes[1], OneMessageOneData.KernelPorts.DataOutput, test.Nodes[2], OneMessageOneData.KernelPorts.DataInput);
+                test.Set.Connect(test.Nodes[0], OneMessageOneData.SimulationPorts.MsgOutput, test.Nodes[2], OneMessageOneData.SimulationPorts.MsgInput);
+                test.Set.Connect(test.Nodes[1], OneMessageOneData.SimulationPorts.MsgOutput, test.Nodes[2], OneMessageOneData.SimulationPorts.MsgInput);
 
-                test.Set.Connect(test.Nodes[2], OneMessageOneData.SimulationPorts.MsgOutput, test.Nodes[3], OneMessageOneData.SimulationPorts.MsgInput);
-                test.Set.Connect(test.Nodes[2], OneMessageOneData.SimulationPorts.MsgOutput, test.Nodes[4], OneMessageOneData.SimulationPorts.MsgInput);
+                test.Set.Connect(test.Nodes[2], OneMessageOneData.KernelPorts.DataOutput, test.Nodes[3], OneMessageOneData.KernelPorts.DataInput);
+                test.Set.Connect(test.Nodes[2], OneMessageOneData.KernelPorts.DataOutput, test.Nodes[4], OneMessageOneData.KernelPorts.DataInput);
 
                 bool centerNodeWasFound = false;
 
@@ -720,11 +720,11 @@ namespace Unity.DataFlowGraph.Tests
                 {
                     if (node.Vertex.ToPublicHandle() == test.Nodes[2])
                     {
-                        Assert.AreEqual(0, node.GetParentsByPort(new InputPortArrayID(OneMessageOneData.SimulationPorts.MsgInput.Port)).Count);
-                        Assert.AreEqual(numParents, node.GetParentsByPort(new InputPortArrayID(OneMessageOneData.KernelPorts.DataInput.Port)).Count);
+                        Assert.AreEqual(numParents, node.GetParentsByPort(new InputPortArrayID(OneMessageOneData.SimulationPorts.MsgInput.Port)).Count);
+                        Assert.AreEqual(0, node.GetParentsByPort(new InputPortArrayID(OneMessageOneData.KernelPorts.DataInput.Port)).Count);
 
-                        Assert.AreEqual(0, node.GetChildrenByPort(OneMessageOneData.KernelPorts.DataOutput.Port).Count);
-                        Assert.AreEqual(numChildren, node.GetChildrenByPort(OneMessageOneData.SimulationPorts.MsgOutput.Port).Count);
+                        Assert.AreEqual(numChildren, node.GetChildrenByPort(OneMessageOneData.KernelPorts.DataOutput.Port).Count);
+                        Assert.AreEqual(0, node.GetChildrenByPort(OneMessageOneData.SimulationPorts.MsgOutput.Port).Count);
 
                         centerNodeWasFound = true;
                         break;
@@ -760,13 +760,17 @@ namespace Unity.DataFlowGraph.Tests
             using (var set = new NodeSet())
             {
                 set.RendererModel = model;
-                var a = set.Create<OneMessageOneData>();
-                var b = set.Create<OneMessageOneData>();
-                var c = set.Create<OneMessageOneData>();
+                var a = set.Create<KernelSumNode>();
+                var b = set.Create<KernelSumNode>();
+                var c = set.Create<KernelSumNode>();
 
-                set.Connect(a, OneMessageOneData.KernelPorts.DataOutput, b, OneMessageOneData.KernelPorts.DataInput);
-                set.Connect(b, OneMessageOneData.KernelPorts.DataOutput, a, OneMessageOneData.KernelPorts.DataInput);
-                set.Connect(c, OneMessageOneData.KernelPorts.DataOutput, a, OneMessageOneData.KernelPorts.DataInput);
+                set.SetPortArraySize(a, KernelSumNode.KernelPorts.Inputs, 2);
+                set.SetPortArraySize(b, KernelSumNode.KernelPorts.Inputs, 1);
+                set.SetPortArraySize(c, KernelSumNode.KernelPorts.Inputs, 1);
+
+                set.Connect(a, KernelSumNode.KernelPorts.Output, b, KernelSumNode.KernelPorts.Inputs, 0);
+                set.Connect(b, KernelSumNode.KernelPorts.Output, a, KernelSumNode.KernelPorts.Inputs, 0);
+                set.Connect(c, KernelSumNode.KernelPorts.Output, a, KernelSumNode.KernelPorts.Inputs, 1);
 
                 set.Update();
                 LogAssert.Expect(UnityEngine.LogType.Error, new Regex("The graph contains a cycle"));

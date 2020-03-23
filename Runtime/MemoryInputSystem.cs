@@ -12,6 +12,7 @@ namespace Unity.DataFlowGraph
     /// <summary>
     /// Base common interface for unique type tag used by <see cref="MemoryInputSystem{TTag, TBufferToMove}"/> and <see cref="NodeMemoryInput{TTag, TBufferToMove}"/>.
     /// </summary>
+    [Obsolete("Use ComponentNode + connections instead")]
     public interface INodeMemoryInputTag { }
 
     /// <summary>
@@ -24,6 +25,7 @@ namespace Unity.DataFlowGraph
     /// <typeparam name="TBufferToMove">
     /// The <see cref="IBufferElementData"/> type that this system should move.
     /// </typeparam>
+    [Obsolete("Use ComponentNode + connections instead")]
     public struct NodeMemoryInput<TTag, TBufferToMove> : IComponentData
         where TTag : INodeMemoryInputTag
         where TBufferToMove : struct, IBufferElementData
@@ -97,6 +99,7 @@ namespace Unity.DataFlowGraph
     /// requirement for an exact match between the source ECS buffer type and the destination <see cref="NodeSet"/> <see cref="DataInput"/> of
     /// <see cref="Buffer{T}"/> type. Instead, The types need only match in size and alignment.
     /// </summary>
+    [Obsolete]
     public class NativeAllowReinterpretationAttribute : Attribute { }
 
     /// <summary>
@@ -123,6 +126,7 @@ namespace Unity.DataFlowGraph
     /// Remember to call base functions of any functions you override.
     /// Any logical errors you make are notified as log errors every frame.
     /// </remarks>
+    [Obsolete("Use ComponentNode instead")]
     public abstract class MemoryInputSystem<TTag, TBufferToMove> : JobComponentSystem
         where TTag : INodeMemoryInputTag
         where TBufferToMove : struct, IBufferElementData

@@ -29,7 +29,10 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        struct HookPatchJob : IJobForEachWithEntity_EB<NodeSetAttachment>
+        struct HookPatchJob
+#pragma warning disable 618  // warning CS0618: 'IJobForEach' is obsolete: 'Please use Entities.ForEach or IJobChunk to schedule jobs that work on Entities. (RemovedAfter 2020-06-20)
+            : IJobForEachWithEntity_EB<NodeSetAttachment>
+#pragma warning restore 618
         {
             public NativeQueue<Entity> NotifiedEntities;
 
@@ -73,8 +76,10 @@ namespace Unity.DataFlowGraph.Tests
         [Test]
         public void HookPatchJob_MatchesInternalRepatchJob()
         {
+#pragma warning disable 618  // warning CS0618: 'IJobForEach' is obsolete: 'Please use Entities.ForEach or IJobChunk to schedule jobs that work on Entities. (RemovedAfter 2020-06-20)
             Assert.True(typeof(IJobForEachWithEntity_EB<NodeSetAttachment>).IsAssignableFrom(typeof(HookPatchJob)));
             Assert.True(typeof(IJobForEachWithEntity_EB<NodeSetAttachment>).IsAssignableFrom(typeof(RepatchDFGInputsIfNeededJob)));
+#pragma warning restore 618
 
             var hookAttributes = 
                 typeof(HookPatchJob)

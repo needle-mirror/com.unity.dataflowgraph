@@ -8,6 +8,9 @@ using Unity.Jobs;
 using UnityEngine.TestTools;
 using Unity.DataFlowGraph;
 
+#pragma warning disable 612,618
+
+
 [assembly: RegisterGenericComponentType(typeof(NodeMemoryInput<Unity.DataFlowGraph.Tests.InputBatchTests.Entities.MemoryInputTag, Unity.DataFlowGraph.Tests.InputBatchTests.Entities.ECSBuffer>))]
 [assembly: RegisterGenericComponentType(typeof(NodeMemoryInput<Unity.DataFlowGraph.Tests.InputBatchTests.Entities.MemoryInputTag, Unity.DataFlowGraph.Tests.InputBatchTests.Entities.ECSIntBuffer>))]
 [assembly: RegisterGenericComponentType(typeof(NodeMemoryInput<Unity.DataFlowGraph.Tests.InputBatchTests.Entities.MemoryInputTag, Unity.DataFlowGraph.Tests.InputBatchTests.Entities.WeirdStruct>))]
@@ -787,3 +790,5 @@ namespace Unity.DataFlowGraph.Tests
         }
     }
 }
+
+#pragma warning restore 612,618

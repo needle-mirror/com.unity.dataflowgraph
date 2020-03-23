@@ -64,6 +64,10 @@ namespace Unity.DataFlowGraph
     {
         internal struct BufferResizeStruct
         {
+            /// <summary>
+            /// Special (invalid) value for DataPortIndex indicating that the buffer resize should affect a kernel buffer rather than a data port buffer.
+            /// </summary>
+            public const int KernelBufferResizeHint = -1;
             public ValidatedHandle Handle;
             public int DataPortIndex;
             public int LocalBufferOffset;
@@ -120,6 +124,11 @@ namespace Unity.DataFlowGraph
                     UnsafeUtility.Free(offset.AsUntyped(Instance.Ports).Ptr, PortAllocator);
                 }
 
+                foreach (var offset in traits.Storage.KernelBufferInfos)
+                {
+                    UnsafeUtility.Free(offset.Offset.AsUntyped(Instance.Kernel).Ptr, PortAllocator);
+                }
+
                 for (int i = 0; i < traits.DataPorts.Inputs.Count; ++i)
                 {
                     ref var portDecl = ref traits.DataPorts.Inputs[i];
@@ -138,6 +147,11 @@ namespace Unity.DataFlowGraph
                 }
 
                 traits.KernelLayout.Free(Instance, Allocator.Persistent);
+            }
+
+            public ref BufferDescription GetKernelBufferAt(int byteOffset)
+            {
+                return ref *(BufferDescription*)((byte*)Instance.Kernel + byteOffset);
             }
         }
 
@@ -493,10 +507,14 @@ namespace Unity.DataFlowGraph
         {
             var entityManager = m_Set.HostSystem?.World?.EntityManager;
 
+            // No need to schedule ComponentNode related jobs if there are no nodes in existence since they would be a
+            // no-op. This is also a workaround to a problem with entity queries during ECS shutdown.
+            bool performComponentNodeJobs = m_ExistingNodes > 0 && entityManager != null;
+
             if (m_Set.TopologyVersion != m_PreviousVersion)
             {
                 // Schedule additional ECS jobs.
-                if(entityManager != null)
+                if(performComponentNodeJobs)
                 {
                     ClearLocalECSInputsAndOutputsJob clearJob;
                     clearJob.EntityStore = entityManager.EntityComponentStore;
@@ -514,7 +532,7 @@ namespace Unity.DataFlowGraph
                 deps = job.Schedule(Cache.Islands, 1, deps);
             }
 
-            if (entityManager != null)
+            if (performComponentNodeJobs)
             {
                 RepatchDFGInputsIfNeededJob ecsPatchJob;
 
@@ -539,7 +557,7 @@ namespace Unity.DataFlowGraph
             return new UpdateInputDataPort { OwnedCommands = inputPortUpdateCommands, Nodes = m_Nodes, Shared = m_SharedData, Marker = Markers.UpdateInputDataPorts }.Schedule(dependency);
         }
 
-        static unsafe void* AllocateAndCopyData(void* data, SimpleType type)
+        public static unsafe void* AllocateAndCopyData(void* data, SimpleType type)
         {
             var dataCopy = UnsafeUtility.Malloc(type.Size, type.Align, PortAllocator);
             UnsafeUtility.MemCpy(dataCopy, data, type.Size);
@@ -549,11 +567,7 @@ namespace Unity.DataFlowGraph
         public static unsafe void* AllocateAndCopyData<TData>(in TData data)
             where TData : struct
         {
-            // This should work, but we don't have Unsafe.AsRef(in) yet.
-            // return AllocateAndCopyData(Unsafe.AsPointer(ref Unsafe.AsRef(data)), UnsafeUtility.SizeOf<TData>());
-            var dataCopy = UnsafeUtility.Malloc(UnsafeUtility.SizeOf<TData>(), UnsafeUtility.AlignOf<TData>(), PortAllocator);
-            Unsafe.AsRef<TData>(dataCopy) = data;
-            return dataCopy;
+            return AllocateAndCopyData(Unsafe.AsPointer(ref Unsafe.AsRef(data)), SimpleType.Create<TData>());
         }
 
         NativeArray<ValidatedHandle> AlignWorld(/* in */ ref GraphDiff ownedGraphDiff, out BufferResizeCommands bufferResizeCommands, out InputPortUpdateCommands inputPortUpdateCommands)
@@ -576,17 +590,17 @@ namespace Unity.DataFlowGraph
                         var args = ownedGraphDiff.ResizedDataBuffers[ownedGraphDiff.Commands[i].ContainerIndex];
 
                         // Avoid nodes that never existed, because they were deleted in the same batch...
-                        if (!m_Set.StillExists(args.Source.Handle))
+                        if (!m_Set.StillExists(args.Handle))
                             break;
 
-                        ref var node = ref simulationNodes[args.Source.Handle.VHandle.Index];
+                        ref var node = ref simulationNodes[args.Handle.VHandle.Index];
                         ref var traits = ref llTraits[node.TraitsIndex].Resolve();
 
-                        var portNumber = traits.DataPorts.FindOutputDataPortNumber(args.Source.Port);
+                        var portNumber = args.Port == OutputPortID.Invalid ? BufferResizeStruct.KernelBufferResizeHint : traits.DataPorts.FindOutputDataPortNumber(args.Port);
 
                         bufferResizeCommands.Add(
                             new BufferResizeStruct {
-                                Handle = args.Source.Handle,
+                                Handle = args.Handle,
                                 DataPortIndex = portNumber,
                                 LocalBufferOffset = args.LocalBufferOffset,
                                 Size = args.NewSize,
@@ -737,6 +751,12 @@ namespace Unity.DataFlowGraph
             foreach (var offset in traits.DataPorts.OutputBufferOffsets)
             {
                 offset.AsUntyped(node.Instance.Ports) = new BufferDescription(null, 0, args.handle);
+            }
+
+            // Assign owner IDs to kernel state buffers
+            foreach (var offset in traits.Storage.KernelBufferInfos)
+            {
+                offset.Offset.AsUntyped(node.Instance.Kernel) = new BufferDescription(null, 0, args.handle);
             }
 
             // TODO: Investigate why this needs to happen. The job system doesn't seem to do proper version validation.

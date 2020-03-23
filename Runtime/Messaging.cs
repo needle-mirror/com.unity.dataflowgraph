@@ -1,8 +1,9 @@
 using System;
+using System.Runtime.CompilerServices;
 
 namespace Unity.DataFlowGraph
 {
-    using Topology = TopologyAPI<NodeHandle, InputPortArrayID, OutputPortID>;
+    using Topology = TopologyAPI<ValidatedHandle, InputPortArrayID, OutputPortID>;
 
     /// <summary>
     /// A context provided to a node's <see cref="NodeDefinition.OnMessage"/> implementation which is invoked when a
@@ -13,12 +14,12 @@ namespace Unity.DataFlowGraph
         /// <summary>
         /// A handle to the node receiving a message.
         /// </summary>
-        public NodeHandle Handle => m_Handle.ToPublicHandle();
+        public NodeHandle Handle => m_InputPair.Handle.ToPublicHandle();
 
         /// <summary>
         /// The port ID of the <see cref="MessageInput{TDefinition, TMsg}"/> on which the message is being received.
         /// </summary>
-        public InputPortID Port => m_IndexedPort.PortID;
+        public InputPortID Port => m_InputPair.Port.PortID;
 
         /// <summary>
         /// If the above port ID corresponds to a <see cref="PortArray{TInputPort}"/>, this is the array index on which the message
@@ -28,10 +29,10 @@ namespace Unity.DataFlowGraph
         {
             get
             {
-                if (!m_IndexedPort.IsArray)
+                if (!m_InputPair.Port.IsArray)
                     throw new InvalidOperationException("Trying to access index array for a non array PortID.");
 
-                return m_IndexedPort.ArrayIndex;
+                return m_InputPair.Port.ArrayIndex;
             }
         }
 
@@ -42,34 +43,29 @@ namespace Unity.DataFlowGraph
         public void EmitMessage<T, TNodeDefinition>(MessageOutput<TNodeDefinition, T> port, in T msg)
             where TNodeDefinition : NodeDefinition
         {
-            m_Set.EmitMessage(m_Handle, port.Port, msg);
+            m_Set.EmitMessage(m_InputPair.Handle, port.Port, msg);
         }
 
-        readonly InputPortArrayID m_IndexedPort;
-        readonly ValidatedHandle m_Handle;
+        /// <summary>
+        /// Set the size of a <see cref="Buffer{T}"/> appearing in this node's <see cref="IGraphKernel{TKernelData,TKernelPortDefinition}"/>.
+        /// Pass an instance of the node's <see cref="IGraphKernel{TKernelData,TKernelPortDefinition}"/> as the <paramref name="requestedSize"/>
+        /// parameter with <see cref="Buffer{T}"/> instances within it having been set using <see cref="Buffer{T}.SizeRequest(int)"/>. 
+        /// Any <see cref="Buffer{T}"/> instances within the given struct that have not been set using 
+        /// <see cref="Buffer{T}.SizeRequest(int)"/> will be unaffected by the call.
+        /// </summary>
+        public void SetKernelBufferSize<TGraphKernel>(in TGraphKernel requestedSize)
+            where TGraphKernel : IGraphKernel
+        {
+            m_Set.SetKernelBufferSize(m_InputPair.Handle, requestedSize);
+        }
+
+        readonly InputPair m_InputPair;
         readonly NodeSet m_Set;
 
         internal MessageContext(NodeSet set, in InputPair dest)
         {
             m_Set = set;
-            m_IndexedPort = dest.Port;
-            m_Handle = dest.Handle;
-        }
-
-        /// <summary>
-        /// Careful!!! No guarantee for the handle & port ID to pair up.
-        /// <seealso cref="InputPair"/>
-        /// </summary>
-        internal static MessageContext CreateUnverified(NodeSet set, ValidatedHandle handle, InputPortArrayID id)
-        {
-            return new MessageContext(set, handle, id);
-        }
-
-        MessageContext(NodeSet set, ValidatedHandle handle, InputPortArrayID id)
-        {
-            m_Set = set;
-            m_IndexedPort = id;
-            m_Handle = handle;
+            m_InputPair = dest;
         }
     }
 
@@ -207,7 +203,7 @@ namespace Unity.DataFlowGraph
             SetData(handle, new InputPortArrayID(portArray.Port, index), data);
         }
 
-        internal void EmitMessage<TMsg>(ValidatedHandle handle, OutputPortID port, in TMsg msg)
+        unsafe internal void EmitMessage<TMsg>(ValidatedHandle handle, OutputPortID port, in TMsg msg)
         {
             if (!StillExists(handle))
                 throw new InvalidOperationException("Cannot emit a message from a destroyed node");
@@ -218,15 +214,24 @@ namespace Unity.DataFlowGraph
             {
                 ref readonly var connection = ref m_Database[it];
 
-                if (connection.SourceOutputPort != port || connection.TraversalFlags != (uint)PortDescription.Category.Message)
+                if (connection.SourceOutputPort != port)
                     continue;
 
                 foundAnyValidConnections = true;
 
-                ref var childNodeData = ref GetNode(connection.Destination);
-                var definition = m_NodeDefinitions[childNodeData.TraitsIndex];
-
-                definition.OnMessage(MessageContext.CreateUnverified(this, childNodeData.Self, connection.DestinationInputPort), msg);
+                var dest = new InputPair(connection);
+                if (connection.TraversalFlags == (uint)PortDescription.Category.Message)
+                {
+                    GetDefinitionInternal(connection.Destination).OnMessage(new MessageContext(this, dest), msg);
+                }
+                else
+                {
+#if DFG_ASSERTIONS
+                    if (connection.TraversalFlags != PortDescription.MessageToDataConnectionCategory)
+                        throw new AssertionException("Unexpected connection type");
+#endif
+                    m_Diff.SetData(dest, RenderGraph.AllocateAndCopyData(Unsafe.AsPointer(ref Unsafe.AsRef(msg)), new SimpleType(typeof(TMsg))));
+                }
             }
 
             if (!foundAnyValidConnections)
@@ -270,6 +275,10 @@ namespace Unity.DataFlowGraph
 
             if (portDef.Category != PortDescription.Category.Message)
                 throw new InvalidOperationException($"Cannot send a message to a non-message typed port.");
+
+            if (portDef.Type != typeof(TMsg))
+                throw new InvalidOperationException(
+                    $"Cannot send message of type ({typeof(TMsg)}) to a message port of type ({portDef.Type})");
 
             CheckPortArrayBounds(destination);
 

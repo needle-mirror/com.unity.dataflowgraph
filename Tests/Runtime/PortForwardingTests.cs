@@ -463,7 +463,7 @@ namespace Unity.DataFlowGraph.Tests
                 var source = ValidatedHandle.Create(1, 3);
                 var dest = new NodeHandle<NodeWithAllTypesOfPorts>(new VersionedHandle(2, 0, 3));
 
-                InitContext ctx = new InitContext(source, NodeDefinitionTypeIndex<NodeWithAllTypesOfPorts>.Index, ref ports);
+                InitContext ctx = new InitContext(source, NodeDefinitionTypeIndex<NodeWithAllTypesOfPorts>.Index, null, ref ports);
 
                 InputPortID inputPort;
                 OutputPortID outputPort;
@@ -836,8 +836,8 @@ namespace Unity.DataFlowGraph.Tests
 
                 var resize = diff.ResizedDataBuffers[0];
 
-                Assert.AreEqual((NodeHandle)child, resize.Source.Handle.ToPublicHandle());
-                Assert.AreEqual((OutputPortID)NodeWithAllTypesOfPorts.KernelPorts.OutputBuffer, resize.Source.Port);
+                Assert.AreEqual((NodeHandle)child, resize.Handle.ToPublicHandle());
+                Assert.AreEqual((OutputPortID)NodeWithAllTypesOfPorts.KernelPorts.OutputBuffer, resize.Port);
 
                 set.Destroy(uber);
             }

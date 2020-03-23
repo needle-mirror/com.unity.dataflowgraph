@@ -150,6 +150,9 @@ namespace Unity.DataFlowGraph
 
             public ref BufferDescription AsUntyped(RenderKernelFunction.BasePort* kernelPorts)
                 => ref *(BufferDescription*)((byte*)kernelPorts + Offset);
+
+            public ref BufferDescription AsUntyped(RenderKernelFunction.BaseKernel* kernel)
+                => ref *(BufferDescription*)((byte*)kernel + Offset);
         }
 
         /// <summary>
@@ -375,12 +378,20 @@ namespace Unity.DataFlowGraph
 
         public struct VirtualTable
         {
+#if DFG_PER_NODE_PROFILING
+            static Profiling.ProfilerMarker PureProfiler = new Profiling.ProfilerMarker("PureInvocation");
+            public Profiling.ProfilerMarker KernelMarker;
+#endif
             public RenderKernelFunction KernelFunction;
 
             public static VirtualTable Create()
             {
                 VirtualTable ret;
                 ret.KernelFunction = RenderKernelFunction.Pure<PureVirtualFunction>(s_PureInvocation);
+
+#if DFG_PER_NODE_PROFILING
+                ret.KernelMarker = PureProfiler;
+#endif
                 return ret;
             }
 
@@ -388,20 +399,53 @@ namespace Unity.DataFlowGraph
                 where TFunction : IVirtualFunctionDeclaration => function.ReflectionData != s_PureInvocation;
         }
 
-        public struct StorageDefinition
+        public readonly struct StorageDefinition : IDisposable
         {
             public readonly SimpleType NodeData, KernelData, Kernel, KernelPorts, SimPorts;
+            public readonly RuntimeTypeHandle KernelType;
+            public struct BufferInfo
+            {
+                public BufferInfo(int offset, SimpleType itemType)
+                {
+                    Offset = new DataPortDeclarations.BufferOffset(offset);
+                    ItemType = itemType;
+                }
+                public DataPortDeclarations.BufferOffset Offset;
+                public SimpleType ItemType;
+            }
+            public readonly BlitList<BufferInfo> KernelBufferInfos;
             public readonly bool NodeDataIsManaged, IsComponentNode;
 
-            internal StorageDefinition(bool nodeDataIsManaged, bool isComponentNode, SimpleType nodeData, SimpleType simPorts, SimpleType kernelData, SimpleType kernelPorts, SimpleType kernel)
+            internal StorageDefinition(bool nodeDataIsManaged, bool isComponentNode, SimpleType nodeData, SimpleType simPorts, SimpleType kernelData, SimpleType kernelPorts, SimpleType kernel, Type kernelType, BlitList<BufferInfo> kernelBufferInfos)
             {
                 NodeData = nodeData;
                 SimPorts = simPorts;
                 KernelData = kernelData;
                 Kernel = kernel;
                 KernelPorts = kernelPorts;
+                KernelType = kernelType.TypeHandle;
+                KernelBufferInfos = kernelBufferInfos;
                 NodeDataIsManaged = nodeDataIsManaged;
                 IsComponentNode = isComponentNode;
+            }
+
+            internal StorageDefinition(bool nodeDataIsManaged, bool isComponentNode, SimpleType nodeData, SimpleType simPorts)
+            {
+                NodeData = nodeData;
+                SimPorts = simPorts;
+                KernelData = default;
+                Kernel = default;
+                KernelPorts = default;
+                KernelType = default;
+                KernelBufferInfos = default;
+                NodeDataIsManaged = nodeDataIsManaged;
+                IsComponentNode = isComponentNode;
+            }
+
+            public void Dispose()
+            {
+                if (KernelBufferInfos.IsCreated)
+                    KernelBufferInfos.Dispose();
             }
         }
 
@@ -420,6 +464,7 @@ namespace Unity.DataFlowGraph
                 throw new ObjectDisposedException("LowLevelNodeTraits disposed or not created");
 
             DataPorts.Dispose();
+            Storage.Dispose();
 
             IsCreated = false;
         }
