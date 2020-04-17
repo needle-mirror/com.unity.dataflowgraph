@@ -990,5 +990,55 @@ namespace Unity.DataFlowGraph.Tests
                 test.Dispose();
             }
         }
+
+        // Issue #484
+        // Note: The required width to cause stack overflow is smaller here than the non-NodeSet version of this test as
+        // the types in the NodeSet topology DB are larger (sizeof(ValidatedHandle) > sizeof(Node),
+        // sizeof(InputPortArrayID) > sizeof(InputPort), and sizeof(OutputPortID) > sizeof(OutputPort))
+        [Test, Explicit]
+        public void WideInterconnectedDAG_CanBeTraversed([Values] NodeSet.RenderExecutionModel model, [Values(5000)]int width)
+        {
+            using (var set = new NodeSet())
+            {
+                set.RendererModel = model;
+                var nodes = new List<NodeHandle<NodeWithAllTypesOfPorts>>();
+
+                // This DAG is only 2 nodes deep, but very wide.
+                //  o-o
+                //   /
+                //  o-o
+                //   /
+                //  o-o
+                //   /
+                //...
+                for (var i = 0; i < width; ++i)
+                {
+                    var a = set.Create<NodeWithAllTypesOfPorts>();
+                    var b = set.Create<NodeWithAllTypesOfPorts>();
+
+                    set.SetPortArraySize(b, NodeWithAllTypesOfPorts.KernelPorts.InputArrayScalar, 2);
+
+                    set.Connect(
+                        a, NodeWithAllTypesOfPorts.KernelPorts.OutputScalar,
+                        b, NodeWithAllTypesOfPorts.KernelPorts.InputArrayScalar, 0
+                    );
+
+                    if (nodes.Count > 0)
+                    {
+                        set.Connect(
+                            nodes.Last(), NodeWithAllTypesOfPorts.KernelPorts.OutputScalar,
+                            b, NodeWithAllTypesOfPorts.KernelPorts.InputArrayScalar, 1
+                        );
+                    }
+
+                    nodes.Add(a);
+                    nodes.Add(b);
+                }
+
+                set.Update();
+
+                nodes.ForEach(n => set.Destroy(n));
+            }
+        }
     }
 }

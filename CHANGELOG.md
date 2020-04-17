@@ -4,6 +4,25 @@ All notable changes to this package will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [0.14.0-preview.1] - 2020-04-17
+### Added
+- Sample Tour describing how to use feedback connections
+
+### Changed
+- Upgraded dependency com.unity.entities to 0.9.1-preview.15
+- Upgraded dependency com.unity.jobs to 0.2.8-preview.3
+- Upgraded dependency com.unity.collections to 0.7.1-preview.3
+- Upgraded dependency com.unity.burst to 1.3.0-preview.7
+
+### Deprecated
+- INodeMemoryInputTag, NodeMemoryInput, NativeAllowReinterpretationAttribute and MemoryInputSystem are now obsolete. Use ComponentNodes instead.
+
+### Fixed
+- Support for CoreCLR garbage collector
+
+### Internal
+- Added initial base framework for code generation using ILPP
+
 ## [0.13.0-preview.3] - 2020-03-27
 ### Fixed
 - Internal name change fix to support latest ProceduralGraph package

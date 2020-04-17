@@ -98,8 +98,7 @@ namespace Unity.DataFlowGraph
             m_SimulateProfilerMarker.End();
 
             m_CopyWorldsProfilerMarker.Begin();
-            m_RenderGraph.CopyWorlds(m_Diff, inputDependencies, RendererModel, m_GraphValues, m_Batches);
-            PostRenderBatchProcess();
+            m_RenderGraph.CopyWorlds(m_Diff, inputDependencies, RendererModel, m_GraphValues);
             m_Diff = new GraphDiff(Allocator.Persistent); // TODO: Could be temp?
             m_CopyWorldsProfilerMarker.End();
 

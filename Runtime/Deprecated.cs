@@ -2,32 +2,16 @@ using System;
 
 namespace Unity.DataFlowGraph
 {
-    [Obsolete("Renamed, use Unity.DataFlowGraph.PortDescription.Category instead.", true)]
-    public enum Usage
-    {
-        Message,
-        Data,
-        DomainSpecific
-    }
+    [Obsolete("Use ComponentNode + connections instead", true)]
+    public interface INodeMemoryInputTag { }
 
-    [Obsolete("Change of namespace, use Unity.DataFlowGraph.NodeSet.RenderExecutionModel instead.", true)]
-    public enum RenderExecutionModel
-    {
-        MaximallyParallel,
-        SingleThreaded,
-        Synchronous,
-        Islands
-    }
+    [Obsolete("Use ComponentNode + connections instead", true)]
+    public struct NodeMemoryInput<TTag, TBufferToMove> { }
 
-    public partial class NodeSet
-    {
-        [Obsolete("Renamed to GetDefinition.", true)]
-        public NodeDefinition GetFunctionality(NodeHandle handle) => throw new NotImplementedException();
-        [Obsolete("Renamed to GetDefinition.", true)]
-        public NodeDefinition GetFunctionality<T>() => throw new NotImplementedException();
-        [Obsolete("Renamed to GetDefinition.", true)]
-        public TDefinition GetFunctionality<TDefinition>(NodeHandle<TDefinition> handle)
-            where TDefinition : NodeDefinition, new()
-            => throw new NotImplementedException();
-    }
+    [Obsolete("", true)]
+    public class NativeAllowReinterpretationAttribute : Attribute { }
+
+    [Obsolete("Use ComponentNode instead", true)]
+    public abstract class MemoryInputSystem<TTag, TBufferToMove> { }
+
 }

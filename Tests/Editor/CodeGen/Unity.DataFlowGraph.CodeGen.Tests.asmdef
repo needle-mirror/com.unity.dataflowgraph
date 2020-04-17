@@ -1,0 +1,25 @@
+﻿{
+    "name": "Unity.DataFlowGraph.CodeGen.Tests",
+    "references": [
+        "Unity.DataFlowGraph",
+        "Unity.DataFlowGraph.Tests",
+        "Unity.Burst",
+        "Unity.DataFlowGraph.CodeGen"
+    ],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "precompiledReferences": [
+        "Mono.Cecil.dll",
+        "Mono.Cecil.Rocks.dll",
+        "Mono.Cecil.Pdb.dll",
+        "nunit.framework.dll",
+        "System.Runtime.CompilerServices.Unsafe.dll"
+    ]
+}

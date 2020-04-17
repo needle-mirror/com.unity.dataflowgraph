@@ -147,7 +147,6 @@ namespace Unity.DataFlowGraph.Tests
             Assert.IsFalse(set.GetOutputValues().IsCreated);
             Assert.IsFalse(set.GetTopologyMap().IsCreated);
             Assert.IsFalse(set.GetForwardingTable().IsCreated);
-            Assert.IsFalse(set.GetInputBatches().IsCreated);
             Assert.IsFalse(set.GetArraySizesTable().IsCreated);
             Assert.IsFalse(set.GetActiveComponentTypes().IsCreated);
             // Add more as they come...

@@ -297,15 +297,15 @@ namespace Unity.DataFlowGraph
                         error = MaximalParallelSearch(ref context);
                         break;
                 }
-                
-                if(error != TraversalCache.Error.None)
+
+                context.Markers.ComputeLayout.End();
+
+                if (error != TraversalCache.Error.None)
                 {
                     context.Cache.Reset(0);
                     context.Cache.Errors.Add(error);
                     return;
                 }
-
-                context.Markers.ComputeLayout.End();
 
                 // Build connection table.
                 var patchContext = new PatchContext

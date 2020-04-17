@@ -38,7 +38,7 @@ namespace Unity.DataFlowGraph
         BlitList<int> m_FreeNodes = new BlitList<int>(0);
 
         BlitList<LLTraitsHandle> m_Traits = new BlitList<LLTraitsHandle>(0);
-        BlitList<ManagedMemoryAllocator> m_ManagedAllocators = new BlitList<ManagedMemoryAllocator>(0);
+        List<ManagedMemoryAllocator> m_ManagedAllocators = new List<ManagedMemoryAllocator>();
 
         GraphDiff m_Diff = new GraphDiff(Allocator.Persistent);
 
@@ -66,14 +66,13 @@ namespace Unity.DataFlowGraph
             m_Traits.Add(defaultTraits);
             m_ForwardingTable.Allocate();
             m_ArraySizes.Allocate();
-            m_ManagedAllocators.Add(new ManagedMemoryAllocator());
+            m_ManagedAllocators.Add(default);
             // (we don't need a zeroth invalid index for nodes, because they are versioned)
 
             RendererModel = RenderExecutionModel.MaximallyParallel;
             m_RenderGraph = new RenderGraph(this);
             NodeSetID = ++s_NodeSetCounter;
 
-            m_Batches = new VersionedList<InputBatch>(Allocator.Persistent, NodeSetID);
             m_GraphValues = new VersionedList<DataOutputValue>(Allocator.Persistent, NodeSetID);
 
             DebugInfo.RegisterNodeSetCreation(this);
@@ -199,7 +198,7 @@ namespace Unity.DataFlowGraph
                 m_NodeDefinitions.Add(s_InvalidDefinitionSlot);
                 // TODO: We can, instead of wasting allocations, just make .Resolve() throw errors.
                 m_Traits.Add(LLTraitsHandle.Create());
-                m_ManagedAllocators.Add(new ManagedMemoryAllocator());
+                m_ManagedAllocators.Add(default);
             }
 
             var definition = m_NodeDefinitions[index];
@@ -207,7 +206,7 @@ namespace Unity.DataFlowGraph
             {
                 // TODO: Instead of field injection, use constructor?
                 LLTraitsHandle traitsHandle = new LLTraitsHandle();
-                ManagedMemoryAllocator allocator = new ManagedMemoryAllocator();
+                ManagedMemoryAllocator allocator = default;
 
                 try
                 {
@@ -219,7 +218,7 @@ namespace Unity.DataFlowGraph
                     ref var traits = ref traitsHandle.Resolve();
 
                     if (traits.Storage.NodeDataIsManaged)
-                        allocator = new ManagedMemoryAllocator(traits.Storage.NodeData.Size, traits.Storage.NodeData.Align);
+                        allocator = new ManagedMemoryAllocator(definition.BaseTraits.ManagedAllocator);
                 }
                 catch
                 {
@@ -402,8 +401,6 @@ namespace Unity.DataFlowGraph
                     if (m_ManagedAllocators[i].IsCreated)
                         m_ManagedAllocators[i].Dispose();
 
-                PostRenderBatchProcess(true);
-
                 m_Database.Dispose();
 
                 m_Topology.Dispose();
@@ -420,9 +417,8 @@ namespace Unity.DataFlowGraph
                 m_RenderGraph.Dispose();
 
                 m_Traits.Dispose();
-                m_ManagedAllocators.Dispose();
+                m_ManagedAllocators.Clear();
 
-                m_Batches.Dispose();
                 m_ForwardingTable.Dispose();
 
                 m_ArraySizes.Dispose();
@@ -706,7 +702,5 @@ namespace Unity.DataFlowGraph
         internal List<NodeDefinition> GetDefinitions() => m_NodeDefinitions;
         internal BlitList<LLTraitsHandle> GetLLTraits() => m_Traits;
         internal ref readonly LowLevelNodeTraits GetNodeTraits(NodeHandle handle) => ref m_Traits[GetNodeChecked(handle).TraitsIndex].Resolve();
-        internal VersionedList<InputBatch> GetInputBatches() => m_Batches;
-
     }
 }

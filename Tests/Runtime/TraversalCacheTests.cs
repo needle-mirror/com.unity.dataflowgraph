@@ -1007,5 +1007,32 @@ namespace Unity.DataFlowGraph.Tests
                 }
             }
         }
+
+        // Issue #484
+        [Test, Explicit]
+        public void WideInterconnectedDAG_CanBeTraversed([Values] Topology.SortingAlgorithm algo, [Values] ComputeType jobified, [Values(15000)]int width)
+        {
+            using (var test = new Test(algo, jobified))
+            {
+                // This DAG is only 2 nodes deep, but very wide.
+                //  o-o
+                //   /
+                //  o-o
+                //   /
+                //  o-o
+                //   /
+                //...
+                for (var i = 0; i < width; ++i)
+                {
+                    test.Nodes.Add(test.TestDatabase.CreateNode());
+                    test.Nodes.Add(test.TestDatabase.CreateNode());
+                    test.TestDatabase.Connect(test.Nodes[i*2], k_OutputOne, test.Nodes[i*2+1], k_InputOne);
+                    if (i>0)
+                        test.TestDatabase.Connect(test.Nodes[i*2-1], k_OutputOne, test.Nodes[i*2+1], k_InputTwo);
+                }
+
+                test.GetUpdatedCache();
+            }
+        }
     }
 }

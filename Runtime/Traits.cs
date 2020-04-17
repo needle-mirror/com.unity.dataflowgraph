@@ -1,10 +1,26 @@
-﻿namespace Unity.DataFlowGraph
+﻿using System;
+using Unity.Collections.LowLevel.Unsafe;
+
+namespace Unity.DataFlowGraph
 {
+    class DefaultManagedAllocator<T> : IManagedMemoryPoolAllocator
+        where T : struct
+    {
+        public int ObjectSize => UnsafeUtility.SizeOf<T>();
+
+        public unsafe void* AllocatePrepinnedGCArray(int count, out ulong gcHandle)
+        {
+            var gc = new T[count];
+            return UnsafeUtility.PinGCArrayAndGetDataAddress(gc, out gcHandle);
+        }
+    }
+
     public abstract class NodeTraitsBase
     {
         internal NodeSet Set { get; set; }
-        internal abstract LLTraitsHandle CreateNodeTraits(System.Type superType);
+        internal abstract IManagedMemoryPoolAllocator ManagedAllocator { get; }
 
+        internal abstract LLTraitsHandle CreateNodeTraits(System.Type superType);
         internal virtual INodeData DebugGetNodeData(NodeHandle handle) => null;
         internal virtual IKernelData DebugGetKernelData(NodeHandle handle) => null;
     }
@@ -15,12 +31,15 @@
         struct EmptyData : INodeData { }
 
         internal override LLTraitsHandle CreateNodeTraits(System.Type superType) => LowLevelTraitsFactory<EmptyData, TSimPorts>.Create(superType);
+        internal override IManagedMemoryPoolAllocator ManagedAllocator => throw new NotImplementedException();
     }
 
     public sealed class NodeTraits<TNodeData, TSimPorts> : NodeTraitsBase
         where TNodeData : struct, INodeData
         where TSimPorts : struct, ISimulationPortDefinition
     {
+        DefaultManagedAllocator<TNodeData> m_Allocator = new DefaultManagedAllocator<TNodeData>();
+
         /// <summary>
         /// Returns a reference to a node's instance memory.
         /// </summary>
@@ -32,6 +51,7 @@
         internal override INodeData DebugGetNodeData(NodeHandle handle) => GetNodeData(handle);
 
         internal override LLTraitsHandle CreateNodeTraits(System.Type superType) => LowLevelTraitsFactory<TNodeData, TSimPorts>.Create(superType);
+        internal override IManagedMemoryPoolAllocator ManagedAllocator => m_Allocator;
     }
 
     public sealed class NodeTraits<TKernelData, TKernelPortDefinition, TKernel> : NodeTraitsBase
@@ -55,6 +75,7 @@
         internal override IKernelData DebugGetKernelData(NodeHandle handle) => GetKernelData(handle);
 
         internal override LLTraitsHandle CreateNodeTraits(System.Type superType) => LowLevelTraitsFactory<EmptyData, EmptySimPorts, TKernelData, TKernelPortDefinition, TKernel>.Create(superType);
+        internal override IManagedMemoryPoolAllocator ManagedAllocator => throw new NotImplementedException();
     }
 
     public class NodeTraits<TNodeData, TSimPorts, TKernelData, TKernelPortDefinition, TKernel> : NodeTraitsBase
@@ -64,6 +85,8 @@
         where TKernelPortDefinition : struct, IKernelPortDefinition
         where TKernel : struct, IGraphKernel<TKernelData, TKernelPortDefinition>
     {
+        DefaultManagedAllocator<TNodeData> m_Allocator = new DefaultManagedAllocator<TNodeData>();
+
         /// <summary>
         /// Returns a reference to a node's <typeparamref name="TKernelData"/> memory.
         /// Writing to this will update it into the rendering graph
@@ -83,6 +106,7 @@
         internal override INodeData DebugGetNodeData(NodeHandle handle) => GetNodeData(handle);
 
         internal override LLTraitsHandle CreateNodeTraits(System.Type superType) => LowLevelTraitsFactory<TNodeData, TSimPorts, TKernelData, TKernelPortDefinition, TKernel>.Create(superType);
+        internal override IManagedMemoryPoolAllocator ManagedAllocator => m_Allocator;
     }
 
     public sealed class NodeTraits<TNodeData, TKernelData, TKernelPortDefinition, TKernel>

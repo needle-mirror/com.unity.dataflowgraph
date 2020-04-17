@@ -6,118 +6,56 @@ using UnityEngine;
 
 namespace Unity.DataFlowGraph
 {
+    /// <summary>
+    /// Interface for allocating bulk amounts of some particular managed struct, as an array.
+    /// </summary>
+    unsafe interface IManagedMemoryPoolAllocator
+    {
+        /// <summary>
+        /// <code>UnsafeUtility.SizeOf<T>()</code>
+        /// </summary>
+        int ObjectSize { get; }
+        /// <summary>
+        /// Allocate a <code>T[]</code> array of <paramref>count</paramref> size and immediately pin it using 
+        /// <see cref="UnsafeUtility.PinGCArrayAndGetDataAddress(Array, out ulong)"/>.
+        /// </summary>
+        /// <param name="count">
+        /// The array size.
+        /// </param>
+        /// <param name="gcHandle">
+        /// The output gc handle from a <see cref="UnsafeUtility.PinGCArrayAndGetDataAddress(Array, out ulong)"/> operation.
+        /// </param>
+        /// <returns>
+        /// The result of a <see cref="UnsafeUtility.PinGCArrayAndGetDataAddress(Array, out ulong)"/> operation.
+        /// </returns>
+        void* AllocatePrepinnedGCArray(int count, out ulong gcHandle);
+    }
+
     unsafe struct ManagedMemoryAllocator : IDisposable
     {
         internal unsafe struct Page
         {
-            class ManagedPage256
-            {
-                public const int PageSize = 1 << 8;
-
-                public struct Blob
-                {
-                    public fixed byte Storage[PageSize];
-                    // There needs to be an object reference to turn this type into a managed object, that is GC tracked.
-                    object m_ManagedObject;
-                }
-
-                public Blob Data = default;
-            }
-
-            class ManagedPage1K
-            {
-                public const int PageSize = 1 << 10;
-
-                public struct Blob
-                {
-                    public fixed byte Storage[PageSize];
-                    // There needs to be an object reference to turn this type into a managed object, that is GC tracked.
-                    object m_ManagedObject;
-                }
-
-                public Blob Data = default;
-            }
-
-            class ManagedPage4K
-            {
-                public const int PageSize = 1 << 12;
-
-                public struct Blob
-                {
-                    public fixed byte Storage[PageSize];
-                    // There needs to be an object reference to turn this type into a managed object, that is GC tracked.
-                    object m_ManagedObject;
-                }
-
-                public Blob Data = default;
-            }
-
-            class ManagedPage16K
-            {
-                public const int PageSize = 1 << 14;
-
-                public struct Blob
-                {
-                    public fixed byte Storage[PageSize];
-                    // There needs to be an object reference to turn this type into a managed object, that is GC tracked.
-                    object m_ManagedObject;
-                }
-
-                public Blob Data = default;
-            }
-
-            internal int m_Capacity;
-            internal int m_ObjectSizeAligned;
-            internal ulong m_StrongHandle;
+            internal int Capacity;
+            internal int ObjectSize;
+            internal ulong StrongHandle;
             byte* m_FreeStore;
             int* m_FreeQueue;
-            internal int m_FreeObjects;
+            internal int FreeObjects;
 
-            static int s_DataMemoryOffset;
-
-            static Page()
+            public static void InitializePage(Page* page, IManagedMemoryPoolAllocator allocator, int objectSize, int poolSize)
             {
-                var dataField = typeof(ManagedPage1K).GetField("Data", BindingFlags.Instance | BindingFlags.Public);
-                s_DataMemoryOffset = UnsafeUtility.GetFieldOffset(dataField);
-            }
+                page->ObjectSize = objectSize;
+                page->FreeObjects = page->Capacity = poolSize;
 
-            public static void InitializePage(Page* page, int objectSize, int objectAlignment, int desiredPoolSize)
-            {
-                var alignMask = objectAlignment - 1;
-                objectSize = (objectSize + alignMask) & ~alignMask;
+                page->m_FreeStore = (byte*)allocator.AllocatePrepinnedGCArray(poolSize, out page->StrongHandle);
+                page->m_FreeQueue = (int*)UnsafeUtility.Malloc(sizeof(int) * page->Capacity, UnsafeUtility.AlignOf<int>(), Allocator.Persistent);
 
-                page->m_ObjectSizeAligned = objectSize;
+                if (page->m_FreeStore == null || page->m_FreeQueue == null)
+                    throw new OutOfMemoryException();
+                
+                var nextLastObject = page->Capacity - 1;
 
-                var desiredMemory = objectSize * desiredPoolSize;
-                var bits = Mathf.Log(desiredMemory) / Mathf.Log(2);
-                var power = (int)Mathf.Clamp(Mathf.RoundToInt(bits) * 0.5f, 4f, 7f) * 2;
-                var finalMemory = 1 << power;
-
-                object managedBlock = null;
-
-                switch (finalMemory)
-                {
-                    case ManagedPage256.PageSize: managedBlock = new ManagedPage256(); break;
-                    case ManagedPage1K.PageSize: managedBlock = new ManagedPage1K(); break;
-                    case ManagedPage4K.PageSize: managedBlock = new ManagedPage4K(); break;
-                    case ManagedPage16K.PageSize: managedBlock = new ManagedPage16K(); break;
-                }
-
-                System.Diagnostics.Debug.Assert(managedBlock != null);
-
-                page->m_FreeObjects = page->m_Capacity = finalMemory / objectSize;
-
-                page->m_FreeStore = s_DataMemoryOffset + (byte*)UnsafeUtility.PinGCObjectAndGetAddress(managedBlock, out page->m_StrongHandle);
-                page->m_FreeQueue = (int*)UnsafeUtility.Malloc(sizeof(int) * page->m_Capacity, UnsafeUtility.AlignOf<int>(), Allocator.Persistent);
-
-                System.Diagnostics.Debug.Assert(page->m_FreeStore != null);
-                System.Diagnostics.Debug.Assert(page->m_FreeQueue != null);
-
-                UnsafeUtility.MemClear(page->m_FreeQueue, sizeof(int) * page->m_Capacity);
-
-                var nextLastObject = page->m_Capacity - 1;
-
-                for (int i = 0; i < page->m_Capacity; ++i)
+                for (int i = 0; i < page->Capacity; ++i)
                 {
                     // mark objects as free in reverse order, so that they are allocated from start
                     page->m_FreeQueue[i] = nextLastObject--;
@@ -126,24 +64,24 @@ namespace Unity.DataFlowGraph
 
             public static void DestroyPage(Page* page)
             {
-                if (page != null && page->m_StrongHandle != 0 && page->m_FreeStore != null)
+                if (page != null && page->StrongHandle != 0 && page->m_FreeStore != null)
                 {
                     // TODO: May not be needed.
-                    UnsafeUtility.MemClear(page->m_FreeStore, page->m_Capacity * page->m_ObjectSizeAligned);
-                    UnsafeUtility.ReleaseGCObject(page->m_StrongHandle);
+                    UnsafeUtility.MemClear(page->m_FreeStore, page->Capacity * page->ObjectSize);
+                    UnsafeUtility.ReleaseGCObject(page->StrongHandle);
                     UnsafeUtility.Free(page->m_FreeQueue, Allocator.Persistent);
                 }
             }
 
             public void* Alloc()
             {
-                if (m_FreeObjects == 0)
+                if (FreeObjects == 0)
                     return null;
 
-                var newObjectPosition = m_FreeQueue[m_FreeObjects - 1];
-                m_FreeObjects--;
+                var newObjectPosition = m_FreeQueue[FreeObjects - 1];
+                FreeObjects--;
                 // (memory is always cleared on release, to avoid retaining references)
-                return m_FreeStore + newObjectPosition * m_ObjectSizeAligned;
+                return m_FreeStore + newObjectPosition * ObjectSize;
             }
 
             public bool Free(void* pointer)
@@ -152,9 +90,9 @@ namespace Unity.DataFlowGraph
                 if (position == -1)
                     return false;
 
-                m_FreeQueue[m_FreeObjects] = position;
-                m_FreeObjects++;
-                UnsafeUtility.MemClear(pointer, m_ObjectSizeAligned);
+                m_FreeQueue[FreeObjects] = position;
+                FreeObjects++;
+                UnsafeUtility.MemClear(pointer, ObjectSize);
 
                 // TODO: Can check if position exists in free queue, and throw exception for double free'ing
                 return true;
@@ -168,9 +106,9 @@ namespace Unity.DataFlowGraph
             int LookupPosition(void* pointer)
             {
                 var delta = (byte*)pointer - m_FreeStore;
-                var position = delta / m_ObjectSizeAligned;
+                var position = delta / ObjectSize;
 
-                if (position < 0 || position > m_Capacity)
+                if (position < 0 || position > Capacity)
                     return -1;
 
                 return (int)position;
@@ -178,7 +116,7 @@ namespace Unity.DataFlowGraph
 
             internal int ObjectsInUse()
             {
-                return m_Capacity - m_FreeObjects;
+                return Capacity - FreeObjects;
             }
         }
 
@@ -192,7 +130,6 @@ namespace Unity.DataFlowGraph
         {
             public PageNode Head;
             public int ObjectSize;
-            public int ObjectAlign;
             public int PoolSize;
         }
 
@@ -201,42 +138,37 @@ namespace Unity.DataFlowGraph
         internal PageNode* GetHeadPage() => &m_Impl->Head;
 
         Impl* m_Impl;
+        IManagedMemoryPoolAllocator m_ClientAllocator;
 
         /// <summary>
         /// Creates and initializes the managed memory allocator.
         /// </summary>
-        /// <param name="objectSize">
-        /// This is the size, in bytes, of the object to be allocated.
-        /// This is constant for an allocator.
-        /// Must be positive and non-zero.
-        /// </param>
-        /// <param name="objectAlign">
-        /// The required alignment for the object.
-        /// Must be a power of two, positive and non-zero.
+        /// <param name="clientAllocator">
+        /// Pool allocator to be used in this item allocator.
         /// </param>
         /// <param name="desiredPoolSize">
         /// A desired size of a paged pool. Higher numbers may be more optimized
         /// for many and frequent allocations/deallocations, while lower numbers 
         /// may relieve GC pressure.
         /// </param>
-        public ManagedMemoryAllocator(int objectSize, int objectAlign, int desiredPoolSize = 16)
+        public ManagedMemoryAllocator(IManagedMemoryPoolAllocator clientAllocator, int desiredPoolSize = 16)
         {
+            if (clientAllocator == null)
+                throw new ArgumentNullException(nameof(clientAllocator));
+
             if (desiredPoolSize < 1)
                 throw new ArgumentException("Pool size must be at least one", nameof(desiredPoolSize));
 
-            if (objectAlign < 1)
-                throw new ArgumentException("Alignment must be at least one", nameof(objectAlign));
+            var objectSize = clientAllocator.ObjectSize;
 
             if (objectSize < 1)
-                throw new ArgumentException("Sizeof object must be at least one", nameof(objectSize));
-
-            if (!Mathf.IsPowerOfTwo(objectAlign))
-                throw new ArgumentException("Alignment must be a power of two", nameof(objectAlign));
+                throw new ArgumentException("Sizeof object must be at least one", nameof(IManagedMemoryPoolAllocator.ObjectSize));
 
             m_Impl = (Impl*)UnsafeUtility.Malloc(sizeof(Impl), UnsafeUtility.AlignOf<Impl>(), Allocator.Persistent);
             m_Impl->ObjectSize = objectSize;
-            m_Impl->ObjectAlign = objectAlign;
             m_Impl->PoolSize = desiredPoolSize;
+            m_ClientAllocator = clientAllocator;
+
             InitializeNode(GetHeadPage());
         }
 
@@ -345,7 +277,7 @@ namespace Unity.DataFlowGraph
 
         void InitializeNode(PageNode* node)
         {
-            Page.InitializePage(&node->MemoryPage, m_Impl->ObjectSize, m_Impl->ObjectAlign, m_Impl->PoolSize);
+            Page.InitializePage(&node->MemoryPage, m_ClientAllocator, m_Impl->ObjectSize, m_Impl->PoolSize);
             node->Next = null;
         }
 

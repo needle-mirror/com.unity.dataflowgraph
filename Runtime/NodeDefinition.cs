@@ -388,6 +388,7 @@ namespace Unity.DataFlowGraph
 
             staticTopLevelField.SetValue(null, topLevelFieldValue);
 
+            
         }
     }
 

@@ -99,7 +99,7 @@ namespace Unity.DataFlowGraph
                 get
                 {
                     if (m_Conns.Length > (uint) handle.Index)
-                        return ref Unsafe.AsRef<Connection>(m_Conns.Ptr + m_SizeOf * handle.Index);
+                        return ref Unsafe.AsRef<Connection>((byte*)m_Conns.Ptr + m_SizeOf * handle.Index);
 
                     throw new IndexOutOfRangeException("ConnectionHandle was out of range");
                 }
@@ -119,63 +119,21 @@ namespace Unity.DataFlowGraph
                 return ret;
             }
 
-            unsafe struct UnsafeConnectionList : IDisposable
-            {
-                public bool IsCreated => Ptr != null;
-
-                [NativeDisableUnsafePtrRestriction]
-                public byte* Ptr;
-                public int Length;
-                public int Capacity;
-                public Allocator Allocator;
-
-                public void Dispose()
-                {
-                    var list = ToUnsafeList();
-                    list.Dispose();
-                    this = list;
-                }
-
-                public void Add(in Connection v)
-                {
-                    var list = ToUnsafeList();
-                    list.Add(v);
-                    this = list;
-                }
-
-                UnsafeList ToUnsafeList()
-                {
-                    return new UnsafeList {Ptr = Ptr, Length = Length, Capacity = Capacity, Allocator = Allocator};
-                }
-
-                public static implicit operator UnsafeConnectionList(UnsafeList target)
-                {
-                    return new UnsafeConnectionList
-                    {
-                        Ptr = (byte*) target.Ptr,
-                        Length = target.Length,
-                        Capacity = target.Capacity,
-                        Allocator = target.Allocator
-                    };
-                }
-            }
-
             unsafe ref Connection IndexConnectionInternal(int index)
             {
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
                 if (m_Conns.Ptr == null)
                     throw new NullReferenceException();
 #endif
-                return ref Unsafe.AsRef<Connection>(m_Conns.Ptr + m_SizeOf * index);
+                return ref Unsafe.AsRef<Connection>((byte*)m_Conns.Ptr + m_SizeOf * index);
             }
 
-            UnsafeConnectionList m_Conns;
+            UnsafeList m_Conns;
 
             int m_SizeOf;
 
             // TODO: Use FreeList once it supports constructed generics.
             BlitList<int> m_FreeConnections;
-
 
             public Database(int capacity, Allocator allocator)
             {
@@ -186,7 +144,6 @@ namespace Unity.DataFlowGraph
                 m_FreeConnections = new BlitList<int>(0, allocator);
                 m_FreeConnections.Reserve(capacity);
             }
-
 
             public void Dispose()
             {

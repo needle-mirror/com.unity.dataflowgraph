@@ -557,14 +557,14 @@ namespace Unity.DataFlowGraph
         /// </exception>
         public NodeHandle<ComponentNode> CreateComponentNode(Entity entity)
         {
-            var em = HostSystem.World.EntityManager;
+            var world = HostSystem.World;
 
-            if (!em.Exists(entity))
+            if (!world.EntityManager.Exists(entity))
                 throw new ArgumentException("Entity doesn't exist");
 
             unsafe
             {
-                var attachments = em.AddBuffer<NodeSetAttachment>(entity);
+                var attachments = world.EntityManager.AddBuffer<NodeSetAttachment>(entity);
 
                 for (int i = 0; i < attachments.Length; ++i)
                 {
@@ -585,7 +585,7 @@ namespace Unity.DataFlowGraph
 
                 ref var kernelData = ref GetSimulationSide_KernelData(node);
                 kernelData.Entity = entity;
-                kernelData.EntityStore = em.EntityComponentStore;
+                kernelData.EntityStore = world.EntityManager.EntityComponentStore;
                 
                 return new NodeHandle<ComponentNode>(node.VHandle);
             }

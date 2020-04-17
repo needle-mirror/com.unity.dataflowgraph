@@ -11,15 +11,17 @@ using UnityEngine.TestTools;
 
 namespace Unity.DataFlowGraph.Tests
 {
+
+    using ConformingAllocator = DefaultManagedAllocator<ManagedMemoryAllocatorTests.ManagedStruct>;
+
     public unsafe class ManagedMemoryAllocatorTests
     {
         const int k_DefaultObjectSize = 4;
-        const int k_DefaultObjectAlign = 4;
         const int k_DefaultObjectPool = 4;
 
         public enum Parameter
         {
-            Size, Align, Pool
+            Size, Pool
         }
 
         public static IEnumerator AssertManagedObjectsReleasedInTime()
@@ -55,31 +57,83 @@ namespace Unity.DataFlowGraph.Tests
             Assert.Throws<ObjectDisposedException>(() => allocator.Dispose());
         }
 
+        public class ZeroSizedManagedMemoryAllocator : IManagedMemoryPoolAllocator
+        {
+            public int ObjectSize => 0;
+
+            public void* AllocatePrepinnedGCArray(int count, out ulong gcHandle) => throw new NotImplementedException();
+        }
+
+        public class NegativeSizedManagedMemoryAllocator : IManagedMemoryPoolAllocator
+        {
+            public int ObjectSize => -1;
+            public void* AllocatePrepinnedGCArray(int count, out ulong gcHandle) => throw new NotImplementedException();
+        }
+
         [Test]
         public void CreationArguments_AreValidated_AndThrowExceptions()
         {
             // argument constraints are documented in the class documentation,
             // but every argument must be above 0.
 
-            Assert.Throws<ArgumentException>(() => new ManagedMemoryAllocator(0, 1));
-            Assert.Throws<ArgumentException>(() => new ManagedMemoryAllocator(1, 0));
-            Assert.Throws<ArgumentException>(() => new ManagedMemoryAllocator(-1, 1));
-            Assert.Throws<ArgumentException>(() => new ManagedMemoryAllocator(1, -1));
-            Assert.Throws<ArgumentException>(() => new ManagedMemoryAllocator(1, 1, 0));
-            Assert.Throws<ArgumentException>(() => new ManagedMemoryAllocator(1, 1, -1));
-        }
+            Assert.Throws<ArgumentNullException>(() => new ManagedMemoryAllocator(null, 1));
+            Assert.Throws<ArgumentException>(() => new ManagedMemoryAllocator(new ZeroSizedManagedMemoryAllocator(), 1));
+            Assert.Throws<ArgumentException>(() => new ManagedMemoryAllocator(new NegativeSizedManagedMemoryAllocator(), 1));
 
-        [TestCase(3), TestCase(5), TestCase(7), TestCase(9), TestCase(13), TestCase(31)]
-        public void NonPowerOfTwoAlignment_ThrowsException(int align)
-        {
-            Assert.Throws<ArgumentException>(() => new ManagedMemoryAllocator(4, align, 4));
+            Assert.Throws<ArgumentException>(() => new ManagedMemoryAllocator(new ConformingAllocator(), 0));
+            Assert.Throws<ArgumentException>(() => new ManagedMemoryAllocator(new ConformingAllocator(), -1));
         }
 
         [Test]
         public void CreatingAndDisposingAllocator_Works()
         {
-            using (var allocator = new ManagedMemoryAllocator(k_DefaultObjectSize, k_DefaultObjectAlign, k_DefaultObjectPool))
+            using (var allocator = new ManagedMemoryAllocator(new ConformingAllocator(), k_DefaultObjectPool))
                 Assert.IsTrue(allocator.IsCreated);
+        }
+
+        unsafe class NSizedItemAllocator : IManagedMemoryPoolAllocator
+        {
+            public const int k_MaxSize = 10;
+            
+            struct Size1 { fixed byte _[1]; }
+            struct Size2 { fixed byte _[2]; }
+            struct Size3 { fixed byte _[3]; }
+            struct Size4 { fixed byte _[4]; }
+            struct Size5 { fixed byte _[5]; }
+            struct Size6 { fixed byte _[6]; }
+            struct Size7 { fixed byte _[7]; }
+            struct Size8 { fixed byte _[8]; }
+            struct Size9 { fixed byte _[9]; }
+            struct Size10 { fixed byte _[10]; }
+
+            public int ObjectSize { get; private set; }
+
+            public NSizedItemAllocator(int size)
+            {
+                ObjectSize = size;
+            }
+
+            public void* AllocatePrepinnedGCArray(int count, out ulong gcHandle)
+            {
+                Array array = null;
+
+                switch(ObjectSize)
+                {
+                    case 1: array = new Size1[count]; break;
+                    case 2: array = new Size2[count]; break;
+                    case 3: array = new Size3[count]; break;
+                    case 4: array = new Size4[count]; break;
+                    case 5: array = new Size5[count]; break;
+                    case 6: array = new Size6[count]; break;
+                    case 7: array = new Size7[count]; break;
+                    case 8: array = new Size8[count]; break;
+                    case 9: array = new Size9[count]; break;
+                    case 10: array = new Size10[count]; break;
+
+                }
+
+                return UnsafeUtility.PinGCArrayAndGetDataAddress(array, out gcHandle);
+            }
         }
 
         [Test]
@@ -87,7 +141,7 @@ namespace Unity.DataFlowGraph.Tests
         {
             const int k_Allocations = 16;
 
-            var sizes = Enumerable.Range(1, 17).ToArray();
+            var sizes = Enumerable.Range(1, NSizedItemAllocator.k_MaxSize).ToArray();
             var aligns = new[] { 2, 4, 8, 16 };
 
             var pointers = stackalloc byte*[k_Allocations];
@@ -98,20 +152,18 @@ namespace Unity.DataFlowGraph.Tests
                 for (int a = 0; a < aligns.Length; ++a)
                 {
                     var size = sizes[s];
-                    var align = aligns[a];
 
-                    using (var allocator = new ManagedMemoryAllocator(size, align))
+                    using (var allocator = new ManagedMemoryAllocator(new NSizedItemAllocator(size)))
                     {
                         ManagedMemoryAllocator.PageNode* head = allocator.GetHeadPage();
 
                         Assert.IsTrue(head != null);
                         ref var page = ref head->MemoryPage;
 
-                        Assert.NotZero(page.m_StrongHandle);
-                        Assert.NotZero(page.m_Capacity);
-                        Assert.AreEqual(page.m_Capacity, page.m_FreeObjects);
-                        Assert.Zero(page.m_ObjectSizeAligned % align, $"Aligned object size ({page.m_ObjectSizeAligned}) check failed for size {size} and align {align}");
-                        Assert.GreaterOrEqual(page.m_ObjectSizeAligned, size);
+                        Assert.NotZero(page.StrongHandle);
+                        Assert.NotZero(page.Capacity);
+                        Assert.AreEqual(page.Capacity, page.FreeObjects);
+                        Assert.GreaterOrEqual(page.ObjectSize, size);
 
                         for (int i = 0; i < k_Allocations; ++i)
                         {
@@ -138,8 +190,6 @@ namespace Unity.DataFlowGraph.Tests
                             Assert.IsTrue(foundAllocation, "Could not find the allocation in any memory pages");
 
                             long intPtr = (long)pointers[i];
-
-                            Assert.Zero(intPtr % align, "Actual pointer is not aligned");
                         }
 
                         for (int i = 0; i < k_Allocations; ++i)
@@ -164,8 +214,7 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [
-            TestCase(Parameter.Size, 1), TestCase(Parameter.Size, 2), TestCase(Parameter.Size, 5), TestCase(Parameter.Size, 7), TestCase(Parameter.Size, 14),
-            TestCase(Parameter.Align, 1), TestCase(Parameter.Align, 2), TestCase(Parameter.Align, 4), TestCase(Parameter.Align, 8), TestCase(Parameter.Align, 16),
+            TestCase(Parameter.Size, 1), TestCase(Parameter.Size, 2), TestCase(Parameter.Size, 5), TestCase(Parameter.Size, 7), TestCase(Parameter.Size, 9),
             TestCase(Parameter.Pool, 1), TestCase(Parameter.Pool, 2), TestCase(Parameter.Pool, 4), TestCase(Parameter.Pool, 8), TestCase(Parameter.Pool, 16)
         ]
         public void CreatingAllocator_ForVaryingParameters_CanAllocateWriteAndFree(Parameter area, int param)
@@ -173,12 +222,11 @@ namespace Unity.DataFlowGraph.Tests
             const int k_Allocations = 16;
 
             var size = area == Parameter.Size ? param : k_DefaultObjectSize;
-            var align = area == Parameter.Align ? param : k_DefaultObjectAlign;
             var pool = area == Parameter.Pool ? param : k_DefaultObjectPool;
 
             var pointers = stackalloc byte*[k_Allocations];
 
-            using (var allocator = new ManagedMemoryAllocator(size, align, pool))
+            using (var allocator = new ManagedMemoryAllocator(new NSizedItemAllocator(size), pool))
             {
                 for (int i = 0; i < k_Allocations; ++i)
                 {
@@ -203,7 +251,7 @@ namespace Unity.DataFlowGraph.Tests
         [TestCase(1), TestCase(5), TestCase(33)]
         public void CanAliasManagedMemory_AsStruct_AndStoreRetrieveValues(int value)
         {
-            using (var allocator = new ManagedMemoryAllocator(sizeof(SimpleStruct), UnsafeUtility.AlignOf<SimpleStruct>()))
+            using (var allocator = new ManagedMemoryAllocator(new DefaultManagedAllocator<SimpleStruct>()))
             {
                 void* mem = allocator.Alloc();
 
@@ -223,7 +271,7 @@ namespace Unity.DataFlowGraph.Tests
         [Test]
         public void MemoryLeaksReport_IsWritten_AfterDisposing()
         {
-            using (var allocator = new ManagedMemoryAllocator(sizeof(SimpleStruct), UnsafeUtility.AlignOf<SimpleStruct>()))
+            using (var allocator = new ManagedMemoryAllocator(new DefaultManagedAllocator<SimpleStruct>()))
             {
                 void* mem = allocator.Alloc();
 
@@ -261,7 +309,7 @@ namespace Unity.DataFlowGraph.Tests
 
             public ManagedStructAllocator(int dummy)
             {
-                m_Allocator = new ManagedMemoryAllocator(UnsafeUtility.SizeOf<ManagedStruct>(), UnsafeUtility.AlignOf<ManagedStruct>());
+                m_Allocator = new ManagedMemoryAllocator(new DefaultManagedAllocator<ManagedStruct>());
                 m_Allocation = m_Allocator.Alloc();
             }
 

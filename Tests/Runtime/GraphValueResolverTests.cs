@@ -371,7 +371,8 @@ namespace Unity.DataFlowGraph.Tests
 
         public enum GraphValueResolverCreation
         {
-            ImmediateAcquireAndReadOnMainThread,
+            // Indeterministic: See issue #477
+            // ImmediateAcquireAndReadOnMainThread,
             OneFrameStale,
             NonInitialized
         }
@@ -391,22 +392,22 @@ namespace Unity.DataFlowGraph.Tests
 
                 switch (creationMode)
                 {
-                    case GraphValueResolverCreation.ImmediateAcquireAndReadOnMainThread:
+                    /* Indeterministic: See issue #477
+                     * 
+                     * case GraphValueResolverCreation.ImmediateAcquireAndReadOnMainThread:
                     {
                         var resolver = set.GetGraphValueResolver(out var valueResolverDependency);
 
                         Assert.Throws<InvalidOperationException>(
                             () =>
                             {
-                            /**
-                                * The previously scheduled job AtomicSafetyManager:ProtectOutputBuffersFromDataFlowGraph writes to the NativeArray ProtectOutputBuffersFromDataFlowGraph.WritableDataFlowGraphScope. 
-                                * You must call JobHandle.Complete() on the job AtomicSafetyManager:ProtectOutputBuffersFromDataFlowGraph, before you can read from the NativeArray safely.
-                                * */
+                                // The previously scheduled job AtomicSafetyManager:ProtectOutputBuffersFromDataFlowGraph writes to the NativeArray ProtectOutputBuffersFromDataFlowGraph.WritableDataFlowGraphScope. 
+                                // You must call JobHandle.Complete() on the job AtomicSafetyManager:ProtectOutputBuffersFromDataFlowGraph, before you can read from the NativeArray safely.
                                 var portContents = resolver.Resolve(rootValue);
                             }
                         );
                         break;
-                    }
+                    }*/
 
                     case GraphValueResolverCreation.OneFrameStale:
                     {

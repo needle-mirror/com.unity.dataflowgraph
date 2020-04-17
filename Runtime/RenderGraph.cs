@@ -186,7 +186,7 @@ namespace Unity.DataFlowGraph
             m_BufferScope = AtomicSafetyManager.BufferProtectionScope.Create();
         }
 
-        public void CopyWorlds(GraphDiff ownedGraphDiff, JobHandle ecsExternalDependencies, NodeSet.RenderExecutionModel executionModel, VersionedList<DataOutputValue> values, VersionedList<InputBatch> batches)
+        public void CopyWorlds(GraphDiff ownedGraphDiff, JobHandle ecsExternalDependencies, NodeSet.RenderExecutionModel executionModel, VersionedList<DataOutputValue> values)
         {
             var topologyContext = new Topology.ComputationContext<FlatTopologyMap>();
             var activeNodes = new NativeArray<ValidatedHandle>();
@@ -244,11 +244,6 @@ namespace Unity.DataFlowGraph
                     )
                 );
 
-                m_ExternalDependencies = AssignExternalInputDataToPorts(
-                    JobHandle.CombineDependencies(CalculateExternalInputDependencies(batches), m_ExternalDependencies),
-                    batches
-                );
-
                 asyncMemoryCopy = ResolveDataOutputsToGraphValues(parallelResizeBuffers, values);
                 
                 m_ExternalDependencies = Utility.CombineDependencies(
@@ -270,7 +265,6 @@ namespace Unity.DataFlowGraph
                 Markers.PostScheduleTasksProfilerMarker.Begin();
                 scheduleDeps = InjectValueDependencies(scheduleDeps, values);
 
-                ComputeOutputDependenciesForInputBatches(scheduleDeps, batches);
                 UpdateTopologyVersion(m_Set.TopologyVersion);
                 Markers.PostScheduleTasksProfilerMarker.End();
             }
@@ -399,85 +393,6 @@ namespace Unity.DataFlowGraph
             }
         }
 
-        unsafe JobHandle AssignExternalInputDataToPorts(JobHandle deps, VersionedList<InputBatch> batches)
-        {
-            if (batches.UncheckedCount == 0)
-                return deps;
-
-            AssignInputBatchJob add;
-            add.Nodes = m_Nodes;
-            add.Shared = m_SharedData;
-            add.Marker = Markers.AssignInputBatch;
-
-            for (int i = 0; i < batches.UncheckedCount; ++i)
-            {
-                ref var batch = ref batches[i];
-
-                if (!batch.Valid)
-                    continue;
-
-                if (batch.RenderVersion != RenderVersion)
-                    continue;
-
-                add.Transients = batch.GetDeferredTransientBuffer();
-
-                // Safe; memory is natively managed.
-                fixed (InputBatch.InstalledPorts* installMemory = &batch.GetInstallMemory())
-                    add.BatchInstall = installMemory;
-
-                deps = add.Schedule(deps);
-            }
-
-            return deps;
-        }
-
-        unsafe JobHandle CalculateExternalInputDependencies(VersionedList<InputBatch> batches)
-        {
-            using (var batchDeps = new NativeList<JobHandle>(batches.UncheckedCount, Allocator.Temp))
-            {
-                for (int i = 0; i < batches.UncheckedCount; ++i)
-                {
-                    ref var batch = ref batches[i];
-
-                    if (!batch.Valid || batch.RenderVersion != RenderVersion)
-                        continue;
-
-                    batchDeps.Add(batch.InputDependency);
-                }
-
-                return JobHandle.CombineDependencies(batchDeps);
-            }
-        }
-
-        unsafe void ComputeOutputDependenciesForInputBatches(JobHandle scheduleDeps, VersionedList<InputBatch> batches)
-        {
-            scheduleDeps.Complete();
-
-            RemoveInputBatchJob remove;
-            remove.Shared = m_SharedData;
-            remove.Nodes = m_Nodes;
-            remove.Marker = Markers.RemoveInputBatch;
-
-            for (var i = 0; i < batches.UncheckedCount; i++)
-            {
-                ref var batch = ref batches[i];
-
-                // At this point, render version has ticked forward (world scheduling already happened)
-                if (!batch.Valid || batch.RenderVersion != RenderVersion - 1)
-                    continue;
-
-                // When the batch is deferred (ongoingly computed),
-                // we cannot derive precise dependencies
-                // as targets for batch is not yet known.
-                // So batch inherits dependency on entire graph.
-                // TODO: Include node targets up front in a batch,
-                // before deferred assignment.
-                remove.Transients = batch.GetDeferredTransientBuffer();
-                batch.OutputDependency = remove.Schedule(RootFence);
-                m_BackScheduledJobs.Add(batch.OutputDependency);
-            }
-        }
-
         JobHandle ResolveDataOutputsToGraphValues(JobHandle inputDependencies, VersionedList<DataOutputValue> values)
         {
             return new ResolveDataOutputsToGraphValuesJob { Nodes = m_Nodes, Values = values }.Schedule(values.UncheckedCount, 2, inputDependencies);
@@ -505,11 +420,11 @@ namespace Unity.DataFlowGraph
 
         unsafe JobHandle ComputeValueChunkAndPatchPorts(JobHandle deps)
         {
-            var entityManager = m_Set.HostSystem?.World?.EntityManager;
+            var world = m_Set.HostSystem?.World;
 
             // No need to schedule ComponentNode related jobs if there are no nodes in existence since they would be a
             // no-op. This is also a workaround to a problem with entity queries during ECS shutdown.
-            bool performComponentNodeJobs = m_ExistingNodes > 0 && entityManager != null;
+            bool performComponentNodeJobs = m_ExistingNodes > 0 && world != null;
 
             if (m_Set.TopologyVersion != m_PreviousVersion)
             {
@@ -517,7 +432,7 @@ namespace Unity.DataFlowGraph
                 if(performComponentNodeJobs)
                 {
                     ClearLocalECSInputsAndOutputsJob clearJob;
-                    clearJob.EntityStore = entityManager.EntityComponentStore;
+                    clearJob.EntityStore = world.EntityManager.EntityComponentStore;
                     clearJob.KernelNodes = m_Nodes;
                     clearJob.NodeSetID = m_Set.NodeSetID;
 
@@ -536,7 +451,7 @@ namespace Unity.DataFlowGraph
             {
                 RepatchDFGInputsIfNeededJob ecsPatchJob;
 
-                ecsPatchJob.EntityStore = entityManager.EntityComponentStore;
+                ecsPatchJob.EntityStore = world.EntityManager.EntityComponentStore;
                 ecsPatchJob.KernelNodes = m_Nodes;
                 ecsPatchJob.NodeSetID = m_Set.NodeSetID;
                 ecsPatchJob.Shared = m_SharedData;
