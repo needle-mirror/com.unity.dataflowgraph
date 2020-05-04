@@ -21,6 +21,9 @@ namespace Unity.DataFlowGraph
 
         public InputPair(NodeSet set, NodeHandle destHandle, InputPortArrayID destinationPort)
         {
+            if (destinationPort.PortID == default)
+                throw new ArgumentException("Invalid input port");
+
             Handle = set.Validate(destHandle);
             var table = set.GetForwardingTable();
 
@@ -72,6 +75,9 @@ namespace Unity.DataFlowGraph
 
         public OutputPair(NodeSet set, NodeHandle sourceHandle, OutputPortID sourcePort)
         {
+            if (sourcePort == default)
+                throw new ArgumentException("Invalid output port");
+
             Handle = set.Validate(sourceHandle);
             var table = set.GetForwardingTable();
 

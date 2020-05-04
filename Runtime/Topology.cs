@@ -210,7 +210,7 @@ namespace Unity.DataFlowGraph
             {
                 // Disconnect the backwards dependency.
                 ref readonly var backConnection =
-                    ref m_Database.FindConnection(ref m_Topology, dest.Handle, OutputPortID.Invalid, source.Handle, InputPortArrayID.Invalid);
+                    ref m_Database.FindConnection(ref m_Topology, dest.Handle, default, source.Handle, default);
 
                 m_Database.DisconnectAndRelease(ref m_Topology, backConnection);
             }
@@ -273,8 +273,8 @@ namespace Unity.DataFlowGraph
                 // Create the backwards dependency so that traversal order is correct.
                 m_Database.Connect(
                     ref m_Topology, semantics.Category << (int)PortDescription.CategoryShift.BackConnection,
-                    dest.Handle, OutputPortID.Invalid, 
-                    source.Handle, InputPortArrayID.Invalid);
+                    dest.Handle, default, 
+                    source.Handle, default);
             }
 
             // everything good

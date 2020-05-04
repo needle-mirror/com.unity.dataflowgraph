@@ -23,18 +23,18 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void CannotCreateComponentNode_FromNonExistingEntity()
+        public void CannotCreateComponentNode_FromNonExistingEntity([Values] FixtureSystemType systemType)
         {
-            using (var f = new Fixture<UpdateSystem>())
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
                 Assert.Throws<ArgumentException>(() => f.Set.CreateComponentNode(default));
             }
         }
 
         [Test]
-        public void CanCreateAndDestroy_ComponentNode()
+        public void CanCreateAndDestroy_ComponentNode([Values] FixtureSystemType systemType)
         {
-            using (var f = new Fixture<UpdateSystem>())
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
                 var entity = f.EM.CreateEntity();
                 var node = f.Set.CreateComponentNode(entity);
@@ -46,9 +46,9 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void WeaklyTypedComponentNodeHandle_CorrectlyImplements_Is()
+        public void WeaklyTypedComponentNodeHandle_CorrectlyImplements_Is([Values] FixtureSystemType systemType)
         {
-            using (var f = new Fixture<UpdateSystem>())
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
                 var entity = f.EM.CreateEntity();
                 var node = f.Set.CreateComponentNode(entity);
@@ -60,9 +60,9 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void CanGetDefinition_ForComponentNode()
+        public void CanGetDefinition_ForComponentNode([Values] FixtureSystemType systemType)
         {
-            using (var f = new Fixture<UpdateSystem>())
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
                 var entity = f.EM.CreateEntity();
                 var node = f.Set.CreateComponentNode(entity);
@@ -79,9 +79,9 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        unsafe public void CreatedComponentNode_HasValidMembers_InKernelData()
+        unsafe public void CreatedComponentNode_HasValidMembers_InKernelData([Values] FixtureSystemType systemType)
         {
-            using (var f = new Fixture<UpdateSystem>())
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
                 var entity = f.EM.CreateEntity();
                 var node = f.Set.CreateComponentNode(entity);
@@ -95,9 +95,9 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        unsafe public void CreatedComponentNode_HasValidIOBuffers_InRenderGraph()
+        unsafe public void CreatedComponentNode_HasValidIOBuffers_InRenderGraph([Values] FixtureSystemType systemType)
         {
-            using (var f = new Fixture<UpdateSystem>())
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
                 var entity = f.EM.CreateEntity();
                 var node = f.Set.CreateComponentNode(entity);
@@ -134,9 +134,9 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void ComponentNode_DoesNotHaveAnyEntries_InPortDescription()
+        public void ComponentNode_DoesNotHaveAnyEntries_InPortDescription([Values] FixtureSystemType systemType)
         {
-            using (var f = new Fixture<UpdateSystem>())
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
                 var entity = f.EM.CreateEntity();
                 var node = f.Set.CreateComponentNode(entity);
@@ -154,9 +154,9 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test] // TODO: Move to LL tests?
-        public void ComponentNode_IsMarkedAsComponentNode_InLowLevelTraits()
+        public void ComponentNode_IsMarkedAsComponentNode_InLowLevelTraits([Values] FixtureSystemType systemType)
         {
-            using (var f = new Fixture<UpdateSystem>())
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
                 var entity = f.EM.CreateEntity();
                 var node = f.Set.CreateComponentNode(entity);
@@ -179,9 +179,9 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void CannotCreate_MoreThanOne_ComponentNode_FromSameEntity()
+        public void CannotCreate_MoreThanOne_ComponentNode_FromSameEntity([Values] FixtureSystemType systemType)
         {
-            using (var f = new Fixture<UpdateSystem>())
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
                 var entity = f.EM.CreateEntity();
                 var node = f.Set.CreateComponentNode(entity);
@@ -205,13 +205,13 @@ namespace Unity.DataFlowGraph.Tests
 
 
         [Test]
-        public void CanCreateMultipleComponentNodes_EachFromDifferentEntity()
+        public void CanCreateMultipleComponentNodes_EachFromDifferentEntity([Values] FixtureSystemType systemType)
         {
             const int k_Count = 100;
 
             var garbage = new List<NodeHandle>();
 
-            using (var f = new Fixture<UpdateSystem>())
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
                 for(int i = 0; i < k_Count; ++i)
                 {
@@ -228,14 +228,14 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void CanCreateMultipleComponentNodes_FromSameEntity_InDifferentSets()
+        public void CanCreateMultipleComponentNodes_FromSameEntity_InDifferentSets([Values] FixtureSystemType systemType)
         {
             const int k_Count = 10;
 
             var garbage = new List<NodeHandle>();
             var sets = new List<NodeSet>();
 
-            using (var f = new Fixture<UpdateSystem>())
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
                 var entity = f.EM.CreateEntity();
 
@@ -260,9 +260,9 @@ namespace Unity.DataFlowGraph.Tests
 
 
         [Test]
-        public void CreatingComponentNode_AddsAndRemoves_Expected_NodeSetAttachment()
+        public void CreatingComponentNode_AddsAndRemoves_Expected_NodeSetAttachment([Values] FixtureSystemType systemType)
         {
-            using (var f = new Fixture<UpdateSystem>())
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
                 var entity = f.EM.CreateEntity();
                 var node = f.Set.CreateComponentNode(entity);
@@ -284,9 +284,9 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void CanConnect_EntityWithoutComponentData_ToNodeWithComponentData()
+        public void CanConnect_EntityWithoutComponentData_ToNodeWithComponentData([Values] FixtureSystemType systemType)
         {
-            using (var f = new Fixture<UpdateSystem>())
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
                 var entity = f.EM.CreateEntity();
                 var entityNode = f.Set.CreateComponentNode(entity);
@@ -304,9 +304,9 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void CanConnect_SourceComponentNode_AndNodeTogether([Values] ConnectionMode mode)
+        public void CanConnect_SourceComponentNode_AndNodeTogether([Values] ConnectionMode mode, [Values] FixtureSystemType systemType)
         {
-            using (var f = new Fixture<UpdateSystem>())
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
                 var entity = f.EM.CreateEntity(typeof(SimpleData));
                 var entityNode = f.Set.CreateComponentNode(entity);
@@ -360,9 +360,9 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void CanConnect_DestinationComponentNode_AndNodeTogether([Values] ConnectionMode mode)
+        public void CanConnect_DestinationComponentNode_AndNodeTogether([Values] ConnectionMode mode, [Values] FixtureSystemType systemType)
         {
-            using (var f = new Fixture<UpdateSystem>())
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
                 var entity = f.EM.CreateEntity(typeof(SimpleData));
                 var entityNode = f.Set.CreateComponentNode(entity);
@@ -415,8 +415,7 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        [DisableAutoCreation, AlwaysUpdateSystem]
-        class System_WithIntArgument : HostJobSystem
+        class IntArgumentSystemDelegate : INodeSetSystemDelegate
         {
             public int DataArgument;
 
@@ -434,18 +433,22 @@ namespace Unity.DataFlowGraph.Tests
                 }
             }
 
-            protected override JobHandle OnUpdate(JobHandle inputDeps)
+            public void OnCreate(ComponentSystemBase system) {}
+
+            public void OnDestroy(ComponentSystemBase system, NodeSet set) {}
+
+            public void OnUpdate(ComponentSystemBase system, NodeSet set, JobHandle inputDeps, out JobHandle outputDeps)
             {
-                return Set.Update(new ProcessJob { Arg = DataArgument }.Schedule(this, inputDeps));
+                outputDeps = set.Update(new ProcessJob { Arg = DataArgument }.Schedule(system, inputDeps));
             }
         }
 
         [Test]
-        public void CanRead_ComponentData_FromConnectedNode_FromGraphValue()
+        public void CanRead_ComponentData_FromConnectedNode_FromGraphValue([Values] FixtureSystemType systemType)
         {
             const int k_Loops = 100;
 
-            using (var f = new Fixture<System_WithIntArgument>())
+            using (var f = new Fixture<IntArgumentSystemDelegate>(systemType))
             {
                 var entity = f.EM.CreateEntity(typeof(SimpleData));
                 var entityNode = f.Set.CreateComponentNode(entity);
@@ -459,7 +462,7 @@ namespace Unity.DataFlowGraph.Tests
                 for (int i = 0; i < k_Loops; ++i)
                 {
                     var value = rng.NextInt();
-                    f.System.DataArgument = value;
+                    f.SystemDelegate.DataArgument = value;
                     f.System.Update();
 
                     Assert.AreEqual(value, (int)f.Set.GetValueBlocking(gv).Something);
@@ -472,11 +475,11 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void CanWrite_ComponentData_FromConnectedNode_ToEntity()
+        public void CanWrite_ComponentData_FromConnectedNode_ToEntity([Values] FixtureSystemType systemType)
         {
             const int k_Loops = 100;
 
-            using (var f = new Fixture<UpdateSystem>())
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
                 var entity = f.EM.CreateEntity(typeof(SimpleData));
                 var entityNode = f.Set.CreateComponentNode(entity);
@@ -505,9 +508,9 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public unsafe void ConnectingEntityToEntity_CreatesECSBackReference_InInputToECS()
+        public unsafe void ConnectingEntityToEntity_CreatesECSBackReference_InInputToECS([Values] FixtureSystemType systemType)
         {
-            using (var f = new Fixture<UpdateSystem>())
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
                 var sourceEntity = f.EM.CreateEntity(typeof(SimpleData));
                 var destEntity = f.EM.CreateEntity(typeof(SimpleData));
@@ -533,13 +536,13 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public unsafe void ConnectingEntityToEntity_DoesNotRecordOutputs()
+        public unsafe void ConnectingEntityToEntity_DoesNotRecordOutputs([Values] FixtureSystemType systemType)
         {
             // Outputs from ECS are used to repatch DFG references.
             // In case of entity -> entity, we only the "input"
             // which models the copy back.
 
-            using (var f = new Fixture<UpdateSystem>())
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
                 var sourceEntity = f.EM.CreateEntity(typeof(SimpleData));
                 var destEntity = f.EM.CreateEntity(typeof(SimpleData));
@@ -563,11 +566,11 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void CanConnectComponentData_FromComponentNode_ToComponentNode()
+        public void CanConnectComponentData_FromComponentNode_ToComponentNode([Values] FixtureSystemType systemType)
         {
             const int k_Loops = 100;
 
-            using (var f = new Fixture<UpdateSystem>())
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
                 var sourceEntity = f.EM.CreateEntity(typeof(SimpleData));
                 var destEntity = f.EM.CreateEntity(typeof(SimpleData));
@@ -605,9 +608,9 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void CannotConnectMessage_ToComponentNode([Values(true, false)] bool forward)
+        public void CannotConnectMessage_ToComponentNode([Values(true, false)] bool forward, [Values] FixtureSystemType systemType)
         {
-            using (var f = new Fixture<UpdateSystem>())
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
                 var e = f.EM.CreateEntity(typeof(SimpleData));
                 var n = f.Set.CreateComponentNode(e);
@@ -627,9 +630,9 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void CannotSendMessage_ToComponentNode()
+        public void CannotSendMessage_ToComponentNode([Values] FixtureSystemType systemType)
         {
-            using (var f = new Fixture<UpdateSystem>())
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
                 var e = f.EM.CreateEntity(typeof(SimpleData));
                 var n = f.Set.CreateComponentNode(e);
@@ -645,9 +648,9 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void CannotSetBufferSize_OnComponentNode([Values] ConnectionMode mode)
+        public void CannotSetBufferSize_OnComponentNode([Values] ConnectionMode mode, [Values] FixtureSystemType systemType)
         {
-            using (var f = new Fixture<UpdateSystem>())
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
                 var e = f.EM.CreateEntity(typeof(SimpleData));
                 var n = f.Set.CreateComponentNode(e);
@@ -666,9 +669,9 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void CannotSetPortArraySize_OnComponentNode()
+        public void CannotSetPortArraySize_OnComponentNode([Values] FixtureSystemType systemType)
         {
-            using (var f = new Fixture<UpdateSystem>())
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
                 var e = f.EM.CreateEntity(typeof(SimpleData));
                 var n = f.Set.CreateComponentNode(e);
@@ -684,9 +687,9 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void CannotCreateGraphValue_FromComponentNode([Values] ConnectionMode mode)
+        public void CannotCreateGraphValue_FromComponentNode([Values] ConnectionMode mode, [Values] FixtureSystemType systemType)
         {
-            using (var f = new Fixture<UpdateSystem>())
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
                 var e = f.EM.CreateEntity(typeof(SimpleData));
                 var n = f.Set.CreateComponentNode(e);
@@ -705,9 +708,9 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void CannotSetData_OnComponentNode([Values] ConnectionMode mode)
+        public void CannotSetData_OnComponentNode([Values] ConnectionMode mode, [Values] FixtureSystemType systemType)
         {
-            using (var f = new Fixture<UpdateSystem>())
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
                 var e = f.EM.CreateEntity(typeof(SimpleData));
                 var n = f.Set.CreateComponentNode(e);

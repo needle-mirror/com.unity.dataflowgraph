@@ -95,7 +95,7 @@ namespace Unity.DataFlowGraph
         public void KernelBufferResized(in ValidatedHandle target, int bufferOffset, int size, SimpleType itemType)
         {
             Commands.Add(new CommandTuple { command = Command.ResizeBuffer, ContainerIndex = ResizedDataBuffers.Count });
-            ResizedDataBuffers.Add(new BufferResizedTuple { Handle = target, Port = OutputPortID.Invalid, LocalBufferOffset = bufferOffset, NewSize = size, ItemType = itemType });
+            ResizedDataBuffers.Add(new BufferResizedTuple { Handle = target, Port = default, LocalBufferOffset = bufferOffset, NewSize = size, ItemType = itemType });
         }
 
         public void PortArrayResized(in InputPair dest, ushort size)

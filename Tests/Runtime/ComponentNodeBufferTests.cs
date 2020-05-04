@@ -40,9 +40,11 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void CanConnectBuffer_OfBufferElement_ToComponentNode_WithMatchingBuffer_ThroughWeakAPI([Values(true, false)] bool forward)
+        public void CanConnectBuffer_OfBufferElement_ToComponentNode_WithMatchingBuffer_ThroughWeakAPI(
+            [Values(true, false)] bool forward,
+            [Values] FixtureSystemType systemType)
         {
-            using (var f = new Fixture<UpdateSystem>())
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
                 var entity = f.EM.CreateEntity(typeof(SimpleBuffer));
 
@@ -78,11 +80,12 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void CannotConnectScalarBufferElement_ToComponentNodeWithMatchingBuffer_ThroughWeakAPI()
+        public void CannotConnectScalarBufferElement_ToComponentNodeWithMatchingBuffer_ThroughWeakAPI(
+            [Values] FixtureSystemType systemType)
         {
             Assert.Zero(NodeWithParametricPortType<SimpleBuffer>.IL2CPP_ClassInitializer);
 
-            using (var f = new Fixture<UpdateSystem>())
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
                 var entity = f.EM.CreateEntity(typeof(SimpleBuffer));
 
@@ -120,11 +123,12 @@ namespace Unity.DataFlowGraph.Tests
         [Test]
         public void CanRead_ECSBuffer_InsideFromDFG(
             [Values] NodeSet.RenderExecutionModel model,
-            [Values(1, 3, 13, 50)] int bufferSize)
+            [Values(1, 3, 13, 50)] int bufferSize,
+            [Values] FixtureSystemType systemType)
         {
             const int k_Loops = 10;
 
-            using (var f = new Fixture<UpdateSystem>())
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
                 f.Set.RendererModel = model;
                 var entity = f.EM.CreateEntity(typeof(SimpleBuffer));
@@ -190,14 +194,15 @@ namespace Unity.DataFlowGraph.Tests
 
         [Test]
         public void ECSInputConnection_WorksAsExpected_WhenMissingAndExisting_ThroughUpdates(
-            [Values(1, 3, 13, 17)] int numEntities)
+            [Values(1, 3, 13, 17)] int numEntities,
+            [Values] FixtureSystemType systemType)
         {
             const int k_Loops = 10;
 
             var gc = new List<NodeHandle>(numEntities);
             var gvs = new List<(Entity, GraphValue<int>)>(numEntities);
 
-            using (var f = new Fixture<UpdateSystem>())
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
                 for (int i = 0; i < numEntities; ++i)
                 {
@@ -256,11 +261,14 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void DFGBuffer_ToECSBuffer_WithMismatchedSize_OnlyBlitsSharedPortion([Values(1, 3, 13, 50)] int bufferSize, [Values(true, false)] bool sourceIsBigger)
+        public void DFGBuffer_ToECSBuffer_WithMismatchedSize_OnlyBlitsSharedPortion(
+            [Values(1, 3, 13, 50)] int bufferSize,
+            [Values(true, false)] bool sourceIsBigger,
+            [Values] FixtureSystemType systemType)
         {
             const int k_SizeDifference = 11;
 
-            using (var f = new Fixture<UpdateSystem>())
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
                 var entitySource = f.EM.CreateEntity(typeof(SimpleBuffer), typeof(SimpleData));
                 var entityDestination = f.EM.CreateEntity(typeof(SimpleBuffer));
@@ -311,11 +319,12 @@ namespace Unity.DataFlowGraph.Tests
         public void CanWrite_ToECSBuffer_InsideFromDFG_FromOriginalECS_Source(
             [Values] NodeSet.RenderExecutionModel model,
             [Values(1, 3, 13, 50)] int bufferSize,
-            [Values] ConnectionMode strongNess)
+            [Values] ConnectionMode strongNess,
+            [Values] FixtureSystemType systemType)
         {
             const int k_Loops = 10;
 
-            using (var f = new Fixture<UpdateSystem>())
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
                 f.Set.RendererModel = model;
                 var entitySource = f.EM.CreateEntity(typeof(SimpleBuffer));
@@ -389,11 +398,12 @@ namespace Unity.DataFlowGraph.Tests
         public void CanConnect_ECSBuffer_ToECSBuffer_UsingOnlyComponentNodes_AndTransferData(
             [Values] NodeSet.RenderExecutionModel model,
             [Values(1, 3, 13, 50)] int bufferSize,
-            [Values] ConnectionMode strongNess)
+            [Values] ConnectionMode strongNess,
+            [Values] FixtureSystemType systemType)
         {
             const int k_Loops = 10;
 
-            using (var f = new Fixture<UpdateSystem>())
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
                 f.Set.RendererModel = model;
                 var entitySource = f.EM.CreateEntity(typeof(SimpleBuffer));
@@ -459,12 +469,13 @@ namespace Unity.DataFlowGraph.Tests
         public void CanReadAndWrite_ToSameECSBuffer_FromInsideDFG(
             [Values] NodeSet.RenderExecutionModel model,
             [Values(1, 3, 13, 50)] int bufferSize,
-            [Values] bool feedbackAfterProcessing)
+            [Values] bool feedbackAfterProcessing,
+            [Values] FixtureSystemType systemType)
         {
             const int k_Loops = 10;
             var k_Offset = new float3(1.0f, 1.5f, 2.0f);
 
-            using (var f = new Fixture<UpdateSystem>())
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
                 f.Set.RendererModel = model;
                 var entity = f.EM.CreateEntity(typeof(SimpleBuffer), typeof(SimpleData));

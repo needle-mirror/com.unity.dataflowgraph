@@ -24,31 +24,31 @@ namespace Unity.DataFlowGraph
     readonly struct PortStorage
     {
         // TODO: Changed to TypeManager.ManagedComponentFlag once ECS 2.0 is available.
-        internal const int InternalFlag = TypeManager.SharedComponentTypeFlag;
-        const int InternalMask = ~InternalFlag;
-        
+        internal const int IsECSPortFlag = TypeManager.SharedComponentTypeFlag;
+        internal const int IsDFGPortFlag = IsECSPortFlag << 1;
+
         readonly int m_TypeOrPort;
 
         public PortStorage(ushort dfgPortIndex)
         {
-            m_TypeOrPort = dfgPortIndex | InternalFlag;
+            m_TypeOrPort = dfgPortIndex | IsDFGPortFlag;
         }
 
         public PortStorage(ComponentType ecsType)
         {
 #if DFG_ASSERTIONS
-            if((ecsType.TypeIndex & InternalFlag) != 0)
+            if((ecsType.TypeIndex & IsECSPortFlag) != 0)
                 throw new AssertionException("Port storage being created with an incompatible ECS type (flag being reused)");
 #endif
-            m_TypeOrPort = ecsType.TypeIndex;
+            m_TypeOrPort = ecsType.TypeIndex | IsECSPortFlag;
         }
 
-        // unsigned modulo 32 bits -> 8 bits chops off InternalFlag.
+        // unsigned modulo 32 bits -> 8 bits chops off IsDFGPortFlag.
         public ushort DFGPortIndex
         {
             get {
 #if DFG_ASSERTIONS
-                if(IsECSPort)
+                if(!IsDFGPort)
                     throw new AssertionException("Retrieving DFG port from a storage containing an ECS type");
 #endif
                 return (ushort)m_TypeOrPort;
@@ -62,7 +62,7 @@ namespace Unity.DataFlowGraph
                 if(!IsECSPort)
                     throw new AssertionException("Retrieving ECS type from a storage containing an DFG type");
 #endif
-                return m_TypeOrPort & InternalMask;
+                return m_TypeOrPort & (~IsECSPortFlag);
             }
         }
 
@@ -72,7 +72,8 @@ namespace Unity.DataFlowGraph
         public ComponentType ReadWriteComponentType =>
             new ComponentType { TypeIndex = ECSTypeIndex, AccessModeType = ComponentType.AccessMode.ReadWrite };
 
-        public bool IsECSPort => (m_TypeOrPort & InternalFlag) == 0;
+        public bool IsECSPort => (m_TypeOrPort & IsECSPortFlag) != 0;
+        public bool IsDFGPort => (m_TypeOrPort & IsDFGPortFlag) != 0 && !IsECSPort;
 
         public static bool operator ==(PortStorage left, PortStorage right)
         {
@@ -86,7 +87,7 @@ namespace Unity.DataFlowGraph
 
         public override string ToString()
         {
-            return IsECSPort ? $"ECS: {ReadWriteComponentType}" : $"DFG: {DFGPortIndex}";
+            return IsECSPort ? $"ECS: {ReadOnlyComponentType}" : IsDFGPort ? $"DFG: {DFGPortIndex}" : "<INVALID>";
         }
     }
 
@@ -96,8 +97,6 @@ namespace Unity.DataFlowGraph
     [DebuggerDisplay("{ToString(), nq}")]
     public readonly struct InputPortID : IPortID
     {
-        internal static readonly InputPortID Invalid = new InputPortID(new PortStorage(UInt16.MaxValue));
-
         internal ushort Port => Storage.DFGPortIndex;
         internal ComponentType ECSType => Storage.ReadOnlyComponentType;
 
@@ -120,15 +119,13 @@ namespace Unity.DataFlowGraph
 
         public override string ToString()
         {
-            return "Input " + (Storage.IsECSPort ? $"ECS: {Storage.ReadOnlyComponentType}" : $"DFG: {Storage.DFGPortIndex}");
+            return $"Input {Storage}";
         }
     }
     
     [DebuggerDisplay("{ToString(), nq}")]
     readonly struct InputPortArrayID : IEquatable<InputPortArrayID>
     {
-        internal static readonly InputPortArrayID Invalid = new InputPortArrayID(InputPortID.Invalid);
-
         public const UInt16 NonArraySentinel = UInt16.MaxValue;
         public readonly InputPortID PortID;
         readonly ushort m_ArrayIndex;
@@ -178,8 +175,6 @@ namespace Unity.DataFlowGraph
     [DebuggerDisplay("{ToString(), nq}")]
     public readonly struct OutputPortID : IPortID, IEquatable<OutputPortID>
     {
-        internal static readonly OutputPortID Invalid = new OutputPortID(new PortStorage(UInt16.MaxValue));
-
         internal ushort Port => Storage.DFGPortIndex;
         internal ComponentType ECSType => Storage.ReadWriteComponentType;
 
@@ -199,7 +194,7 @@ namespace Unity.DataFlowGraph
 
         public override string ToString()
         {
-            return "Output " + (Storage.IsECSPort ? $"ECS: {Storage.ReadOnlyComponentType}" : $"DFG: {Storage.DFGPortIndex}");
+            return $"Output {Storage}";
         }
 
         internal OutputPortID(PortStorage storage)

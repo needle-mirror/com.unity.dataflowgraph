@@ -62,8 +62,8 @@ namespace Unity.DataFlowGraph
     /// <see cref="ComponentNode"/> through <see cref="NodeSet.Destroy(NodeHandle)"/> (like any normal node), regardless of 
     /// whether the target <see cref="Entity"/> exists or not.
     /// 
-    /// This API is only available if the hosting <see cref="NodeSet"/> was created with a companion <see cref="JobComponentSystem"/>.
-    /// <seealso cref="NodeSet(JobComponentSystem)"/>.
+    /// This API is only available if the hosting <see cref="NodeSet"/> was created with a companion <see cref="ComponentSystemBase"/>.
+    /// <seealso cref="NodeSet(ComponentSystemBase)"/>.
     ///
     /// When a <see cref="DataOutput{TDefinition, Buffer{TType}}"/> is linked to a <see cref="ComponentNode"/>'s 
     /// <see cref="IBufferElementData"/>, it is the user's responsibility to ensure that sizes match between DFG and ECS.
@@ -215,7 +215,7 @@ namespace Unity.DataFlowGraph
         [StructLayout(LayoutKind.Explicit)]
         internal readonly unsafe struct InputToECS
         {
-            internal const int InternalFlag = PortStorage.InternalFlag;
+            internal const int InternalFlag = PortStorage.IsECSPortFlag;
 
             /// <summary>
             /// Create an input into an entity from a random location
@@ -540,8 +540,8 @@ namespace Unity.DataFlowGraph
         /// <see cref="ComponentNode"/>.
         /// 
         /// This API is only available if the hosting <see cref="NodeSet"/> was created with a companion 
-        /// <see cref="JobComponentSystem"/>.
-        /// <seealso cref="NodeSet(JobComponentSystem)"/>.
+        /// <see cref="ComponentSystemBase"/>.
+        /// <seealso cref="NodeSet(ComponentSystemBase)"/>.
         /// <seealso cref="Create{TDefinition}"/>
         /// </remarks>
         /// <exception cref="ArgumentException">
@@ -553,7 +553,7 @@ namespace Unity.DataFlowGraph
         /// </exception>
         /// <exception cref="NullReferenceException">
         /// Thrown if this <see cref="NodeSet"/> was not created together with ECS.
-        /// <see cref="NodeSet(JobComponentSystem)"/>.
+        /// <see cref="NodeSet(ComponentSystemBase)"/>.
         /// </exception>
         public NodeHandle<ComponentNode> CreateComponentNode(Entity entity)
         {

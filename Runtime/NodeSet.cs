@@ -315,6 +315,14 @@ namespace Unity.DataFlowGraph
             Dispose(true);
         }
 
+        /// <summary>
+        /// Query whether <see cref="Dispose"/> has been called on the <see cref="NodeSet"/>.
+        /// </summary>
+        public bool IsDisposed()
+        {
+            return m_IsDisposed;
+        }
+
         internal void Dispose(bool isDisposing)
         {
             if (m_IsDisposed)

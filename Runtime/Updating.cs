@@ -64,7 +64,7 @@ namespace Unity.DataFlowGraph
         /// <see cref="InjectDependencyFromConsumer(JobHandle)"/>.
         /// 
         /// Can also be thrown if this <see cref="NodeSet"/> was created with the ECS constructor 
-        /// <see cref="NodeSet(Entities.JobComponentSystem)"/>, in which case you need to use the 
+        /// <see cref="NodeSet(ComponentSystemBase)"/>, in which case you need to use the 
         /// <see cref="Update(JobHandle)"/> function instead.
         /// </exception>
         public void Update()

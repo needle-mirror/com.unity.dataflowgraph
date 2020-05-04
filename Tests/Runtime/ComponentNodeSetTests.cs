@@ -112,24 +112,122 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        public abstract class HostJobSystem : JobComponentSystem
+        public interface INodeSetSystemDelegate
         {
-            public NodeSet Set;
+            void OnCreate(ComponentSystemBase system);
+            void OnDestroy(ComponentSystemBase system, NodeSet set);
+            void OnUpdate(ComponentSystemBase system, NodeSet set, JobHandle inputDeps, out JobHandle outputDeps);
         }
 
-        public class Fixture<TSystem> : IDisposable
-            where TSystem : HostJobSystem
+        [AlwaysUpdateSystem]
+        public class HostSystemBase<TNodeSetSystemDelegate> : SystemBase
+            where TNodeSetSystemDelegate : INodeSetSystemDelegate, new()
+        {
+            public NodeSet Set;
+            public TNodeSetSystemDelegate SystemDelegate = new TNodeSetSystemDelegate();
+
+            protected override void OnCreate()
+            {
+                SystemDelegate.OnCreate(this);
+            }
+
+            protected override void OnDestroy()
+            {
+                SystemDelegate.OnDestroy(this, Set);
+            }
+
+            protected override void OnUpdate()
+            {
+                SystemDelegate.OnUpdate(this, Set, Dependency, out var outputDeps);
+                Dependency = outputDeps;
+            }
+        }
+
+        [AlwaysUpdateSystem]
+        public class HostJobComponentSystem<TNodeSetSystemDelegate> : JobComponentSystem
+            where TNodeSetSystemDelegate : INodeSetSystemDelegate, new()
+        {
+            public NodeSet Set;
+            public TNodeSetSystemDelegate SystemDelegate = new TNodeSetSystemDelegate();
+
+            protected override void OnCreate()
+            {
+                SystemDelegate.OnCreate(this);
+            }
+
+            protected override void OnDestroy()
+            {
+                SystemDelegate.OnDestroy(this, Set);
+            }
+
+            protected override JobHandle OnUpdate(JobHandle inputDeps)
+            {
+                SystemDelegate.OnUpdate(this, Set, inputDeps, out var outputDeps);
+                return outputDeps;
+            }
+        }
+
+        [AlwaysUpdateSystem]
+        public class HostComponentSystem<TNodeSetSystemDelegate> : ComponentSystem
+            where TNodeSetSystemDelegate : INodeSetSystemDelegate, new()
+        {
+            public NodeSet Set;
+            public TNodeSetSystemDelegate SystemDelegate = new TNodeSetSystemDelegate();
+
+            protected override void OnCreate()
+            {
+                SystemDelegate.OnCreate(this);
+            }
+
+            protected override void OnDestroy()
+            {
+                SystemDelegate.OnDestroy(this, Set);
+            }
+
+            protected override void OnUpdate()
+            {
+                SystemDelegate.OnUpdate(this, Set, default, out var outputDeps);
+                outputDeps.Complete();
+            }
+        }
+
+        public enum FixtureSystemType { ComponentSystem, JobComponentSystem, SystemBase }
+
+        public class Fixture<TNodeSetSystemDelegate> : IDisposable
+            where TNodeSetSystemDelegate : INodeSetSystemDelegate, new()
         {
             public World World;
             public EntityManager EM => World.EntityManager;
             public NodeSet Set;
-            public TSystem System;
+            public ComponentSystemBase System;
+            public TNodeSetSystemDelegate SystemDelegate;
 
-            public Fixture()
+            public Fixture(FixtureSystemType systemType)
             {
                 World = new World("ComponentNodeSetTests");
-                System = World.GetOrCreateSystem<TSystem>();
-                Set = System.Set = new NodeSet(System);
+                switch (systemType)
+                {
+                    case FixtureSystemType.ComponentSystem:
+                        var componentSys = World.GetOrCreateSystem<HostComponentSystem<TNodeSetSystemDelegate>>();
+                        componentSys.Set = Set = new NodeSet(componentSys);
+                        System = componentSys;
+                        SystemDelegate = componentSys.SystemDelegate;
+                        break;
+
+                    case FixtureSystemType.JobComponentSystem:
+                        var jobComponentSys = World.GetOrCreateSystem<HostJobComponentSystem<TNodeSetSystemDelegate>>();
+                        jobComponentSys.Set = Set = new NodeSet(jobComponentSys);
+                        System = jobComponentSys;
+                        SystemDelegate = jobComponentSys.SystemDelegate;
+                        break;
+
+                    case FixtureSystemType.SystemBase:
+                        var sysBase = World.GetOrCreateSystem<HostSystemBase<TNodeSetSystemDelegate>>();
+                        sysBase.Set = Set = new NodeSet(sysBase);
+                        System = sysBase;
+                        SystemDelegate = sysBase.SystemDelegate;
+                        break;
+                }
             }
 
             public void Dispose()
@@ -139,43 +237,44 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        [DisableAutoCreation, AlwaysUpdateSystem]
-        public class UpdateSystem : HostJobSystem
+        public class UpdateSystemDelegate : INodeSetSystemDelegate
         {
-            protected override JobHandle OnUpdate(JobHandle inputDeps)
+            public void OnCreate(ComponentSystemBase system) {}
+            public void OnDestroy(ComponentSystemBase system, NodeSet set) {}
+            public void OnUpdate(ComponentSystemBase system, NodeSet set, JobHandle inputDeps, out JobHandle outputDeps)
             {
-                return Set.Update(inputDeps);
+                outputDeps = set.Update(inputDeps);
             }
         }
 
         [Test]
-        public void NodeSetCreated_WithECSConstructor_HasCreatedComponentTypesArray()
+        public void NodeSetCreated_WithECSConstructor_HasCreatedComponentTypesArray([Values] FixtureSystemType systemType)
         {
-            using (var f = new Fixture<UpdateSystem>())
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
                 Assert.IsTrue(f.Set.GetActiveComponentTypes().IsCreated);
             }
         }
 
         [Test]
-        public void ECSNodeSetConstructor_ThrowsException_OnInvalidArgument()
+        public void ECSNodeSetConstructor_ThrowsException_OnInvalidArgument([Values] FixtureSystemType systemType)
         {
             Assert.Throws<ArgumentNullException>(() => new NodeSet(null));
         }
 
         [Test]
-        public void CanUpdateSimpleSystem()
+        public void CanUpdateSimpleSystem([Values] FixtureSystemType systemType)
         {
-            using (var f = new Fixture<UpdateSystem>())
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
                 f.System.Update();
             }
         }
 
         [Test]
-        public void UpdatingECSNodeSet_UsingNonECSUpdateFunction_ThrowsException()
+        public void UpdatingECSNodeSet_UsingNonECSUpdateFunction_ThrowsException([Values] FixtureSystemType systemType)
         {
-            using (var f = new Fixture<UpdateSystem>())
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
                 Assert.Throws<InvalidOperationException>(() => f.Set.Update());
             }
@@ -190,15 +289,15 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        [DisableAutoCreation, AlwaysUpdateSystem]
-        class System_WithSimpleProcessing : HostJobSystem
+        class SimpleProcessingSystemDelegate : INodeSetSystemDelegate
         {
-
-            protected override void OnCreate()
+            public void OnCreate(ComponentSystemBase system)
             {
                 for (int i = 0; i < 1000; ++i)
-                    EntityManager.CreateEntity(typeof(SimpleData));
+                    system.EntityManager.CreateEntity(typeof(SimpleData));
             }
+
+            public void OnDestroy(ComponentSystemBase system, NodeSet set) {}
 
             protected struct SimpleJob
 #pragma warning disable 618  // warning CS0618: 'IJobForEach' is obsolete: 'Please use Entities.ForEach or IJobChunk to schedule jobs that work on Entities. (RemovedAfter 2020-06-20)
@@ -208,37 +307,36 @@ namespace Unity.DataFlowGraph.Tests
                 public void Execute(ref SimpleData c0) { }
             }
 
-            protected override JobHandle OnUpdate(JobHandle inputDeps)
+            public virtual void OnUpdate(ComponentSystemBase system, NodeSet set, JobHandle inputDeps, out JobHandle outputDeps)
             {
-                return Set.Update(new SimpleJob().Schedule(this, inputDeps));
+                outputDeps = set.Update(new SimpleJob().Schedule(system, inputDeps));
             }
         }
 
         [Test]
-        public void CanUpdate_JobSchedulingSystem()
+        public void CanUpdate_JobSchedulingSystem([Values] FixtureSystemType systemType)
         {
-            using (var f = new Fixture<System_WithSimpleProcessing>())
+            using (var f = new Fixture<SimpleProcessingSystemDelegate>(systemType))
             {
                 f.System.Update();
             }
         }
 
-        [DisableAutoCreation, AlwaysUpdateSystem]
-        class System_WithParallelScheduler : System_WithSimpleProcessing
+        class ParallelSchedulerSystemDelegate : SimpleProcessingSystemDelegate
         {
-            protected override JobHandle OnUpdate(JobHandle inputDeps)
+            public override void OnUpdate(ComponentSystemBase system, NodeSet set, JobHandle inputDeps, out JobHandle outputDeps)
             {
-                var job = new SimpleJob().Schedule(this, inputDeps);
-                var dfg = Set.Update(inputDeps);
+                var job = new SimpleJob().Schedule(system, inputDeps);
+                var dfg = set.Update(inputDeps);
 
-                return JobHandle.CombineDependencies(job, dfg);
+                outputDeps = JobHandle.CombineDependencies(job, dfg);
             }
         }
 
         [Test]
-        public void CanUpdate_ParallelJobSchedulingSystem()
+        public void CanUpdate_ParallelJobSchedulingSystem([Values] FixtureSystemType systemType)
         {
-            using (var f = new Fixture<System_WithParallelScheduler>())
+            using (var f = new Fixture<ParallelSchedulerSystemDelegate>(systemType))
             {
                 f.System.Update();
             }
@@ -247,42 +345,41 @@ namespace Unity.DataFlowGraph.Tests
 // Section for code testing atomic safety handle functionality, like race conditions. Only takes effect under following define.
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
 
-        [DisableAutoCreation, AlwaysUpdateSystem]
-        class System_WithRaceCondition : System_WithSimpleProcessing
+        class RaceConditionSystemDelegate : SimpleProcessingSystemDelegate
         {
             public bool ExpectException = false;
 
-            protected override JobHandle OnUpdate(JobHandle inputDeps)
+            public override void OnUpdate(ComponentSystemBase system, NodeSet set, JobHandle inputDeps, out JobHandle outputDeps)
             {
                 JobHandle job = default;
-                var dfg = Set.Update(inputDeps);
+                var dfg = set.Update(inputDeps);
 
                 if (ExpectException)
-                    Assert.Throws<InvalidOperationException>(() => job = new SimpleJob().Schedule(this, inputDeps));
+                    Assert.Throws<InvalidOperationException>(() => job = new SimpleJob().Schedule(system, inputDeps));
                 else
-                    job = new SimpleJob().Schedule(this, inputDeps);
+                    job = new SimpleJob().Schedule(system, inputDeps);
 
-                return JobHandle.CombineDependencies(job, dfg);
+                outputDeps = JobHandle.CombineDependencies(job, dfg);
             }
         }
 
         [Test]
-        public void SchedulingParallelJobs_UsingSameTypesAsDFG_ResultsInRaceConditionException()
+        public void SchedulingParallelJobs_UsingSameTypesAsDFG_ResultsInRaceConditionException([Values] FixtureSystemType systemType)
         {
-            using (var f = new Fixture<System_WithRaceCondition>())
+            using (var f = new Fixture<RaceConditionSystemDelegate>(systemType))
             {
                 f.System.Update();
 
                 var node = f.Set.Create<SimpleNode_WithECSTypes>();
-                f.System.ExpectException = true;
+                f.SystemDelegate.ExpectException = true;
                 f.System.Update();
 
-                f.System.ExpectException = true;
+                f.SystemDelegate.ExpectException = true;
                 f.System.Update();
 
                 // (Dependencies are only ever added).
                 f.Set.Destroy(node);
-                f.System.ExpectException = true;
+                f.SystemDelegate.ExpectException = true;
                 f.System.Update();
             }
         }
@@ -290,9 +387,9 @@ namespace Unity.DataFlowGraph.Tests
 #endif
 
         [Test]
-        public void CreatingNode_WithECSTypesOnInputs_CorrectlyUpdates_ActiveComponentTypes()
+        public void CreatingNode_WithECSTypesOnInputs_CorrectlyUpdates_ActiveComponentTypes([Values] FixtureSystemType systemType)
         {
-            using (var f = new Fixture<UpdateSystem>())
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
                 Assert.Zero(f.Set.GetActiveComponentTypes().Count);
 
@@ -311,9 +408,9 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void CreatingNode_WithECSTypes_InPortArray_OnInputs_CorrectlyUpdates_ActiveComponentTypes()
+        public void CreatingNode_WithECSTypes_InPortArray_OnInputs_CorrectlyUpdates_ActiveComponentTypes([Values] FixtureSystemType systemType)
         {
-            using (var f = new Fixture<UpdateSystem>())
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
                 Assert.Zero(f.Set.GetActiveComponentTypes().Count);
 
@@ -330,9 +427,9 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void CreatingNode_WithECSTypesOnOutputs_CorrectlyUpdates_ActiveComponentTypes()
+        public void CreatingNode_WithECSTypesOnOutputs_CorrectlyUpdates_ActiveComponentTypes([Values] FixtureSystemType systemType)
         {
-            using (var f = new Fixture<UpdateSystem>())
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
                 Assert.Zero(f.Set.GetActiveComponentTypes().Count);
 
@@ -350,9 +447,9 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void CreatingDifferentNodes_WithDifferentECSTypes_CorrectlyUpdates_ActiveComponentTypes()
+        public void CreatingDifferentNodes_WithDifferentECSTypes_CorrectlyUpdates_ActiveComponentTypes([Values] FixtureSystemType systemType)
         {
-            using (var f = new Fixture<UpdateSystem>())
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
                 Assert.Zero(f.Set.GetActiveComponentTypes().Count);
 
@@ -374,11 +471,11 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void CannotCreateNode_ContainingZeroSizedComponents()
+        public void CannotCreateNode_ContainingZeroSizedComponents([Values] FixtureSystemType systemType)
         {
             Assert.Zero(NodeWithParametricPortType<ZeroSizedComponentData>.IL2CPP_ClassInitializer);
 
-            using (var f = new Fixture<UpdateSystem>())
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
                 Assert.Throws<InvalidNodeDefinitionException>(() => f.Set.Create<NodeWithParametricPortType<ZeroSizedComponentData>>());
             }

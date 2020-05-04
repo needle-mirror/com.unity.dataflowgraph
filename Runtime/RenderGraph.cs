@@ -511,7 +511,7 @@ namespace Unity.DataFlowGraph
                         ref var node = ref simulationNodes[args.Handle.VHandle.Index];
                         ref var traits = ref llTraits[node.TraitsIndex].Resolve();
 
-                        var portNumber = args.Port == OutputPortID.Invalid ? BufferResizeStruct.KernelBufferResizeHint : traits.DataPorts.FindOutputDataPortNumber(args.Port);
+                        var portNumber = args.Port == default ? BufferResizeStruct.KernelBufferResizeHint : traits.DataPorts.FindOutputDataPortNumber(args.Port);
 
                         bufferResizeCommands.Add(
                             new BufferResizeStruct {

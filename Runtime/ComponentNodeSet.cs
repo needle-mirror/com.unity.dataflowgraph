@@ -7,7 +7,7 @@ namespace Unity.DataFlowGraph
 {
     public partial class NodeSet
     {
-        internal JobComponentSystem HostSystem;
+        internal ComponentSystemBase HostSystem;
         BlitList<AtomicSafetyManager.ECSTypeAndSafety> m_ActiveComponentTypes;
         /// <summary>
         /// Contains the last <see cref="JobHandle"/> returned from
@@ -29,7 +29,7 @@ namespace Unity.DataFlowGraph
         /// <exception cref="ArgumentNullException">
         /// Thrown if the <paramref name="hostSystem"/> is null
         /// </exception>
-        public NodeSet(JobComponentSystem hostSystem)
+        public NodeSet(ComponentSystemBase hostSystem)
             : this()
         {
             if (hostSystem == null)
@@ -45,22 +45,22 @@ namespace Unity.DataFlowGraph
         }
 
         /// <summary>
-        /// Overload of <see cref="Update()"/>. Use this function inside a <see cref="JobComponentSystem"/>.
+        /// Overload of <see cref="Update()"/>. Use this function inside a <see cref="ComponentSystemBase"/>.
         /// </summary>
         /// <remarks>
-        /// This function is only compatible if you used the <see cref="NodeSet(JobComponentSystem)"/> constructor.
+        /// This function is only compatible if you used the <see cref="NodeSet(ComponentSystemBase)"/> constructor.
         /// </remarks>
         /// <param name="inputDeps">
-        /// Input dependencies derived from <see cref="JobComponentSystem.OnUpdate(JobHandle)"/>, pass the 
+        /// Input dependencies derived from <see cref="JobComponentSystem.OnUpdate(JobHandle)"/> or <see cref="SystemBase.Dependency"/>, pass the 
         /// input dependencies into this function.
         /// </param>
         /// <returns>
         /// A <see cref="JobHandle"/> that should be returned or included in a dependency chain inside 
-        /// <see cref="JobComponentSystem.OnUpdate(JobHandle)"/>.
+        /// <see cref="JobComponentSystem.OnUpdate(JobHandle)"/> or assigned to <see cref="SystemBase.Dependency"/>.
         /// </returns>
         /// <exception cref="InvalidOperationException">
         /// Can be thrown if this <see cref="NodeSet"/> was created without using the ECS constructor 
-        /// <see cref="NodeSet(JobComponentSystem)"/>, in which case you need to use the 
+        /// <see cref="NodeSet(ComponentSystemBase)"/>, in which case you need to use the 
         /// <see cref="Update()"/> function instead.
         /// See also base documentation for <see cref="Update"/>
         /// </exception>

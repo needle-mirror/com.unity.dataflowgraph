@@ -164,6 +164,15 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
+        public void NodeSetDisposition_CanBeQueried()
+        {
+            var set = new NodeSet();
+            Assert.IsFalse(set.IsDisposed());
+            set.Dispose();
+            Assert.IsTrue(set.IsDisposed());
+        }
+
+        [Test]
         public void LeaksOf_Nodes_AreReported()
         {
             using (var set = new NodeSet())

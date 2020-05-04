@@ -532,9 +532,9 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void CanConnectEntityNode_ToPortArray()
+        public void CanConnectEntityNode_ToPortArray([Values] FixtureSystemType systemType)
         {
-            using (var f = new Fixture<UpdateSystem>())
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
                 var entity = f.EM.CreateEntity(typeof(ECSInt));
                 var entityNode = f.Set.CreateComponentNode(entity);

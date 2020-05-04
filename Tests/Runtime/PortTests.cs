@@ -33,10 +33,26 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void PortStorageFlag_IsNotInLow16bits()
+        public void PortStorageFlags_AreNotInLow16bits()
         {
-            Assert.GreaterOrEqual(PortStorage.InternalFlag, 1 << 16);
-            Assert.GreaterOrEqual(1 << 30, PortStorage.InternalFlag);
+            Assert.GreaterOrEqual(PortStorage.IsECSPortFlag, 1 << 16);
+            Assert.GreaterOrEqual(1 << 30, PortStorage.IsECSPortFlag);
+            Assert.GreaterOrEqual(PortStorage.IsDFGPortFlag, 1 << 16);
+            Assert.GreaterOrEqual(1 << 30, PortStorage.IsDFGPortFlag);
+        }
+
+        [Test]
+        public void DefaultConstructed_PortStorage_IsValid()
+        {
+            var defaultPortStorage = new PortStorage();
+            Assert.IsFalse(defaultPortStorage.IsECSPort);
+            Assert.IsFalse(defaultPortStorage.IsDFGPort);
+#if DFG_ASSERTIONS
+            ushort port;
+            int componentType;
+            Assert.Throws<AssertionException>(() => port = defaultPortStorage.DFGPortIndex);
+            Assert.Throws<AssertionException>(() => componentType = defaultPortStorage.ECSTypeIndex);
+#endif
         }
 
         [Test]

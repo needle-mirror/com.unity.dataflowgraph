@@ -152,18 +152,8 @@ namespace Unity.DataFlowGraph.Tests
         {
             using (var set = new NodeSet())
             {
-                bool exceptionWasCaught = false;
-                try
-                {
-                    set.Create<NodeWithManagedDataTypeWithoutAttribute>();
-                }
-                catch (InvalidNodeDefinitionException e)
-                {
-                    StringAssert.Contains("is not unmanaged, add the attribute [Managed] to the type if you need to store references in your data", e.Message);
-                    exceptionWasCaught = true;
-                }
-
-                Assert.IsTrue(exceptionWasCaught);
+                var e = Assert.Throws<InvalidNodeDefinitionException>(() => set.Create<NodeWithManagedDataTypeWithoutAttribute>());
+                StringAssert.Contains("is not unmanaged, add the attribute [Managed] to the type if you need to store references in your data", e.Message);
             }
         }
 

@@ -995,9 +995,9 @@ namespace Unity.DataFlowGraph.Tests
         }        
 
         [Test]
-        public void CanPortForward_InputsAndOutputs_OfEntityNodes_AndPipeDataCompletelyThrough()
+        public void CanPortForward_InputsAndOutputs_OfEntityNodes_AndPipeDataCompletelyThrough([Values] FixtureSystemType systemType)
         {
-            using (var f = new Fixture<UpdateSystem>())
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
                 var set = f.Set;
 

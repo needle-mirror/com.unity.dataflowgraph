@@ -43,7 +43,7 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [DisableAutoCreation, AlwaysUpdateSystem]
-        public class RepatchSystem : HostJobSystem
+        public class RepatchSystemDelegate : INodeSetSystemDelegate
         {
             public NativeQueue<Entity> UpdatedEntities = new NativeQueue<Entity>(Allocator.Persistent);
             public List<Entity> DequeueToList()
@@ -56,20 +56,22 @@ namespace Unity.DataFlowGraph.Tests
                 return list;
             }
 
-            protected override void OnDestroy()
+            public void OnCreate(ComponentSystemBase system) {}
+
+            public void OnDestroy(ComponentSystemBase system, NodeSet set)
             {
                 UpdatedEntities.Dispose();
             }
 
-            protected override JobHandle OnUpdate(JobHandle inputDeps)
+            public void OnUpdate(ComponentSystemBase system, NodeSet set, JobHandle inputDeps, out JobHandle outputDeps)
             {
                 var job = new HookPatchJob();
                 job.NotifiedEntities = UpdatedEntities;
-                var deps = job.ScheduleSingle(this, inputDeps);
+                var deps = job.ScheduleSingle(system, inputDeps);
 
                 deps.Complete(); // Set does not expect another job running on NodeSetAttachment
 
-                return Set.Update(deps);
+                outputDeps = set.Update(deps);
             }
         }
 
@@ -112,17 +114,17 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void RepatchJobExecutes_OnCreatedEntities_ThatAreRelated()
+        public void RepatchJobExecutes_OnCreatedEntities_ThatAreRelated([Values] FixtureSystemType systemType)
         {
-            using (var f = new Fixture<RepatchSystem>())
+            using (var f = new Fixture<RepatchSystemDelegate>(systemType))
             {
                 var entity = f.EM.CreateEntity(typeof(NodeSetAttachment));
                 f.System.Update();
-                Assert.AreEqual(entity, f.System.UpdatedEntities.Dequeue());
+                Assert.AreEqual(entity, f.SystemDelegate.UpdatedEntities.Dequeue());
             }
         }
 
-        class PatchFixture : Fixture<RepatchSystem>, IDisposable
+        class PatchFixture : Fixture<RepatchSystemDelegate>, IDisposable
         {
             public Entity Original;
             public Entity Changed;
@@ -131,7 +133,7 @@ namespace Unity.DataFlowGraph.Tests
             public NodeHandle<ComponentNode> ChangedNode;
             public NodeHandle<SimpleNode_WithECSTypes_OnInputs> Receiver;
 
-            public PatchFixture()
+            public PatchFixture(FixtureSystemType systemType) : base(systemType)
             {
                 Original = EM.CreateEntity();
                 Changed = EM.CreateEntity(typeof(DataOne));
@@ -144,7 +146,7 @@ namespace Unity.DataFlowGraph.Tests
 
             public void Update()
             {
-                System.UpdatedEntities.Clear();
+                SystemDelegate.UpdatedEntities.Clear();
                 System.Update();
             }
 
@@ -188,9 +190,9 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void RepatchJobExecutes_WhenEntities_ChangeArchetype()
+        public void RepatchJobExecutes_WhenEntities_ChangeArchetype([Values] FixtureSystemType systemType)
         {
-            using (var f = new PatchFixture())
+            using (var f = new PatchFixture(systemType))
             {
                 f.Update();
                 f.TestInvariants();
@@ -202,16 +204,16 @@ namespace Unity.DataFlowGraph.Tests
                 f.Update();
                 f.TestInvariants();
 
-                CollectionAssert.Contains(f.System.DequeueToList(), f.Changed);
+                CollectionAssert.Contains(f.SystemDelegate.DequeueToList(), f.Changed);
             }
         }
 
 
 
         [Test]
-        public void RepatchJobExecutes_WhenEntities_ChangeSharedComponentData()
+        public void RepatchJobExecutes_WhenEntities_ChangeSharedComponentData([Values] FixtureSystemType systemType)
         {
-            using (var f = new PatchFixture())
+            using (var f = new PatchFixture(systemType))
             {
                 f.Update();
                 f.TestInvariants();
@@ -222,14 +224,14 @@ namespace Unity.DataFlowGraph.Tests
                 f.EM.AddSharedComponentData(f.Changed, new Shared(2));
                 f.Update();
                 f.TestInvariants();
-                CollectionAssert.Contains(f.System.DequeueToList(), f.Changed);
+                CollectionAssert.Contains(f.SystemDelegate.DequeueToList(), f.Changed);
             }
         }
 
         [Test]
-        public void RepatchJobExecutes_WhenEntities_Die()
+        public void RepatchJobExecutes_WhenEntities_Die([Values] FixtureSystemType systemType)
         {
-            using (var f = new PatchFixture())
+            using (var f = new PatchFixture(systemType))
             {
                 f.Update();
                 var oldMemoryPointer = *f.GetPortPatch(f.Receiver, SimpleNode_WithECSTypes_OnInputs.KernelPorts.Input);
@@ -240,7 +242,7 @@ namespace Unity.DataFlowGraph.Tests
                 // Memory mustn't point to a partially destroyed entity.
                 Assert.False(oldMemoryPointer == *f.GetPortPatch(f.Receiver, SimpleNode_WithECSTypes_OnInputs.KernelPorts.Input));
                 // It's still contained in this list since NodeSetAttachment is a system state.
-                CollectionAssert.Contains(f.System.DequeueToList(), f.Changed);
+                CollectionAssert.Contains(f.SystemDelegate.DequeueToList(), f.Changed);
 
                 f.Set.Destroy(f.ChangedNode);
                 f.ChangedNode = default; // Don't double release it
@@ -252,12 +254,12 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void RepatchJobExecutes_WhenChunk_IsReshuffled()
+        public void RepatchJobExecutes_WhenChunk_IsReshuffled([Values] FixtureSystemType systemType)
         {
             // As entities are guaranteed to be linearly laid out, destroying 
             // an entity behind another moves the other and invalidates pointers.
             // TODO: Establish confidence these entities are in the same chunk.
-            using (var f = new PatchFixture())
+            using (var f = new PatchFixture(systemType))
             {
                 f.System.Update();
                 f.TestInvariants();
@@ -268,29 +270,29 @@ namespace Unity.DataFlowGraph.Tests
 
                 f.Update();
                 f.TestInvariants();
-                CollectionAssert.Contains(f.System.DequeueToList(), f.Changed);
+                CollectionAssert.Contains(f.SystemDelegate.DequeueToList(), f.Changed);
             }
         }
 
         [Test]
-        public void RepatchJobExecutes_WhenBuffer_ChangesSize()
+        public void RepatchJobExecutes_WhenBuffer_ChangesSize([Values] FixtureSystemType systemType)
         {
             // TODO: Rewrite this test to cover buffers. 
             // Could be good to precisely cover when buffer switches from internal capacity to external capacity
-            using (var f = new Fixture<RepatchSystem>())
+            using (var f = new Fixture<RepatchSystemDelegate>(systemType))
             {
                 var entity = f.EM.CreateEntity(typeof(NodeSetAttachment));
 
                 f.System.Update();
 
-                f.System.UpdatedEntities.Clear();
+                f.SystemDelegate.UpdatedEntities.Clear();
                 f.EM.AddBuffer<Buffer>(entity);
 
                 for (int i = 0; i < 100; ++i)
                 {
                     f.EM.GetBuffer<Buffer>(entity).Add(default);
                     f.System.Update();
-                    CollectionAssert.Contains(f.System.DequeueToList(), entity);
+                    CollectionAssert.Contains(f.SystemDelegate.DequeueToList(), entity);
                 }
             }
         }
@@ -330,9 +332,9 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public unsafe void ConnectingDFGToEntity_Records_OutputConnection()
+        public unsafe void ConnectingDFGToEntity_Records_OutputConnection([Values] FixtureSystemType systemType)
         {
-            using (var f = new PatchFixture())
+            using (var f = new PatchFixture(systemType))
             {
                 var sourceEntity = f.EM.CreateEntity(typeof(SimpleData));
                 var destEntity = f.EM.CreateEntity(typeof(SimpleData));
@@ -358,11 +360,12 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void EntityToEntity_TogglingComponentDataExistence_OrDestroyingSource_RetainsLastValue_InDestination()
+        public void EntityToEntity_TogglingComponentDataExistence_OrDestroyingSource_RetainsLastValue_InDestination(
+            [Values] FixtureSystemType systemType)
         {
             const int k_Loops = 5;
 
-            using (var f = new Fixture<UpdateSystem>())
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
                 var sourceEntity = f.EM.CreateEntity(typeof(SimpleData));
                 var destEntity = f.EM.CreateEntity(typeof(SimpleData));

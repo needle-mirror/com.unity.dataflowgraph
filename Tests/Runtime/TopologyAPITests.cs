@@ -116,7 +116,32 @@ namespace Unity.DataFlowGraph.Tests
         {
             using (var set = new NodeSet())
             {
-                Assert.Throws<ArgumentException>(() => set.Connect(new NodeHandle(), new OutputPortID(), new NodeHandle(), new InputPortID()));
+                NodeHandle a = set.Create<InOutTestNode>(), b = set.Create<InOutTestNode>();
+
+                var e = Assert.Throws<ArgumentException>(() => set.Connect(a, (OutputPortID) InOutTestNode.SimulationPorts.Output, new NodeHandle(), (InputPortID)InOutTestNode.SimulationPorts.Input));
+                StringAssert.Contains("Node is invalid", e.Message);
+
+                e = Assert.Throws<ArgumentException>(() => set.Connect(new NodeHandle(), (OutputPortID) InOutTestNode.SimulationPorts.Output, b, (InputPortID)InOutTestNode.SimulationPorts.Input));
+                StringAssert.Contains("Node is invalid", e.Message);
+
+                set.Destroy(a, b);
+            }
+        }
+
+        [Test]
+        public void ConnectThrows_OnDefaultConstructedPortIDs()
+        {
+            using (var set = new NodeSet())
+            {
+                NodeHandle a = set.Create<InOutTestNode>(), b = set.Create<InOutTestNode>();
+
+                var e = Assert.Throws<ArgumentException>(() => set.Connect(a, new OutputPortID(), b, (InputPortID)InOutTestNode.SimulationPorts.Input));
+                StringAssert.Contains("Invalid output port", e.Message);
+
+                e = Assert.Throws<ArgumentException>(() => set.Connect(a, (OutputPortID) InOutTestNode.SimulationPorts.Output, b, new InputPortID()));
+                StringAssert.Contains("Invalid input port", e.Message);
+
+                set.Destroy(a, b);
             }
         }
 
@@ -125,7 +150,32 @@ namespace Unity.DataFlowGraph.Tests
         {
             using (var set = new NodeSet())
             {
-                Assert.Throws<ArgumentException>(() => set.Disconnect(new NodeHandle(), new OutputPortID(), new NodeHandle(), new InputPortID()));
+                NodeHandle node = set.Create<InOutTestNode>();
+
+                var e = Assert.Throws<ArgumentException>(() => set.Disconnect(new NodeHandle(), (OutputPortID) InOutTestNode.SimulationPorts.Output, node, (InputPortID)InOutTestNode.SimulationPorts.Input));
+                StringAssert.Contains("Node is invalid", e.Message);
+
+                e = Assert.Throws<ArgumentException>(() => set.Disconnect(node, (OutputPortID) InOutTestNode.SimulationPorts.Output, new NodeHandle(), (InputPortID)InOutTestNode.SimulationPorts.Input));
+                StringAssert.Contains("Node is invalid", e.Message);
+
+                set.Destroy(node);
+            }
+        }
+
+        [Test]
+        public void DisonnectThrows_OnDefaultConstructedPortIDs()
+        {
+            using (var set = new NodeSet())
+            {
+                NodeHandle a = set.Create<InOutTestNode>(), b = set.Create<InOutTestNode>();
+
+                var e = Assert.Throws<ArgumentException>(() => set.Disconnect(a, new OutputPortID(), b, (InputPortID)InOutTestNode.SimulationPorts.Input));
+                StringAssert.Contains("Invalid output port", e.Message);
+
+                e = Assert.Throws<ArgumentException>(() => set.Disconnect(a, (OutputPortID) InOutTestNode.SimulationPorts.Output, b, new InputPortID()));
+                StringAssert.Contains("Invalid input port", e.Message);
+
+                set.Destroy(a, b);
             }
         }
 

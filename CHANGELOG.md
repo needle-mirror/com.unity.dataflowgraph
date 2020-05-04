@@ -4,6 +4,16 @@ All notable changes to this package will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [0.14.0-preview.2] - 2020-05-04
+### Added
+- `NodeSet.IsDisposed()` to query Dispose state
+
+### Changed
+- `NodeSet(JobComponentSystem)` constructor changed to `NodeSet(ComponentSystemBase)` making it compatible with all ECS system types: `ComponentSystem`, `JobComponentSystem` and `SystemBase`.
+
+### Fixed
+- Default constructed PortIDs are now invalid (issue #100)
+
 ## [0.14.0-preview.1] - 2020-04-17
 ### Added
 - Sample Tour describing how to use feedback connections

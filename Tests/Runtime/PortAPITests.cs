@@ -863,7 +863,6 @@ namespace Unity.DataFlowGraph.Tests
 #endif
 
         [Test]
-        [Explicit]
         public void DefaultConstructedPort_DoesNotEqualDeclaredPort()
         {
             using (var set = new NodeSet())
