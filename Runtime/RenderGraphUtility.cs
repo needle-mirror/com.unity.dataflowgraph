@@ -1,5 +1,6 @@
 ﻿using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
+using Unity.Entities;
 using Unity.Jobs;
 using Unity.Jobs.LowLevel.Unsafe;
 
@@ -27,16 +28,17 @@ namespace Unity.DataFlowGraph
                 {
                     case NodeSet.RenderExecutionModel.MaximallyParallel:
 
-                        var rootCacheWalker = new Topology.RootCacheWalker(Cache);
-
-                        using (var tempHandles = new NativeList<JobHandle>(rootCacheWalker.Count, Allocator.Temp))
+                        using (var tempHandles = new NativeList<JobHandle>(Cache.ComputeNumRoots(), Allocator.Temp))
                         {
-                            foreach (var nodeCache in rootCacheWalker)
+                            for(int g = 0; g < Cache.Groups.Length; ++g)
                             {
-                                ref var node = ref m_Nodes[nodeCache.Vertex.VHandle.Index];
-                                tempHandles.Add(node.Fence);
+                                foreach (var nodeCache in new Topology.RootCacheWalker(Cache.Groups[g]))
+                                {
+                                    ref var node = ref m_Nodes[nodeCache.Vertex.VHandle.Index];
+                                    tempHandles.Add(node.Fence);
+                                }
                             }
-
+                            
                             m_ComputedRootFence = JobHandleUnsafeUtility.CombineDependencies(
                                 (JobHandle*)tempHandles.GetUnsafePtr(),
                                 tempHandles.Length
@@ -113,6 +115,11 @@ namespace Unity.DataFlowGraph
                 default:
                     return Topology.SortingAlgorithm.GlobalBreadthFirst;
             }
+        }
+
+        public static EntityQuery NodeSetAttachmentQuery(ComponentSystemBase system)
+        {
+            return system.GetEntityQuery(ComponentType.ReadOnly<NodeSetAttachment>());
         }
     }
 }

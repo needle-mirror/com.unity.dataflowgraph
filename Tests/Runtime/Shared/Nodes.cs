@@ -19,7 +19,7 @@ namespace Unity.DataFlowGraph.Tests
 
     public struct ECSInt : IComponentData
     {
-        public int Value; 
+        public int Value;
         public static implicit operator int (ECSInt val) => val.Value;
         public static implicit operator ECSInt(int val) => new ECSInt { Value = val };
     }
@@ -31,7 +31,6 @@ namespace Unity.DataFlowGraph.Tests
     {
         public struct SimPorts : ISimulationPortDefinition
         {
-#pragma warning disable 649  // Assigned through internal DataFlowGraph reflection
             public MessageInput<NodeWithAllTypesOfPorts, int> MessageIn;
             public PortArray<MessageInput<NodeWithAllTypesOfPorts, int>> MessageArrayIn;
             public MessageOutput<NodeWithAllTypesOfPorts, int> MessageOut;
@@ -57,13 +56,14 @@ namespace Unity.DataFlowGraph.Tests
         public void HandleMessage(in MessageContext ctx, in int msg) { }
     }
 
-    class NodeWithParametricPortType<T>
+    public class NodeWithParametricPortType<T>
         : NodeDefinition<EmptyData, NodeWithParametricPortType<T>.SimPorts, EmptyKernelData, NodeWithParametricPortType<T>.KernelDefs, NodeWithParametricPortType<T>.Kernel>
         , IMsgHandler<T>
             where T : struct
     {
         public static int IL2CPP_ClassInitializer = 0;
 
+#pragma warning disable 649 // non-public unassigned default value
         public struct SimPorts : ISimulationPortDefinition
         {
             public MessageInput<NodeWithParametricPortType<T>, T> MessageIn;
@@ -75,10 +75,9 @@ namespace Unity.DataFlowGraph.Tests
             public DataInput<NodeWithParametricPortType<T>, T> Input;
             public DataOutput<NodeWithParametricPortType<T>, T> Output;
         }
-#pragma warning restore 649
 
         // disabled due to AOT Burst seeing this kernel, but being unable to compile it (parametric node)
-        // [BurstCompile(CompileSynchronously = true)] 
+        // [BurstCompile(CompileSynchronously = true)]
         public struct Kernel : IGraphKernel<EmptyKernelData, KernelDefs>
         {
             public void Execute(RenderContext ctx, EmptyKernelData data, ref KernelDefs ports) { }
@@ -94,7 +93,7 @@ namespace Unity.DataFlowGraph.Tests
             public DataInput<KernelAdderNode, int> Input;
             public DataOutput<KernelAdderNode, int> Output;
         }
- 
+
         [BurstCompile(CompileSynchronously = true)]
         public struct Kernel : IGraphKernel<EmptyKernelData, KernelDefs>
         {
@@ -104,7 +103,7 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
     }
- 
+
     public class KernelSumNode : NodeDefinition<EmptyData, EmptyKernelData, KernelSumNode.KernelDefs, KernelSumNode.Kernel>
     {
         public struct KernelDefs : IKernelPortDefinition
@@ -127,12 +126,12 @@ namespace Unity.DataFlowGraph.Tests
         }
     }
 
-    public class PassthroughTest<T>  
+    public class PassthroughTest<T>
         : NodeDefinition<
-            EmptyData, 
-            PassthroughTest<T>.SimPorts, 
-            EmptyKernelData, 
-            PassthroughTest<T>.KernelDefs, 
+            EmptyData,
+            PassthroughTest<T>.SimPorts,
+            EmptyKernelData,
+            PassthroughTest<T>.KernelDefs,
             PassthroughTest<T>.Kernel>
         , IMsgHandler<T>
             where T : struct
@@ -164,10 +163,10 @@ namespace Unity.DataFlowGraph.Tests
         }
     }
 
-    public class DelegateMessageIONode<TDerivedDefinition, TNodeData>
-        : NodeDefinition<DelegateMessageIONode<TDerivedDefinition, TNodeData>.NodeData, DelegateMessageIONode<TDerivedDefinition, TNodeData>.SimPorts>
+    public abstract class DelegateMessageIONodeBase<TDerivedDefinition, TNodeData>
+        : NodeDefinition<DelegateMessageIONodeBase<TDerivedDefinition, TNodeData>.NodeData, DelegateMessageIONodeBase<TDerivedDefinition, TNodeData>.SimPorts>
         , IMsgHandler<Message>
-            where TDerivedDefinition : DelegateMessageIONode<TDerivedDefinition, TNodeData>, new()
+            where TDerivedDefinition : DelegateMessageIONodeBase<TDerivedDefinition, TNodeData>, new()
             where TNodeData : struct, INodeData
     {
         public delegate void InitHandler(InitContext ctx);
@@ -200,7 +199,7 @@ namespace Unity.DataFlowGraph.Tests
 
             if (set.Exists(node))
             {
-                ref var nodeData = ref set.GetNodeData<NodeData>(node);
+                ref var nodeData = ref set.GetDefinition<TDerivedDefinition>().GetNodeData(node);
                 nodeData.m_MessageHandler = messageHandler;
                 nodeData.m_UpdateHandler = updateHandler;
                 nodeData.m_DestroyHandler = destroyHandler;
@@ -215,7 +214,7 @@ namespace Unity.DataFlowGraph.Tests
             public MessageOutput<TDerivedDefinition, Message> Output;
         }
 
-        protected internal override void Init(InitContext ctx)
+        protected override void Init(InitContext ctx)
         {
             var initHandler = s_InitHandler;
             s_InitHandler = null;
@@ -225,28 +224,28 @@ namespace Unity.DataFlowGraph.Tests
         public void HandleMessage(in MessageContext ctx, in Message msg)
         {
             Assert.That(ctx.Port == SimulationPorts.Input);
-            Set.GetNodeData<NodeData>(ctx.Handle).m_MessageHandler?.Invoke(ctx, msg);
+            GetNodeData(ctx.Handle).m_MessageHandler?.Invoke(ctx, msg);
         }
 
-        protected internal override void OnUpdate(in UpdateContext ctx)
+        protected override void OnUpdate(in UpdateContext ctx)
         {
-            Set.GetNodeData<NodeData>(ctx.Handle).m_UpdateHandler?.Invoke(ctx);
+            GetNodeData(ctx.Handle).m_UpdateHandler?.Invoke(ctx);
         }
 
-        protected internal override void Destroy(NodeHandle handle)
+        protected override void Destroy(DestroyContext ctx)
         {
-            Set.GetNodeData<NodeData>(handle).m_DestroyHandler?.Invoke(handle);
+            GetNodeData(ctx.Handle).m_DestroyHandler?.Invoke(ctx.Handle);
         }
 
         static InitHandler s_InitHandler;
     }
 
-    public class DelegateMessageIONode : DelegateMessageIONode<DelegateMessageIONode, DelegateMessageIONode.EmptyData>
+    public class DelegateMessageIONode : DelegateMessageIONodeBase<DelegateMessageIONode, DelegateMessageIONode.EmptyData>
     {
         public struct EmptyData : INodeData {}
     }
 
-    public class DelegateMessageIONode<TNodeData> : DelegateMessageIONode<DelegateMessageIONode<TNodeData>, TNodeData>
+    public class DelegateMessageIONode<TNodeData> : DelegateMessageIONodeBase<DelegateMessageIONode<TNodeData>, TNodeData>
         where TNodeData : struct, INodeData
     {
     }
@@ -288,5 +287,19 @@ namespace Unity.DataFlowGraph.Tests
             where TDelegateMessageIONode : DelegateMessageIONode<TNodeData>
             where TNodeData : struct, INodeData
                 => DelegateMessageIONode<TNodeData>.Create(set, null, null, null, destroyHandler);
+    }
+
+    public abstract class ExternalKernelNode<TFinalNodeDefinition, TInput, TOutput, TKernel>
+        : NodeDefinition<EmptyKernelData, ExternalKernelNode<TFinalNodeDefinition, TInput, TOutput, TKernel>.KernelDefs, TKernel>
+        where TFinalNodeDefinition : NodeDefinition
+        where TInput : struct
+        where TOutput : struct
+        where TKernel : struct, IGraphKernel<EmptyKernelData, ExternalKernelNode<TFinalNodeDefinition, TInput, TOutput, TKernel>.KernelDefs>
+    {
+        public struct KernelDefs : IKernelPortDefinition
+        {
+            public DataInput<TFinalNodeDefinition, TInput> Input;
+            public DataOutput<TFinalNodeDefinition, TOutput> Output;
+        }
     }
 }

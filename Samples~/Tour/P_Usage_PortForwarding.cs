@@ -102,12 +102,12 @@ namespace Unity.DataFlowGraph.Tour
                 ctx.ForwardOutput(SimulationPorts.SecretlyForwardedOutput, nodeData.Child, ChildNode.SimulationPorts.Output);
             }
 
-            protected override void Destroy(NodeHandle handle)
+            protected override void Destroy(DestroyContext ctx)
             {
                 /*
                  * And remember, since we created the child node, we need to clean up after ourselves!
                  */
-                Set.Destroy(GetNodeData(handle).Child);
+                Set.Destroy(GetNodeData(ctx.Handle).Child);
             }
         }
 

@@ -2,6 +2,8 @@
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Jobs;
+using Unity.Jobs.LowLevel.Unsafe;
+using UnityEngine;
 
 namespace Unity.DataFlowGraph
 {
@@ -17,15 +19,15 @@ namespace Unity.DataFlowGraph
         {
             /// <summary>
             /// Sorts a into a single large breadth first traversal, prioritising early dependencies. As a result, only one 
-            /// <see cref="TraversalCache.Island"/> is generated.
+            /// <see cref="TraversalCache.Group"/> is generated.
             /// If a graph has many similar structures at the same depth, this provides the best opportunities for 
-            /// keeping similar nodes adjecant in the <see cref="TraversalCache.OrderedTraversal"/>.
+            /// keeping similar nodes adjacent in the <see cref="TraversalCache.OrderedTraversal"/>.
             /// </summary>
             GlobalBreadthFirst,
             /// <summary>
-            /// Sorts by traversing from leaves, generating as many <see cref="TraversalCache.Island"/> as there 
+            /// Sorts by traversing from leaves, generating as many <see cref="TraversalCache.Group"/>s as there 
             /// are connected components in the graph. 
-            /// This allows to generate a <see cref="TraversalCache"/> with "chunks" that can run in parallel.
+            /// This allows to generate a <see cref="TraversalCache"/> with groups that can run in parallel.
             /// </summary>
             LocalDepthFirst
         }
@@ -67,14 +69,6 @@ namespace Unity.DataFlowGraph
                 }
 
                 bool m_Jobified;
-            }
-
-            struct PatchContext
-            {
-                public int CacheIndex;
-                public NativeArray<VertexTools.VisitCache> VisitCache;
-                public int RunningParentTableIndex;
-                public int RunningChildTableIndex;
             }
 
             public static bool IsCacheFresh(VersionTracker versionTracker, in MutableTopologyCache cache)
@@ -121,28 +115,10 @@ namespace Unity.DataFlowGraph
                 return job.Schedule(inputDependencies);
             }
 
-            // TODO: Should probably cache these values in the topology index additionally.
-            static int CountInputConnections<TTopologyFromVertex>(
-                ref ComputationContext<TTopologyFromVertex> context,
-                ref TopologyIndex index
-            )
-                where TTopologyFromVertex : Database.ITopologyFromVertex
-            {
-                int count = 0;
-
-                for (var it = index.InputHeadConnection; it != InvalidConnection; it = context.Database[it].NextInputConnection)
-                {
-                    ref readonly var connection = ref context.Database[it];
-
-                    // skip connections not included in the flags
-                    if ((connection.TraversalFlags & context.Cache.TraversalMask) != 0)
-                        count++;
-                }
-
-                return count;
-            }
-
-            static void AddNewCacheEntry(ref MutableTopologyCache cache, TVertex node, int cacheIndex)
+            /// <returns>
+            /// The index of the cache entry
+            /// </returns>
+            static int AddNewCacheEntry(ref TraversalCache.Group group, TVertex node)
             {
                 var cacheEntry = new TraversalCache.Slot
                 {
@@ -153,69 +129,25 @@ namespace Unity.DataFlowGraph
                     ChildTableIndex = 0
                 };
 
-                cache.OrderedTraversal[(int) cacheIndex] = cacheEntry;
+                group.AddTraversalSlot(cacheEntry);
+                return group.TraversalCount - 1;
             }
 
-            static void VisitNodeCacheChildren<TTopologyFromVertex>(
+            static TraversalCache.Error BuildConnectionCache<TTopologyFromVertex>(
                 ref ComputationContext<TTopologyFromVertex> context,
-                int traversalCacheIndex,
-                ref NativeArray<VertexTools.VisitCache> visitCache,
-                ref int runningCacheIndex
+                ref TraversalCache.Group group,
+                int traversalIndex
             )
                 where TTopologyFromVertex : Database.ITopologyFromVertex
             {
-                var parentCacheEntry = context.Cache.OrderedTraversal[traversalCacheIndex];
-
-                int numOutputConnections = 0;
-
-                for (
-                    var it = context.Topologies[parentCacheEntry.Vertex].OutputHeadConnection;
-                    it != InvalidConnection;
-                    it = context.Database[it].NextOutputConnection)
-                {
-                    ref readonly var connection = ref context.Database[it];
-
-                    if ((connection.TraversalFlags & context.Cache.TraversalMask) == 0)
-                        continue;
-
-                    numOutputConnections++;
-                    var childVertex = connection.Destination;
-                    var childTopologyIndex = context.Topologies[childVertex];
-
-                    // TODO: Convert to ref returns and remove all double assignments
-                    var childVisitCache = visitCache[childTopologyIndex.VisitCacheIndex];
-
-                    if (++childVisitCache.VisitCount == childVisitCache.ParentCount)
-                    {
-                        childVisitCache.TraversalIndex = runningCacheIndex++;
-                        AddNewCacheEntry(ref context.Cache, childVertex, childVisitCache.TraversalIndex);
-                    }
-
-                    visitCache[childTopologyIndex.VisitCacheIndex] = childVisitCache;
-                }
-
-                // Root detected.
-                if (numOutputConnections == 0)
-                {
-                    context.Cache.Roots.Add(traversalCacheIndex);
-                }
-            }
-
-            static void BuildConnectionCache<TTopologyFromVertex>(
-                ref ComputationContext<TTopologyFromVertex> context,
-                ref PatchContext patchData
-            )
-                where TTopologyFromVertex : Database.ITopologyFromVertex
-            {
-                var cacheEntry = context.Cache.OrderedTraversal[patchData.CacheIndex];
+                var cacheEntry = group.IndexTraversal(traversalIndex);
                 var index = context.Topologies[cacheEntry.Vertex];
 
-                cacheEntry.ParentTableIndex = patchData.RunningParentTableIndex;
-                cacheEntry.ChildTableIndex = patchData.RunningChildTableIndex;
-
-                int count = 0;
+                cacheEntry.ParentTableIndex = group.ParentCount;
+                cacheEntry.ChildTableIndex = group.ChildCount;
 
                 uint combinedMask = context.Cache.TraversalMask | context.Cache.AlternateMask;
+
                 for (var it = index.InputHeadConnection; it != InvalidConnection; it = context.Database[it].NextInputConnection)
                 {
                     ref readonly var connection = ref context.Database[it];
@@ -224,23 +156,21 @@ namespace Unity.DataFlowGraph
                         continue;
 
                     var parentTopology = context.Topologies[connection.Source];
-                    // TODO: Shared data, won't work with multiple graphs
-                    var parentTraversalIndex = patchData.VisitCache[parentTopology.VisitCacheIndex].TraversalIndex;
 
-                    context.Cache.ParentTable.Add(new TraversalCache.Connection
+                    // TODO: Potential race condition (if groups are computed in parallel), even though it is an error
+                    if (parentTopology.GroupID != index.GroupID)
+                        return TraversalCache.Error.UnrelatedHierarchy;
+                    
+                    group.AddParent(new TraversalCache.Connection
                     {
-                        TraversalIndex = parentTraversalIndex,
+                        TraversalIndex = parentTopology.TraversalIndex,
                         InputPort = connection.DestinationInputPort,
                         OutputPort = connection.SourceOutputPort,
                         TraversalFlags = connection.TraversalFlags
                     });
-
-                    patchData.RunningParentTableIndex++;
-                    count++;
                 }
 
-                cacheEntry.ParentCount = count;
-                count = 0;
+                cacheEntry.ParentCount = group.ParentCount - cacheEntry.ParentTableIndex;
 
                 for (var it = index.OutputHeadConnection; it != InvalidConnection; it = context.Database[it].NextOutputConnection)
                 {
@@ -250,22 +180,29 @@ namespace Unity.DataFlowGraph
                         continue;
 
                     var childTopology = context.Topologies[connection.Destination];
-                    var childTraversalIndex = patchData.VisitCache[childTopology.VisitCacheIndex].TraversalIndex;
 
-                    context.Cache.ChildTable.Add(new TraversalCache.Connection
+                    // TODO: Potential race condition (if groups are computed in parallel), even though it is an error
+                    if (childTopology.GroupID != index.GroupID)
+                        return TraversalCache.Error.UnrelatedHierarchy;
+                    
+                    group.AddChild(new TraversalCache.Connection
                     {
-                        TraversalIndex = childTraversalIndex,
+                        TraversalIndex = childTopology.TraversalIndex,
                         OutputPort = connection.SourceOutputPort,
                         InputPort = connection.DestinationInputPort,
                         TraversalFlags = connection.TraversalFlags
                     });
-
-                    patchData.RunningChildTableIndex++;
-                    count++;
                 }
 
-                cacheEntry.ChildCount = count;
-                context.Cache.OrderedTraversal[patchData.CacheIndex] = cacheEntry;
+                cacheEntry.ChildCount = group.ChildCount - cacheEntry.ChildTableIndex;
+                group.IndexTraversal(traversalIndex) = cacheEntry;
+
+                // Clear temporary state from traversal computation.
+                index.Resolved = false;
+                index.CurrentlyResolving = false;
+                context.Topologies[cacheEntry.Vertex] = index;
+
+                return TraversalCache.Error.None;
             }
 
 
@@ -276,13 +213,9 @@ namespace Unity.DataFlowGraph
             {
                 // TODO: Use Auto() when Burst supports it.
                 context.Markers.ReallocateContext.Begin();
-                context.Cache.Reset(context.Vertices.Length);
+                context.Cache.ClearChangedGroups(context.Database.ChangedGroups);
+                context.Cache.Errors.Clear();
                 context.Markers.ReallocateContext.End();
-
-                // TODO: Use Auto() when Burst supports it.
-                context.Markers.BuildVisitationCache.Begin();
-                InitializeVisitCacheAndFindLeaves(ref context);
-                context.Markers.BuildVisitationCache.End();
 
                 // TODO: Use Auto() when Burst supports it.
                 context.Markers.ComputeLayout.Begin();
@@ -290,11 +223,9 @@ namespace Unity.DataFlowGraph
 
                 switch (context.Algorithm)
                 {
+                    case SortingAlgorithm.GlobalBreadthFirst:
                     case SortingAlgorithm.LocalDepthFirst:
                         error = ConnectedComponentSearch(ref context);
-                        break;
-                    default:
-                        error = MaximalParallelSearch(ref context);
                         break;
                 }
 
@@ -302,73 +233,78 @@ namespace Unity.DataFlowGraph
 
                 if (error != TraversalCache.Error.None)
                 {
-                    context.Cache.Reset(0);
-                    context.Cache.Errors.Add(error);
+                    ResetBecauseOfError(ref context, error);
                     return;
                 }
 
                 // Build connection table.
-                var patchContext = new PatchContext
-                {
-                    VisitCache = context.VisitCache
-                };
-
+                
                 // TODO: Use Auto() when Burst supports it.
                 context.Markers.BuildConnectionCache.Begin();
-                for (var i = 0; i < context.Vertices.Length; i++)
-                {
-                    patchContext.CacheIndex = i;
-                    BuildConnectionCache(ref context, ref patchContext);
-                }
+                error = RebakeFreshGroups(ref context);
                 context.Markers.BuildConnectionCache.End();
 
+                if (error != TraversalCache.Error.None)
+                {
+                    ResetBecauseOfError(ref context, error);
+                    return;
+                }
+
+                AlignGroups(ref context);
             }
 
-            static unsafe TraversalCache.Error MaximalParallelSearch<TTopologyFromVertex>(
+            static unsafe TraversalCache.Error RebakeFreshGroups<TTopologyFromVertex>(
                 ref ComputationContext<TTopologyFromVertex> context
             )
                 where TTopologyFromVertex : Database.ITopologyFromVertex
             {
-                int runningTraversalCacheIndex = 0;
-
-                // Start by adding all leaf visit caches into the traversal caches.
-                // Leaves can always be visited immediately.
-                for (var i = 0; i < context.VisitCacheLeafIndicies.Length; i++)
+                for (int g = 0; g < context.Cache.NewGroups.Length; ++g)
                 {
-                    var leafIndex = context.VisitCacheLeafIndicies[i];
+                    var translated = context.Cache.NewGroups[g];
+                    ref var group = ref context.Cache.GetGroup(translated);
 
-                    var nodeVisitCache = context.VisitCache[leafIndex];
-                    nodeVisitCache.TraversalIndex = runningTraversalCacheIndex++;
-                    AddNewCacheEntry(ref context.Cache, context.Vertices[leafIndex], nodeVisitCache.TraversalIndex);
-                    context.Cache.Leaves.Add(nodeVisitCache.TraversalIndex);
+                    for (var i = 0; i < group.TraversalCount; i++)
+                    {
+                        var error = BuildConnectionCache(ref context, ref group, i);
 
-                    context.VisitCache[leafIndex] = nodeVisitCache;
+                        if(error != TraversalCache.Error.None)
+                        {
+                            return error;
+                        }
+                    }
                 }
 
-                // Visit every node so far in the traversal cache. It will progressively get filled up as we visit
-                // every single node through their children.
-                for (var i = 0; i < context.Vertices.Length; i++)
-                {
-                    if(i >= runningTraversalCacheIndex)
-                    {
-                        // Trying to process a node that isn't yet in the traversal cache.
-                        // This can only happen if visiting all leaves and descendants did not resolve
-                        // all dependencies, ie. there is a cycle in the graph.
-                        return TraversalCache.Error.Cycles;
-                    }
+                return TraversalCache.Error.None;
+            }
 
-                    VisitNodeCacheChildren(ref context, i, ref context.VisitCache, ref runningTraversalCacheIndex);
+            /// <summary>
+            /// Heuristic of average number of nodes that should go into each island
+            /// </summary>
+            static int DefaultTargetSize(int x)
+            {
+                // Always aim to produce at least one island for each potential thread.
+                return x / JobsUtility.MaxJobThreadCount;
+            }
+
+            const int k_InvalidGroupSentinel = -1;
+
+            static ref TraversalCache.Group GetOrCreateAppropriateGroup<TTopologyFromVertex>(
+                ref ComputationContext<TTopologyFromVertex> context, int lastGroupHandle, int minimumGroupSize
+            )
+                where TTopologyFromVertex : Database.ITopologyFromVertex
+            {
+                if (lastGroupHandle != k_InvalidGroupSentinel)
+                {
+                    ref var lastGroup = ref context.Cache.GetGroup(lastGroupHandle);
+
+                    if (lastGroup.TraversalCount <= minimumGroupSize)
+                    {
+                        return ref lastGroup;
+                    }
                 }
 
-                // This algorithm only produces one island.
-                context.Cache.Islands.Add(
-                    new TraversalCache.Island
-                    {
-                        TraversalIndexOffset = 0, Count = context.Vertices.Length
-                    }
-                );
-
-                return context.Vertices.Length == runningTraversalCacheIndex ? TraversalCache.Error.None : TraversalCache.Error.Cycles;
+                // Just an arbitrary heuristic to avoid worst case memory usage all the time.
+                return ref context.Cache.AllocateGroup(Mathf.Max(2, minimumGroupSize / 4));
             }
 
             static unsafe TraversalCache.Error ConnectedComponentSearch<TTopologyFromVertex>(
@@ -376,54 +312,70 @@ namespace Unity.DataFlowGraph
             )
                 where TTopologyFromVertex : Database.ITopologyFromVertex
             {
-                int runningCacheIndex = 0, oldCacheIndex;
+                var targetMinimum = context.TargetMinimumGroupSize == -1 ? DefaultTargetSize(context.Vertices.Length) : context.TargetMinimumGroupSize;
 
-                for (int i = 0; i < context.VisitCacheLeafIndicies.Length; ++i)
+                int lastGroupHandle = k_InvalidGroupSentinel;
+
+                for (int i = 0; i < context.Vertices.Length; ++i)
                 {
-                    var visitCacheIndex = context.VisitCacheLeafIndicies[i];
+                    var current = context.Vertices[i];
+                    var index = context.Topologies[current];
 
-                    oldCacheIndex = runningCacheIndex;
-                    RecursiveDependencySearch(ref context, ref runningCacheIndex, context.Vertices[visitCacheIndex], new ConnectionHandle());
+                    if (index.Resolved)
+                        continue;
 
-                    // New nodes processed - new island
-                    if (oldCacheIndex != runningCacheIndex)
+                    // Only recompute nodes belonging to a touched area
+                    // In particular, avoids reading nodes already saved and accumulated in orphan group
+                    if (!context.Database.ChangedGroups[index.GroupID])
+                       continue;
+
+                    // Nodes with no connections go to the orphan group, to avoid a wasteland of islands.
+                    bool hasAnyConnections = (index.InputHeadConnection | index.OutputHeadConnection) != Database.InvalidConnection;
+
+                    if(hasAnyConnections)
                     {
-                        context.Cache.Islands.Add(
-                            new TraversalCache.Island
-                            {
-                                TraversalIndexOffset = oldCacheIndex, Count = runningCacheIndex - oldCacheIndex
-                            }
-                        );
+                        ref var group = ref GetOrCreateAppropriateGroup(ref context, lastGroupHandle, targetMinimum);
+                        lastGroupHandle = group.HandleToSelf;
+
+                        RecursiveDependencySearch(ref context, ref group, current, new ConnectionHandle());
+                    }
+                    else
+                    {
+                        RecursiveDependencySearch(ref context, ref context.Cache.GetOrphanGroupForAccumulation(), current, new ConnectionHandle());
                     }
                 }
 
-                return runningCacheIndex == context.Vertices.Length ? TraversalCache.Error.None : TraversalCache.Error.Cycles;
+                int collectedNodes = 0;
+                for (int g = 0; g < context.Cache.Groups.Length; ++g)
+                {
+                    collectedNodes += context.Cache.Groups[g].TraversalCount;
+                }
+
+                return collectedNodes == context.TotalNodes ? TraversalCache.Error.None : TraversalCache.Error.Cycles;
             }
 
             /// <returns>True if all dependencies were resolved, false if not.</returns>
             static bool RecursiveDependencySearch<TTopologyFromVertex>(
                 ref ComputationContext<TTopologyFromVertex> context,
-                ref int runningCacheIndex,
+                ref TraversalCache.Group group,
                 TVertex current,
                 ConnectionHandle path
             )
                 where TTopologyFromVertex : Database.ITopologyFromVertex
             {
                 var currentIndex = context.Topologies[current];
-                var visitIndex = currentIndex.VisitCacheIndex;
-                var visitCache = context.VisitCache[visitIndex];
 
                 // Resolving this node is currently in process - we can't recurse into here.
-                if (visitCache.CurrentlyResolving != 0)
+                if (currentIndex.CurrentlyResolving)
                     return false;
 
                 // Has this node already been visited?
-                if (visitCache.VisitCount != 0)
+                if (currentIndex.Resolved)
                     return true;
 
                 // Reflect to everyone else that this is now being visited - requires early store to the visit cache
-                visitCache.CurrentlyResolving++;
-                context.VisitCache[visitIndex] = visitCache;
+                currentIndex.CurrentlyResolving = true;
+                context.Topologies[current] = currentIndex;
 
                 int outputConnections = 0, inputConnections = 0;
 
@@ -443,11 +395,11 @@ namespace Unity.DataFlowGraph
                     {
                         // If we can't resolve our parents, that means our parents will get back to us at some point.
                         // This will also fail in case of cycles.
-                        if (!RecursiveDependencySearch(ref context, ref runningCacheIndex, connection.Source, it))
+                        if (!RecursiveDependencySearch(ref context, ref group, connection.Source, it))
                         {
                             // Be sure to note we are not trying to resolve this node anymore, since our parents aren't ready.
-                            visitCache.CurrentlyResolving = 0;
-                            context.VisitCache[visitIndex] = visitCache;
+                            currentIndex.CurrentlyResolving = false;
+                            context.Topologies[current] = currentIndex;
                             return false;
                         }
                     }
@@ -455,21 +407,23 @@ namespace Unity.DataFlowGraph
                 }
 
                 // No more dependencies. We can safely add this node to the traversal cache.
-                var traversalCacheIndex = runningCacheIndex++;
-                AddNewCacheEntry(ref context.Cache, current, traversalCacheIndex);
+                var traversalCacheIndex = AddNewCacheEntry(ref group, current);
 
                 // Detect leaves.
                 if (inputConnections == 0)
-                    context.Cache.Leaves.Add(traversalCacheIndex);
-
-                visitCache.ParentCount = inputConnections;
-                visitCache.TraversalIndex = traversalCacheIndex;
+                    group.AddLeaf(traversalCacheIndex);
+                
+                currentIndex.TraversalIndex = traversalCacheIndex;
                 // Reflect to everyone else that this is now visited - and can be safely referenced
-                visitCache.VisitCount++;
+                currentIndex.Resolved = true;
                 // We are not "visiting" anymore, just processing remainder nodes.
-                visitCache.CurrentlyResolving = 0;
+                currentIndex.CurrentlyResolving = false;
 
-                context.VisitCache[visitIndex] = visitCache;
+                // Update group membership. 
+                currentIndex.GroupID = group.HandleToSelf;
+                // write it back for simulation incremental changes
+                context.Topologies[current] = currentIndex;
+
 
                 for (var it = currentIndex.OutputHeadConnection; it != InvalidConnection; it = context.Database[it].NextOutputConnection)
                 {
@@ -486,44 +440,43 @@ namespace Unity.DataFlowGraph
                     {
                         // We don't have to worry about success here, since reason for abortion would be inability to completely visit ourself
                         // which is done by reaching to our parents, not our children.
-                        RecursiveDependencySearch(ref context, ref runningCacheIndex, connection.Destination, it);
+                        RecursiveDependencySearch(ref context, ref group, connection.Destination, it);
                     }
                 }
 
                 // Detect roots.
                 if (outputConnections == 0)
-                    context.Cache.Roots.Add(traversalCacheIndex);
-
-                context.VisitCache[visitIndex] = visitCache;
+                    group.AddRoot(traversalCacheIndex);
 
                 return true;
             }
 
-            static unsafe void InitializeVisitCacheAndFindLeaves<TTopologyFromVertex>(
+            static unsafe void AlignGroups<TTopologyFromVertex>(
                 ref ComputationContext<TTopologyFromVertex> context
             )
                 where TTopologyFromVertex : Database.ITopologyFromVertex
             {
+                context.Database.ChangedGroups.Resize(context.Cache.Groups.Length, NativeArrayOptions.UninitializedMemory);
+
+                for (int i = 0; i < context.Database.ChangedGroups.Length; ++i)
+                    context.Database.ChangedGroups[i] = false;
+            }
+
+            static void ResetBecauseOfError<TTopologyFromVertex>(
+                ref ComputationContext<TTopologyFromVertex> context, TraversalCache.Error error
+            )
+                where TTopologyFromVertex : Database.ITopologyFromVertex
+            {
+                context.Cache.ClearAllGroups();
+
+                context.Cache.Errors.Add(error);
+                AlignGroups(ref context);
+
+                // Reset all group IDs for simulation.
                 for (var i = 0; i < context.Vertices.Length; i++)
                 {
                     var index = context.Topologies[context.Vertices[i]];
-                    // TODO: Modifying global data
-                    // ^ Can be fixed with another temp work array of another size than visitcache
-                    index.VisitCacheIndex = i;
-
-                    var nodeVisitCache = context.VisitCache[i];
-                    nodeVisitCache.VisitCount = 0;
-                    nodeVisitCache.ParentCount = CountInputConnections(ref context, ref index);
-                    nodeVisitCache.TraversalIndex = 0;
-
-                    // No input connections?
-                    if (nodeVisitCache.ParentCount == 0)
-                    {
-                        context.VisitCacheLeafIndicies.Add(i);
-                    }
-
-                    context.VisitCache[i] = nodeVisitCache;
-
+                    index.GroupID = 0;
                     context.Topologies[context.Vertices[i]] = index;
                 }
             }

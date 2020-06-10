@@ -5,8 +5,10 @@ using NUnit.Framework;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
-using Unity.Jobs.LowLevel.Unsafe;
 using Unity.Mathematics;
+#if !UNITY_EDITOR
+using Unity.Jobs.LowLevel.Unsafe;
+#endif
 
 namespace Unity.DataFlowGraph.Tests
 {
@@ -148,28 +150,6 @@ namespace Unity.DataFlowGraph.Tests
             public void HandleMessage(in MessageContext ctx, in int msg) { }
         }
 
-        public class NodeWithNonPublicPorts : NodeDefinition<Node, NodeWithNonPublicPorts.SimPorts>, IMsgHandler<int>
-        {
-            public struct SimPorts : ISimulationPortDefinition
-            {
-                MessageInput<NodeWithNonPublicPorts, int> Input;
-                MessageOutput<NodeWithNonPublicPorts, int> Output;
-            }
-
-            public void HandleMessage(in MessageContext ctx, in int msg) { }
-        }
-
-        public class NodeWithNonPublicStaticPorts : NodeDefinition<Node, NodeWithNonPublicStaticPorts.SimPorts>, IMsgHandler<int>
-        {
-            public struct SimPorts : ISimulationPortDefinition
-            {
-                static MessageInput<NodeWithNonPublicStaticPorts, int> Input;
-                static MessageOutput<NodeWithNonPublicStaticPorts, int> Output;
-            }
-
-            public void HandleMessage(in MessageContext ctx, in int msg) { }
-        }
-
         public class NodeWithOneDataIO : NodeDefinition<Node, Data, NodeWithOneDataIO.KernelDefs, NodeWithOneDataIO.Kernel>
         {
             public struct KernelDefs : IKernelPortDefinition
@@ -209,6 +189,7 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
+        [InvalidTestNodeDefinition]
         class NodeWithMessageAndDSLPortsInIKernelPortDefinition
             : NodeDefinition<Node, Data, NodeWithMessageAndDSLPortsInIKernelPortDefinition.KernelDefs, NodeWithMessageAndDSLPortsInIKernelPortDefinition.Kernel>
                 , TestDSL
@@ -502,6 +483,7 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
+        [InvalidTestNodeDefinition]
         public class NodeWithDataPortsInSimulationPortDefinition
             : NodeDefinition<NodeWithDataPortsInSimulationPortDefinition.Node, NodeWithDataPortsInSimulationPortDefinition.SimPorts>
         {
@@ -522,38 +504,6 @@ namespace Unity.DataFlowGraph.Tests
             using (var set = new NodeSet())
             {
                 Assert.Throws<InvalidNodeDefinitionException>(() => set.Create<NodeWithDataPortsInSimulationPortDefinition>());
-            }
-        }
-
-        public class NodeWithStaticPortsInSimulationPortDefinition
-            : NodeDefinition<NodeWithStaticPortsInSimulationPortDefinition.Node, NodeWithStaticPortsInSimulationPortDefinition.SimPorts>
-            , IMsgHandler<float>
-        {
-            public struct SimPorts : ISimulationPortDefinition
-            {
-                public static MessageInput<NodeWithStaticPortsInSimulationPortDefinition, float> Input;
-                public static MessageOutput<NodeWithStaticPortsInSimulationPortDefinition, float> Output;
-            }
-
-            public struct Node : INodeData
-            {
-            }
-
-            public void HandleMessage(in MessageContext ctx, in float msg)
-            {
-            }
-        }
-
-        [Test]
-        public void NodeWithStaticPortDeclarations_InsideSimulationPortDefinition_ThrowsInvalidNodeDefinitionException()
-        {
-#if ENABLE_IL2CPP
-            Assert.Ignore("Skipping test since IL2CPP supports reflection poorly");
-#endif
-
-            using (var set = new NodeSet())
-            {
-                Assert.Throws<InvalidNodeDefinitionException>(() => set.Create<NodeWithStaticPortsInSimulationPortDefinition>());
             }
         }
 
@@ -584,28 +534,6 @@ namespace Unity.DataFlowGraph.Tests
                 Assert.AreEqual(0, func.GetPortDescription(node).Outputs.Count);
 
                 set.Destroy(node);
-            }
-        }
-
-        [Test]
-        public void NodeWithNonPublicPortDefinitions_ThrowsException()
-        {
-            using (var set = new NodeSet())
-            {
-                Assert.Throws<InvalidNodeDefinitionException>(() => set.Create<NodeWithNonPublicPorts>());
-            }
-        }
-
-        [Test]
-        public void NodeWithNonPublicStaticPortDefinitions_ThrowsException()
-        {
-#if ENABLE_IL2CPP
-            Assert.Ignore("Skipping test since IL2CPP supports reflection poorly");
-#endif
-
-            using (var set = new NodeSet())
-            {
-                Assert.Throws<InvalidNodeDefinitionException>(() => set.Create<NodeWithNonPublicStaticPorts>());
             }
         }
 
@@ -719,6 +647,24 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
+        public void ExpectPortIDs_AreAssignedIndices_BasedOnPortDeclarationOrder([ValueSource(typeof(TestUtilities), nameof(TestUtilities.FindValidTestNodes))] Type nodeType)
+        {
+            // This assumes that PortDescriptions respect port declaration order (<see cref="PortDeclarations_RespectsDeclarationOrder"/>)
+            using (var set = new NodeSet())
+            {
+                var ports = set.GetStaticPortDescriptionFromType(nodeType);
+
+                ushort portNumber = 0;
+                foreach (var input in ports.Inputs)
+                    Assert.AreEqual(portNumber++, ((InputPortID)input).Port);
+
+                portNumber = 0;
+                foreach (var output in ports.Outputs)
+                    Assert.AreEqual(portNumber++, ((OutputPortID)output).Port);
+            }
+        }
+
+        [Test]
         public void MixedPortDeclarations_RespectsDeclarationOrder()
         {
             using (var set = new NodeSet())
@@ -758,11 +704,6 @@ namespace Unity.DataFlowGraph.Tests
         [Test]
         public void PortAPIs_CorrectlyStoreTypeInformation_InPortDeclaration()
         {
-#if !UNITY_EDITOR
-            if (JobsUtility.JobCompilerEnabled)
-                Assert.Ignore("Skipping test since Burst AOT is broken for generic kernels");
-#endif
-
             using (var set = new NodeSet())
             {
                 var typeSet = new[] { typeof(int), typeof(float), typeof(double) };
@@ -831,11 +772,6 @@ namespace Unity.DataFlowGraph.Tests
         [Test]
         public void PortsAreGenerated_EvenForParametricNodeTypes()
         {
-#if !UNITY_EDITOR
-            if (JobsUtility.JobCompilerEnabled)
-                Assert.Ignore("Skipping test since Burst AOT is broken for generic kernels");
-#endif
-
             using (var set = new NodeSet())
             {
                 var node = set.Create<NodeWithParametricPortTypeIncludingDSLs<int>>();
@@ -885,60 +821,6 @@ namespace Unity.DataFlowGraph.Tests
                 Assert.AreNotEqual(NodeWithAllTypesOfPorts.KernelPorts.OutputBuffer, new DataOutput<NodeWithAllTypesOfPorts, Buffer<int>>());
 
                 set.Destroy(node);
-            }
-        }
-
-        public class KernelNodeWithStaticMembersOnKernelPorts : NodeDefinition<Node, Data, KernelNodeWithStaticMembersOnKernelPorts.KernelDefs, KernelNodeWithStaticMembersOnKernelPorts.Kernel>
-        {
-            public struct KernelDefs : IKernelPortDefinition
-            {
-                public DataInput<KernelNodeWithStaticMembersOnKernelPorts, int> Input1;
-                public DataOutput<KernelNodeWithStaticMembersOnKernelPorts, int> Output2;
-                public static int s_InvalidStatic;
-            }
-
-            [BurstCompile(CompileSynchronously = true)]
-            public struct Kernel : IGraphKernel<Data, KernelDefs>
-            {
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports) { }
-            }
-        }
-
-        [Test]
-        public void KernelPortStructures_CannotHaveStaticMembers()
-        {
-#if ENABLE_IL2CPP
-            Assert.Ignore("Skipping test since IL2CPP supports reflection poorly");
-#endif
-
-            using (var set = new NodeSet())
-            {
-                Assert.Throws<InvalidNodeDefinitionException>(() => set.Create<KernelNodeWithStaticMembersOnKernelPorts>());
-            }
-        }
-
-        public class KernelNodeWithNonPublicMembersOnKernelPorts : NodeDefinition<Node, Data, KernelNodeWithNonPublicMembersOnKernelPorts.KernelDefs, KernelNodeWithNonPublicMembersOnKernelPorts.Kernel>
-        {
-            public struct KernelDefs : IKernelPortDefinition
-            {
-                public DataInput<KernelNodeWithStaticMembersOnKernelPorts, int> Input1;
-                public DataOutput<KernelNodeWithStaticMembersOnKernelPorts, int> Output1;
-                int s_InvalidMember;
-            }
-
-            [BurstCompile(CompileSynchronously = true)]
-            public struct Kernel : IGraphKernel<Data, KernelDefs>
-            {
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports) { }
-            }
-        }
-
-        [Test]
-        public void KernelPortStructures_CannotHaveNonPublicMembers()
-        {
-            using (var set = new NodeSet())
-            {
-                Assert.Throws<InvalidNodeDefinitionException>(() => set.Create<KernelNodeWithNonPublicMembersOnKernelPorts>());
             }
         }
 
@@ -998,38 +880,6 @@ namespace Unity.DataFlowGraph.Tests
                 Assert.AreEqual((OutputPortID)desc.Outputs[3], (OutputPortID)NodeWithAllTypesOfPorts.KernelPorts.OutputScalar);
 
                 set.Destroy(node);
-            }
-        }
-
-        public class NodeWithNonPortTypes_InSimulationPortDefinition : NodeDefinition<Node, NodeWithNonPortTypes_InSimulationPortDefinition.PortDefinition>
-        {
-            public struct PortDefinition : ISimulationPortDefinition
-            {
-                public int InvalidMember;
-            }
-        }
-
-        public class NodeWithNonPortTypes_InKernelPortDefinition : NodeDefinition<Node, Data, NodeWithNonPortTypes_InKernelPortDefinition.KernelDefs, NodeWithNonPortTypes_InKernelPortDefinition.Kernel>
-        {
-            public struct KernelDefs : IKernelPortDefinition
-            {
-                public int InvalidMember;
-            }
-
-            [BurstCompile(CompileSynchronously = true)]
-            public struct Kernel : IGraphKernel<Data, KernelDefs>
-            {
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports) { }
-            }
-        }
-
-        [Test]
-        public void NodeWithNonPortTypeDeclarations_InPortDefinition_ThrowsException()
-        {
-            using (var set = new NodeSet())
-            {
-                Assert.Throws<InvalidNodeDefinitionException>(() => set.Create<NodeWithNonPortTypes_InSimulationPortDefinition>());
-                Assert.Throws<InvalidNodeDefinitionException>(() => set.Create<NodeWithNonPortTypes_InKernelPortDefinition>());
             }
         }
     }

@@ -25,12 +25,16 @@ namespace Unity.DataFlowGraph
         public ConnectionHandle InputHeadConnection;
         public ConnectionHandle OutputHeadConnection;
 
-        // TODO: Remove; see usage in TopologyCacheAPI
-        // The reason this exists here is that the topology cache manager
-        // always needs O(N) scratch space, where N != absolute amount of nodes.
-        // So if you compute topology for 5 nodes, it may still need 10000 scratch space
-        // (however will only touch 5 of those indices).
-        public int VisitCacheIndex;
+        // TODO: Notify about node death, to trigger a recomputation of the group?
+        // Usually, a node has connections so a group version increase is implied when
+        // destroying it. Alternatively, if it doesn't have any, it's a member of the orphan group.
+        // The orphan group *still* needs to be recomputed, though...
+        internal int GroupID;
+
+        // TODO: Protect
+        internal int TraversalIndex;
+        internal bool Resolved;
+        internal bool CurrentlyResolving;
     }
 
     static partial class TopologyAPI<TVertex, TInputPort, TOutputPort>
@@ -55,7 +59,7 @@ namespace Unity.DataFlowGraph
             public bool Valid;
         }
 
-        public partial struct Database
+        public partial struct Database : IDisposable
         {
             /// <summary>
             /// Interface that can resolve a <see cref="TopologyIndex"/> from an <typeparamref name="TVertex"/>.
@@ -66,6 +70,8 @@ namespace Unity.DataFlowGraph
                 // TODO: Would be lovely if we could ref-return here, but this is incompatible with ComponentDataFromEntity
                 TopologyIndex this[TVertex vertex] { get; set; }
             }
+            
+            internal const int OrphanGroupID = 0;
 
             /// <summary>
             /// Any valid <see cref="ConnectionHandle"/> will compare unequal against this constant.
@@ -135,6 +141,7 @@ namespace Unity.DataFlowGraph
             // TODO: Use FreeList once it supports constructed generics.
             BlitList<int> m_FreeConnections;
 
+            internal NativeList<bool> ChangedGroups;
             public Database(int capacity, Allocator allocator)
             {
                 m_SizeOf = UnsafeUtility.SizeOf<Connection>();
@@ -143,12 +150,33 @@ namespace Unity.DataFlowGraph
                 m_Conns.Add(new Connection());
                 m_FreeConnections = new BlitList<int>(0, allocator);
                 m_FreeConnections.Reserve(capacity);
+                ChangedGroups = new NativeList<bool>(1, allocator);
+                ChangedGroups.Add(default);
             }
 
             public void Dispose()
             {
                 m_Conns.Dispose();
                 m_FreeConnections.Dispose();
+                ChangedGroups.Dispose();
+            }
+
+            public bool DidChange(int groupID) => ChangedGroups[groupID];
+
+            // TODO: Kind of hackish, this can be derived from the graph diff. But then it's not a general purpose 
+            // solution (can't use the incremental system without our graph diff).
+            public void VertexDeleted<TTopologyFromVertex>(ref TTopologyFromVertex topologyResolver, TVertex vertex)
+                where TTopologyFromVertex : ITopologyFromVertex
+            {
+                ChangedGroups[topologyResolver[vertex].GroupID] = true;
+            }
+
+            // TODO: Kind of hackish, this can be derived from the graph diff. But then it's not a general purpose 
+            // solution (can't use the incremental system without our graph diff).
+            public void VertexCreated<TTopologyFromVertex>(ref TTopologyFromVertex topologyResolver, TVertex vertex)
+                where TTopologyFromVertex : ITopologyFromVertex
+            {
+                ChangedGroups[topologyResolver[vertex].GroupID] = true;
             }
 
             /// <summary>
@@ -184,6 +212,10 @@ namespace Unity.DataFlowGraph
 
                 destTopology.InputHeadConnection = connHandle;
                 sourceTopology.OutputHeadConnection = connHandle;
+
+                // TODO: Merge?
+                ChangedGroups[destTopology.GroupID] = true;
+                ChangedGroups[sourceTopology.GroupID] = true;
 
                 topologyResolver[source] = sourceTopology;
                 topologyResolver[dest] = destTopology;
@@ -364,6 +396,11 @@ namespace Unity.DataFlowGraph
                     throw new InvalidOperationException(
                         "Internal list structure invalid; connection handle not found in any heads");
 
+                // TODO: disjoint?
+                // Notifying about dest topology is not needed, since they were 
+                // connected they are by definition a part of the same group (may not hold in the future)
+                ChangedGroups[sourceTopology.GroupID] = true;
+                
                 // everything good
                 ReleaseConnection(connection.HandleToSelf);
             }

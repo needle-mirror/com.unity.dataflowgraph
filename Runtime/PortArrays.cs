@@ -52,11 +52,9 @@ namespace Unity.DataFlowGraph
             return input.Port;
         }
 
-        PortArray(void* ptr, ushort size, InputPortID port)
+        internal static PortArray<TInputPort> Create(InputPortID port)
         {
-            Ptr = ptr;
-            Size = size;
-            Port = port;
+            return new PortArray<TInputPort>(null, 0, port);
         }
 
         internal ref TInputPort this[ushort i]
@@ -111,6 +109,13 @@ namespace Unity.DataFlowGraph
             where TType : struct
         {
             Resize(ref portArray, 0, null, allocator);
+        }
+
+        PortArray(void* ptr, ushort size, InputPortID port)
+        {
+            Ptr = ptr;
+            Size = size;
+            Port = port;
         }
     }
 #pragma warning restore 660, 661

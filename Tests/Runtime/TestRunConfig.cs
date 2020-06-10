@@ -20,7 +20,6 @@ namespace Unity.DataFlowGraph.Tests
     {
         static readonly string ForceIL2CPPBuildEnvVar = "FORCE_DFG_CI_IL2CPP_BUILD";
         static readonly string ForceBurstCompileEnvVar = "FORCE_DFG_CI_BURST_COMPILE";
-        static readonly string ForceWarningsAsErrorsEnvVar = "FORCE_DFG_CI_WARNINGS_AS_ERRORS";
         static readonly string ForceSamplesImportEnvVar = "FORCE_DFG_CI_SAMPLES_IMPORT";
         static readonly string ForceDFGInternalAssertionsEnvVar = "FORCE_DFG_INTERNAL_ASSERTIONS";
 
@@ -45,8 +44,6 @@ namespace Unity.DataFlowGraph.Tests
         static bool? ForceIL2CPPBuild => GetEnvVarEnabled(ForceIL2CPPBuildEnvVar);
 
         static bool? ForceBurstCompile => GetEnvVarEnabled(ForceBurstCompileEnvVar);
-
-        static bool? ForceWarningsAsErrors => GetEnvVarEnabled(ForceWarningsAsErrorsEnvVar);	
 
         static bool? ForceSamplesImport => GetEnvVarEnabled(ForceSamplesImportEnvVar);
 
@@ -227,8 +224,6 @@ namespace Unity.DataFlowGraph.Tests
                     File.WriteAllText(Path.Combine(importedSamplesRoot, "Samples.asmdef"), SamplesAsmDefText);
                     needAssetDBRefresh = true;
                 }
-                if (ForceWarningsAsErrors != null)
-                    needAssetDBRefresh |= EnableWarningsAsErrorsForAssembliesInPath(importedSamplesRoot, (bool) ForceWarningsAsErrors);
             }
 
             if (ForceDFGInternalAssertions != null)
@@ -250,57 +245,15 @@ namespace Unity.DataFlowGraph.Tests
                 }
             }
 
-            if (ForceWarningsAsErrors != null)
-            {
-                var thisPkg = PackageManager.PackageInfo.FindForAssembly(Assembly.GetExecutingAssembly());
-                needAssetDBRefresh |= EnableWarningsAsErrorsForAssembliesInPath(thisPkg.resolvedPath, (bool) ForceWarningsAsErrors);
-            }
-
             if (needAssetDBRefresh)
                 AssetDatabase.Refresh();
-        }
-
-        static bool EnableWarningsAsErrorsForAssembliesInPath(string path, bool enable)
-        {
-            bool requiresAssetDBRefresh = false;
-
-            var preprocessorConfigs = Directory.EnumerateFiles(path, "*.asmdef", SearchOption.AllDirectories)
-                .Where(d => !d.Contains(Path.Combine("", ".Editor", "")))
-                .Select(d => Path.Combine(Path.GetDirectoryName(d), "csc.rsp"));
-
-            foreach (var preprocessorConfig in preprocessorConfigs)
-            {
-                if (!File.Exists(preprocessorConfig) || new FileInfo(preprocessorConfig).Length == 0)
-                {
-                    if (enable)
-                    {
-                        File.WriteAllText(preprocessorConfig, "-warnaserror+");
-                        requiresAssetDBRefresh = true;
-                    }
-                }
-                else if (File.ReadAllText(preprocessorConfig) == "-warnaserror+")
-                {
-                    if (!enable)
-                    {
-                        File.WriteAllText(preprocessorConfig, "");
-                        requiresAssetDBRefresh = true;
-                    }
-                }
-                else
-                {
-                    throw new InvalidOperationException(
-                        "Preprocessor config already exists but does not include \"Warnings as Errors\"");
-                }
-            }
-
-            return requiresAssetDBRefresh;
         }
 #endif // UNITY_EDITOR
 
         public void Setup()
         {
 #if UNITY_EDITOR
-            foreach (var envVar in new[] {ForceIL2CPPBuildEnvVar, ForceBurstCompileEnvVar, ForceWarningsAsErrorsEnvVar, ForceSamplesImportEnvVar, ForceDFGInternalAssertionsEnvVar})
+            foreach (var envVar in new[] {ForceIL2CPPBuildEnvVar, ForceBurstCompileEnvVar, ForceSamplesImportEnvVar, ForceDFGInternalAssertionsEnvVar})
             {
                 BakeEnvVarToBuild(envVar);
             }

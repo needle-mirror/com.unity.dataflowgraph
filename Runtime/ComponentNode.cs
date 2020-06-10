@@ -428,12 +428,7 @@ namespace Unity.DataFlowGraph
                 JITPorts.Resize(0);
             }
         }
-
-        protected internal override NodeTraitsBase BaseTraits => m_Traits;
-
-        NodeTraits<NodeData, KernelData, KernelDefs, GraphKernel>
-            m_Traits = new NodeTraits<NodeData, KernelData, KernelDefs, GraphKernel>();
-
+        
         static PortDescription ZeroPorts => new PortDescription
         {
             Inputs = new List<PortDescription.InputPort>(),
@@ -441,7 +436,7 @@ namespace Unity.DataFlowGraph
         };
 
         // Needed for reflection pick-up.
-        internal static KernelDefs s_KernelPorts;
+        public static readonly KernelDefs KernelPorts;
 
         // TODO: Use API on KernelLayout
         internal static unsafe ref KernelData GetEntityData(RenderKernelFunction.BaseData* data)
@@ -485,9 +480,9 @@ namespace Unity.DataFlowGraph
             return ZeroPorts;
         }
 
-        unsafe protected internal override void Destroy(NodeHandle handle)
+        unsafe protected internal override void Destroy(DestroyContext ctx)
         {
-            var contents = m_Traits.GetKernelData(handle);
+            var contents = Set.GetKernelData<KernelData>(ctx.Handle);
 
 #if DFG_ASSERTIONS
             if (contents.Entity == default || contents.EntityStore == default)
@@ -585,7 +580,9 @@ namespace Unity.DataFlowGraph
 
                 ref var kernelData = ref GetSimulationSide_KernelData(node);
                 kernelData.Entity = entity;
+#pragma warning disable 618 // 'EntityManager.EntityComponentStore' is obsolete: 'This is slow. Use The EntityDataAccess directly in new code.'
                 kernelData.EntityStore = world.EntityManager.EntityComponentStore;
+#pragma warning restore 618
                 
                 return new NodeHandle<ComponentNode>(node.VHandle);
             }

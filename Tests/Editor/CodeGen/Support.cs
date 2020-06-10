@@ -132,7 +132,7 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
 
         internal static LiveAssemblyDefinitionPair LoadDFGTestsAssembly()
         {
-            var testAssembly = typeof(NodeWithAllTypesOfPorts).Assembly;
+            var testAssembly = typeof(BasicAPITests).Assembly;
             return new LiveAssemblyDefinitionPair
                 {DotNetAssembly = testAssembly, CecilAssembly = LoadArbitraryAssemblyInternal(testAssembly)};
         }

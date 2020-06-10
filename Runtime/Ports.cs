@@ -202,6 +202,7 @@ namespace Unity.DataFlowGraph
             Storage = storage;
         }
     }
+
     /// <summary>
     /// Declaration of a specific message input connection port for a given node type.
     ///
@@ -234,6 +235,11 @@ namespace Unity.DataFlowGraph
         {
             return input.Port;
         }
+
+        internal static MessageInput<TDefinition, TMsg> Create(InputPortID port)
+        {
+            return new MessageInput<TDefinition, TMsg> { Port = port };
+        }
     }
 
     /// <summary>
@@ -253,6 +259,11 @@ namespace Unity.DataFlowGraph
         public static explicit operator OutputPortID(MessageOutput<TDefinition, TMsg> output)
         {
             return output.Port;
+        }
+
+        internal static MessageOutput<TDefinition, TMsg> Create(OutputPortID port)
+        {
+            return new MessageOutput<TDefinition, TMsg> { Port = port };
         }
     }
 
@@ -288,6 +299,11 @@ namespace Unity.DataFlowGraph
         {
             return input.Port;
         }
+
+        internal static DSLInput<TNodeDefinition, TDSLDefinition, IDSL> Create(InputPortID port)
+        {
+            return new DSLInput<TNodeDefinition, TDSLDefinition, IDSL> { Port = port };
+        }
     }
 
     /// <summary>
@@ -321,6 +337,11 @@ namespace Unity.DataFlowGraph
         public static explicit operator OutputPortID(DSLOutput<TNodeDefinition, TDSLDefinition, IDSL> output)
         {
             return output.Port;
+        }
+
+        internal static DSLOutput<TNodeDefinition, TDSLDefinition, IDSL> Create(OutputPortID port)
+        {
+            return new DSLOutput<TNodeDefinition, TDSLDefinition, IDSL> { Port = port };
         }
     }
 
@@ -379,6 +400,11 @@ namespace Unity.DataFlowGraph
             Port = port;
         }
 
+        internal static DataInput<TDefinition, TType> Create(InputPortID port)
+        {
+            return new DataInput<TDefinition, TType>(null, port);
+        }
+
         TType Value => Ptr != null ? Unsafe.AsRef<TType>(Ptr) : default;
     }
 
@@ -405,6 +431,11 @@ namespace Unity.DataFlowGraph
         public static explicit operator OutputPortID(DataOutput<TDefinition, TType> output)
         {
             return output.Port;
+        }
+
+        internal static DataOutput<TDefinition, TType> Create(OutputPortID port)
+        {
+            return new DataOutput<TDefinition, TType>{ m_Value = default, Port = port };
         }
     }
 

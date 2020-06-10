@@ -56,9 +56,9 @@ namespace Unity.DataFlowGraph.Tour
             /*
              * Similarly, we can do custom destruction for a node by overriding Destroy().
              */
-            protected override void Destroy(NodeHandle handle)
+            protected override void Destroy(DestroyContext ctx)
             {
-                var data = GetNodeData(handle);
+                var data = GetNodeData(ctx.Handle);
                 Debug.Log($"Destroyed node number: {data.NodeNumber}");
             }
 

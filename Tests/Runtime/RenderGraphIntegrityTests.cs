@@ -82,7 +82,7 @@ namespace Unity.DataFlowGraph.Tests
                 var knodes = set.DataGraph.GetInternalData();
 
                 Assert.GreaterOrEqual(knodes.Count, 3);
-                Assert.AreEqual(3, graph.m_ExistingNodes);
+                Assert.AreEqual(3, graph.m_NumExistingNodes);
 
                 ref var ak = ref knodes[a.VHandle.Index];
                 ref var bk = ref knodes[b.VHandle.Index];

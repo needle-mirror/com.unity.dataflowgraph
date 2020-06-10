@@ -480,9 +480,9 @@ namespace Unity.DataFlowGraph.Tests
                 ctx.ForwardOutput(KernelPorts.ForwardedDataOutputSum, data.Child, ArrayIONode.KernelPorts.SumInt);
             }
 
-            protected internal override void Destroy(NodeHandle handle)
+            protected internal override void Destroy(DestroyContext ctx)
             {
-                Set.Destroy(GetNodeData(handle).Child);
+                Set.Destroy(GetNodeData(ctx.Handle).Child);
             }
 
             public void HandleMessage(in MessageContext ctx, in int msg)

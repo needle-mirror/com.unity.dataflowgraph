@@ -27,17 +27,16 @@ To install this package, follow the instructions in the [Package Manager documen
 
 This version of DataFlowGraph package is compatible with the following versions of the Unity Editor:
 
-* 2019.3 and later (recommended)
+* 2019.3 and later
 
 
 ## Known limitations
 
-DataFlowGraph version 0.13 includes the following known limitations:
+DataFlowGraph version 0.15 includes the following known limitations:
 
 * The DataFlowGraph package is an experimental feature 
 * This version of DataFlowGraph consists of features that mainly cater to the needs of DOTS Animation
 * _GetNodeData_ for incompatibly typed node handles may return incorrect results
-* Default initialized port definitions/IDs may currently be valid
 * There is currently no support for port forwarding to multiple nodes
 
 ## Scripting defines
@@ -59,5 +58,6 @@ DataFlowGraph version 0.13 includes the following known limitations:
  
 |Date|Reason|
 |---|---|
+|May 29, 2020|Updated known limitations.|
 |February 13, 2020|Added scripting define usages, updated known limitations.|
 |August 30, 2019|Unedited. Published to package.|

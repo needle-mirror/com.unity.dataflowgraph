@@ -12,6 +12,8 @@ namespace Unity.DataFlowGraph.Tests
         class TestNode : NodeDefinition<EmptyPorts> {}
 
         class TestNode2 : NodeDefinition<EmptyPorts> {}
+
+        [InvalidTestNodeDefinition]
         class TestNode_WithThrowingConstructor : NodeDefinition<EmptyPorts>
         {
             public TestNode_WithThrowingConstructor() => throw new NotImplementedException();
@@ -157,7 +159,7 @@ namespace Unity.DataFlowGraph.Tests
         {
             new NodeSet();
 
-            LogAssert.Expect(LogType.Error, "Leaked NodeSet - remember to call .Dispose() on it!");
+            LogAssert.Expect(LogType.Error, "A Native Collection has not been disposed, resulting in a memory leak");
             GC.Collect();
             // TODO: Indeterministic, need a better way of catching these logs
             Thread.Sleep(1000);
@@ -167,9 +169,9 @@ namespace Unity.DataFlowGraph.Tests
         public void NodeSetDisposition_CanBeQueried()
         {
             var set = new NodeSet();
-            Assert.IsFalse(set.IsDisposed());
+            Assert.IsTrue(set.IsCreated);
             set.Dispose();
-            Assert.IsTrue(set.IsDisposed());
+            Assert.IsFalse(set.IsCreated);
         }
 
         [Test]
@@ -347,7 +349,7 @@ namespace Unity.DataFlowGraph.Tests
 
         class ExceptionInDestructor : NodeDefinition<EmptyPorts>
         {
-            protected internal override void Destroy(NodeHandle handle)
+            protected internal override void Destroy(DestroyContext ctx)
             {
                 throw new TestException();
             }

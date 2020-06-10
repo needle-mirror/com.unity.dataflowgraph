@@ -59,7 +59,7 @@ namespace Unity.DataFlowGraph
         /// node definition.
         /// </summary>
         protected internal NodeSet Set { get; internal set; }
-        protected internal abstract NodeTraitsBase BaseTraits { get; }
+        internal virtual NodeTraitsBase BaseTraits { get { throw new NotImplementedException(); } }
 
         internal PortDescription AutoPorts;
 
@@ -88,7 +88,7 @@ namespace Unity.DataFlowGraph
         /// <remarks>
         /// It is undefined behaviour to throw an exception from this method.
         /// </remarks>
-        protected internal virtual void Destroy(NodeHandle handle) { }
+        protected internal virtual void Destroy(DestroyContext ctx) { }
         /// <summary>
         /// Called when disposing a <see cref="NodeSet"/>.
         /// <seealso cref="NodeSet.Dispose()"/>
@@ -177,7 +177,7 @@ namespace Unity.DataFlowGraph
             ports.ComponentTypes = new List<ComponentType>();
 
             var type = GetType();
-            var fields = type.GetFields(BindingFlags.Static | BindingFlags.FlattenHierarchy | BindingFlags.NonPublic);
+            var fields = type.GetFields(BindingFlags.Static | BindingFlags.FlattenHierarchy | BindingFlags.Public);
 
             FieldInfo simulationPortDefinition = null, kernelPortDefinition = null;
 
@@ -261,34 +261,23 @@ namespace Unity.DataFlowGraph
 
                 var genericType = generics[1];
 
-                var portIDFieldInfo = qualifiedSimFieldType.GetField("Port", BindingFlags.Instance | BindingFlags.NonPublic);
-                var portFieldValue = fieldInfo.GetValue(topLevelFieldValue);
-
                 if (isSimulation)
                 {
                     if (genericField == typeof(MessageInput<,>))
                     {
-                        var portNumber = (ushort)description.Inputs.Count;
-                        description.Inputs.Add(PortDescription.InputPort.Message(genericType, portNumber, isPortArray, fieldInfo.Name));
-                        portIDFieldInfo.SetValue(portFieldValue, new InputPortID(new PortStorage(portNumber)));
+                        description.Inputs.Add(PortDescription.InputPort.Message(genericType, (ushort)description.Inputs.Count, isPortArray, fieldInfo.Name));
                     }
                     else if (genericField == typeof(MessageOutput<,>))
                     {
-                        var portNumber = (ushort)description.Outputs.Count;
-                        description.Outputs.Add(PortDescription.OutputPort.Message(genericType, portNumber, fieldInfo.Name));
-                        portIDFieldInfo.SetValue(portFieldValue, new OutputPortID(new PortStorage(portNumber)));
+                        description.Outputs.Add(PortDescription.OutputPort.Message(genericType, (ushort)description.Outputs.Count, fieldInfo.Name));
                     }
                     else if (genericField == typeof(DSLInput<,,>))
                     {
-                        var portNumber = (ushort)description.Inputs.Count;
-                        description.Inputs.Add(PortDescription.InputPort.DSL(genericType, portNumber, fieldInfo.Name));
-                        portIDFieldInfo.SetValue(portFieldValue, new InputPortID(new PortStorage(portNumber)));
+                        description.Inputs.Add(PortDescription.InputPort.DSL(genericType, (ushort)description.Inputs.Count, fieldInfo.Name));
                     }
                     else if (genericField == typeof(DSLOutput<,,>))
                     {
-                        var portNumber = (ushort)description.Outputs.Count;
-                        description.Outputs.Add(PortDescription.OutputPort.DSL(genericType, portNumber, fieldInfo.Name));
-                        portIDFieldInfo.SetValue(portFieldValue, new OutputPortID(new PortStorage(portNumber)));
+                        description.Outputs.Add(PortDescription.OutputPort.DSL(genericType, (ushort)description.Outputs.Count, fieldInfo.Name));
                     }
                     else
                     {
@@ -319,19 +308,16 @@ namespace Unity.DataFlowGraph
                                 description.ComponentTypes.Add(new ComponentType(bufferType, ComponentType.AccessMode.ReadOnly));
                             }
                         }
-                                                
-                        var portNumber = (ushort)description.Inputs.Count;
 
                         description.Inputs.Add(
                             PortDescription.InputPort.Data(
                                 genericType, 
-                                portNumber, 
+                                (ushort)description.Inputs.Count, 
                                 hasBuffers, 
                                 isPortArray,
                                 fieldInfo.Name
                             )
                         );
-                        portIDFieldInfo.SetValue(portFieldValue, new InputPortID(new PortStorage(portNumber)));
                     }
                     else if (genericField == typeof(DataOutput<,>))
                     {
@@ -361,17 +347,14 @@ namespace Unity.DataFlowGraph
                             }
                         }
 
-                        var portNumber = (ushort)description.Outputs.Count;
-
                         description.Outputs.Add(
                             PortDescription.OutputPort.Data(
                                 genericType, 
-                                portNumber, 
+                                (ushort)description.Outputs.Count, 
                                 bufferInfos, 
                                 fieldInfo.Name
                             )
                         );
-                        portIDFieldInfo.SetValue(portFieldValue, new OutputPortID(new PortStorage(portNumber)));
                     }
                     else
                     {
@@ -382,13 +365,53 @@ namespace Unity.DataFlowGraph
                 // The first generic for Message/Data/DSLInput/Output is the NodeDefinition class
                 if (generics[0] != nodeType)
                     throw new InvalidNodeDefinitionException($"Port definition references incorrect NodeDefinition class {generics[0]}");
-
-                fieldInfo.SetValue(topLevelFieldValue, portFieldValue);
             }
+        }
+    }
 
-            staticTopLevelField.SetValue(null, topLevelFieldValue);
+    /// <summary>
+    /// Extra PortDefinition interface synthesized onto all <see cref="ISimulationPortDefinition"/> and
+    /// <see cref="IKernelPortDefinition"/> types during ILPP to offer a way to initialize those user defined types.
+    /// </summary>
+    interface IPortDefinitionInitializer
+    {
+        void DFG_CG_Initialize(ushort uniqueInputPort, ushort uniqueOutputPort);
+        ushort DFG_CG_GetInputPortCount();
+        ushort DFG_CG_GetOutputPortCount();
+    }
 
-            
+    static class PortInitUtility
+    {
+        public static TPortDefinition GetInitializedPortDef<TPortDefinition>()
+            where TPortDefinition : struct
+        {
+            // This body is replaced with the contents of GetInitializedPortDefImp during ILPP.
+            throw new NotImplementedException();
+        }
+
+        internal static TPortDefinition GetInitializedPortDefImp<TPortDefinition>()
+            where TPortDefinition : struct, IPortDefinitionInitializer
+        {
+            var ret = default(TPortDefinition);
+            ret.DFG_CG_Initialize(0, 0);
+            return ret;
+        }
+
+        public static TPortDefinition GetInitializedPortDef<TPortDefinition, TOtherPortDefinition>()
+            where TPortDefinition : struct
+            where TOtherPortDefinition : struct
+        {
+            // This body is replaced with the contents of GetInitializedPortDefImp during ILPP.
+            throw new NotImplementedException();
+        }
+
+        internal static TPortDefinition GetInitializedPortDefImp<TPortDefinition, TOtherPortDefinition>()
+            where TPortDefinition : struct, IPortDefinitionInitializer
+            where TOtherPortDefinition : struct, IPortDefinitionInitializer
+        {
+            var ret = default(TPortDefinition);
+            ret.DFG_CG_Initialize(default(TOtherPortDefinition).DFG_CG_GetInputPortCount(), default(TOtherPortDefinition).DFG_CG_GetOutputPortCount());
+            return ret;
         }
     }
 
@@ -408,8 +431,8 @@ namespace Unity.DataFlowGraph
         /// declaration of a node's <see cref="NodeDefinition{TNodeData,TSimulationPortDefinition}"/> or other variant.
         /// <seealso cref="NodeSet.Connect(NodeHandle, OutputPortID, NodeHandle, InputPortID)"/>
         /// </summary>
-        public static ref readonly TSimulationPortDefinition SimulationPorts => ref s_SimulationPorts;
-        internal static TSimulationPortDefinition s_SimulationPorts;
+        public static readonly TSimulationPortDefinition SimulationPorts =
+            PortInitUtility.GetInitializedPortDef<TSimulationPortDefinition>();
     }
 
     /// <summary>
@@ -429,8 +452,8 @@ namespace Unity.DataFlowGraph
         /// <seealso cref="NodeSet.Connect(NodeHandle, OutputPortID, NodeHandle, InputPortID)"/>
         /// <seealso cref="IGraphKernel{TKernelData, TKernelPortDefinition}"/>
         /// </summary>
-        public static ref readonly TKernelPortDefinition KernelPorts => ref s_KernelPorts;
-        internal static TKernelPortDefinition s_KernelPorts;
+        public static readonly TKernelPortDefinition KernelPorts =
+            PortInitUtility.GetInitializedPortDef<TKernelPortDefinition>();
     }
 
     /// <summary>
@@ -451,8 +474,8 @@ namespace Unity.DataFlowGraph
         /// <seealso cref="NodeSet.Connect(NodeHandle, OutputPortID, NodeHandle, InputPortID)"/>
         /// <seealso cref="IGraphKernel{TKernelData, TKernelPortDefinition}"/>
         /// </summary>
-        public static ref readonly TKernelPortDefinition KernelPorts => ref s_KernelPorts;
-        internal static TKernelPortDefinition s_KernelPorts;
+        public static readonly TKernelPortDefinition KernelPorts =
+            PortInitUtility.GetInitializedPortDef<TKernelPortDefinition, TSimulationPortDefinition>();
     }
 
     /// <summary>
@@ -463,8 +486,6 @@ namespace Unity.DataFlowGraph
         : SimulationNodeDefinition<TSimulationPortDefinition>
             where TSimulationPortDefinition : struct, ISimulationPortDefinition
     {
-        NodeTraits<TSimulationPortDefinition> Traits = new NodeTraits<TSimulationPortDefinition>();
-        protected internal sealed override NodeTraitsBase BaseTraits => Traits;
     }
 
     /// <summary>
@@ -476,13 +497,10 @@ namespace Unity.DataFlowGraph
             where TNodeData : struct, INodeData
             where TSimulationPortDefinition : struct, ISimulationPortDefinition
     {
-        NodeTraits<TNodeData, TSimulationPortDefinition> Traits = new NodeTraits<TNodeData, TSimulationPortDefinition>();
-        protected internal sealed override NodeTraitsBase BaseTraits => Traits;
-
         /// <summary>
         /// Helper around <see cref="NodeTraits{TNodeData, TSimPorts}.GetNodeData(NodeHandle)"/>.
         /// </summary>
-        protected ref TNodeData GetNodeData(NodeHandle handle) => ref Traits.GetNodeData(handle);
+        protected ref TNodeData GetNodeData(NodeHandle handle) => ref Set.GetNodeData<TNodeData>(handle);
     }
 
     /// <summary>
@@ -495,13 +513,10 @@ namespace Unity.DataFlowGraph
             where TKernelPortDefinition : struct, IKernelPortDefinition
             where TKernel : struct, IGraphKernel<TKernelData, TKernelPortDefinition>
     {
-        NodeTraits<TKernelData, TKernelPortDefinition, TKernel> Traits = new NodeTraits<TKernelData, TKernelPortDefinition, TKernel>();
-        protected internal sealed override NodeTraitsBase BaseTraits => Traits;
-
         /// <summary>
         /// Helper around <see cref="NodeTraits{TKernelData, TKernelPortDefinition, TKernel}.GetKernelData(NodeHandle)"/>.
         /// </summary>
-        protected ref TKernelData GetKernelData(NodeHandle handle) => ref Traits.GetKernelData(handle);
+        protected ref TKernelData GetKernelData(NodeHandle handle) => ref Set.GetKernelData<TKernelData>(handle);
     }
 
     /// <summary>
@@ -516,18 +531,15 @@ namespace Unity.DataFlowGraph
             where TKernelPortDefinition : struct, IKernelPortDefinition
             where TKernel : struct, IGraphKernel<TKernelData, TKernelPortDefinition>
     {
-        NodeTraits<TNodeData, TSimulationPortDefinition, TKernelData, TKernelPortDefinition, TKernel> Traits = new NodeTraits<TNodeData, TSimulationPortDefinition, TKernelData, TKernelPortDefinition, TKernel>();
-        protected internal sealed override NodeTraitsBase BaseTraits => Traits;
+        /// <summary>
+        /// Helper around <see cref="NodeTraits{TNodeData, TKernelData, TKernelPortDefinition, TKernel}.GetNodeData(NodeHandle)"/>.
+        /// </summary>
+        protected ref TNodeData GetNodeData(NodeHandle handle) => ref Set.GetNodeData<TNodeData>(handle);
 
         /// <summary>
-        /// Helper around <see cref="NodeTraits{TNodeData, TSimPorts, TKernelData, TKernelPortDefinition, TKernel}.GetNodeData(NodeHandle)"/>.
+        /// Helper around <see cref="NodeTraits{TNodeData, TKernelData, TKernelPortDefinition, TKernel}.GetKernelData(NodeHandle)"/>.
         /// </summary>
-        protected ref TNodeData GetNodeData(NodeHandle handle) => ref Traits.GetNodeData(handle);
-
-        /// <summary>
-        /// Helper around <see cref="NodeTraits{TNodeData, TSimPorts, TKernelData, TKernelPortDefinition, TKernel}.GetKernelData(NodeHandle)"/>.
-        /// </summary>
-        protected ref TKernelData GetKernelData(NodeHandle handle) => ref Traits.GetKernelData(handle);
+        protected ref TKernelData GetKernelData(NodeHandle handle) => ref Set.GetKernelData<TKernelData>(handle);
     }
 
     /// <summary>
@@ -542,17 +554,14 @@ namespace Unity.DataFlowGraph
             where TKernelPortDefinition : struct, IKernelPortDefinition
             where TKernel : struct, IGraphKernel<TKernelData, TKernelPortDefinition>
     {
-        NodeTraits<TNodeData, TKernelData, TKernelPortDefinition, TKernel> Traits = new NodeTraits<TNodeData, TKernelData, TKernelPortDefinition, TKernel>();
-        protected internal sealed override NodeTraitsBase BaseTraits => Traits;
-
         /// <summary>
         /// Helper around <see cref="NodeTraits{TNodeData, TKernelData, TKernelPortDefinition, TKernel}.GetNodeData(NodeHandle)"/>.
         /// </summary>
-        protected ref TNodeData GetNodeData(NodeHandle handle) => ref Traits.GetNodeData(handle);
+        protected ref TNodeData GetNodeData(NodeHandle handle) => ref Set.GetNodeData<TNodeData>(handle);
 
         /// <summary>
         /// Helper around <see cref="NodeTraits{TNodeData, TKernelData, TKernelPortDefinition, TKernel}.GetKernelData(NodeHandle)"/>.
         /// </summary>
-        protected ref TKernelData GetKernelData(NodeHandle handle) => ref Traits.GetKernelData(handle);
+        protected ref TKernelData GetKernelData(NodeHandle handle) => ref Set.GetKernelData<TKernelData>(handle);
     }
 }

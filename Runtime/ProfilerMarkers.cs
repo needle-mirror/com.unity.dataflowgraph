@@ -5,7 +5,7 @@ namespace Unity.DataFlowGraph
 {
     partial class RenderGraph : IDisposable
     {
-        static class Markers
+        internal static class Markers
         {
             // Control thread
             public static ProfilerMarker SyncPreviousRenderProfilerMarker = new ProfilerMarker("NodeSet.RenderGraph.SyncPreviousRender");
@@ -38,13 +38,11 @@ namespace Unity.DataFlowGraph
             public static ProfilerMarkers Markers = new ProfilerMarkers
             {
                 ReallocateContext = new ProfilerMarker("TopologyAPI.ReallocateContext"),
-                BuildVisitationCache = new ProfilerMarker("TopologyAPI.BuildVisitationCache"),
                 ComputeLayout = new ProfilerMarker("TopologyAPI.ComputeLayout"),
                 BuildConnectionCache = new ProfilerMarker("TopologyAPI.BuildConnectionCache")
             };
 
             public ProfilerMarker ReallocateContext;
-            public ProfilerMarker BuildVisitationCache;
             public ProfilerMarker ComputeLayout;
             public ProfilerMarker BuildConnectionCache;
         }

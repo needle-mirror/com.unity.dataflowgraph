@@ -112,5 +112,33 @@ namespace Unity.DataFlowGraph.Tests
                 UnsafeUtility.ReleaseGCObject(handle);
             }
         }
+
+        abstract class VectoredBaseNode<TPorts> : SimulationNodeDefinition<TPorts>
+            where TPorts : struct, ISimulationPortDefinition
+        {
+            public static int BaseClassConstructorCounter { get; private set; }
+
+            protected VectoredBaseNode()
+            {
+                BaseClassConstructorCounter++;
+            }
+        }
+
+        class ManualNode : VectoredBaseNode<ManualNode.MyPorts>
+        {
+            public struct MyPorts : ISimulationPortDefinition { }
+            public struct MyNode : INodeData { }
+        }
+
+        [Test]
+        public void InjectedConstructors_FromCodeGen_DoVectoredConstruction()
+        {
+            using (var set = new NodeSet())
+            {
+                var counter = ManualNode.BaseClassConstructorCounter;
+                set.Destroy(set.Create<ManualNode>());
+                Assert.AreEqual(counter + 1, ManualNode.BaseClassConstructorCounter);
+            }
+        }
     }
 }

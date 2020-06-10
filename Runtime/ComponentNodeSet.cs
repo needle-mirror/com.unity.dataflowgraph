@@ -30,7 +30,7 @@ namespace Unity.DataFlowGraph
         /// Thrown if the <paramref name="hostSystem"/> is null
         /// </exception>
         public NodeSet(ComponentSystemBase hostSystem)
-            : this()
+            : this(hostSystem, ConstructorType.InternalConstructor)
         {
             if (hostSystem == null)
             {
@@ -40,7 +40,6 @@ namespace Unity.DataFlowGraph
                 throw new ArgumentNullException(nameof(hostSystem));
             }
 
-            HostSystem = hostSystem;
             m_ActiveComponentTypes = new BlitList<AtomicSafetyManager.ECSTypeAndSafety>(0, Allocator.Persistent);
         }
 
@@ -79,7 +78,9 @@ namespace Unity.DataFlowGraph
         {
 
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
+#pragma warning disable 618 // 'EntityManager.SafetyHandles' is obsolete: 'This is slow. Use The EntityDataAccess directly in new code.'
             var componentSafetyManager = HostSystem.World.EntityManager.SafetyHandles;
+#pragma warning restore 618
 
             for(int i = 0; i < m_ActiveComponentTypes.Count; ++i)
             {

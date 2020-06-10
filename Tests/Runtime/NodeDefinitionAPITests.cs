@@ -49,7 +49,6 @@ namespace Unity.DataFlowGraph.Tests
                 T m_Member;
             }
 
-            [BurstCompile(CompileSynchronously = true)]
             public struct Kernel : IGraphKernel<KernelData, KernelPorts>
             {
                 public void Execute(RenderContext ctx, KernelData data, ref KernelPorts ports) { }
@@ -59,11 +58,6 @@ namespace Unity.DataFlowGraph.Tests
         [Test]
         public void CreatingKernelData_ContainingManagedData_ThrowsInvalidNodeDefinition()
         {
-#if !UNITY_EDITOR
-            if (JobsUtility.JobCompilerEnabled)
-                Assert.Ignore("Skipping test since Burst AOT is broken for generic kernels");
-#endif
-
             using (var set = new NodeSet())
             {
                 NodeHandle n = new NodeHandle();
@@ -88,7 +82,6 @@ namespace Unity.DataFlowGraph.Tests
 
             public struct KernelData : IKernelData { }
 
-            [BurstCompile(CompileSynchronously = true)]
             public struct Kernel : IGraphKernel<KernelData, KernelPorts>
             {
                 T m_Member;
@@ -100,11 +93,6 @@ namespace Unity.DataFlowGraph.Tests
         [Test]
         public void CreatingKernel_ContainingManagedData_ThrowsInvalidNodeDefinition()
         {
-#if !UNITY_EDITOR
-            if (JobsUtility.JobCompilerEnabled)
-                Assert.Ignore("Skipping test since Burst AOT is broken for generic kernels");
-#endif
-
             using (var set = new NodeSet())
             {
                 NodeHandle n = new NodeHandle();
@@ -137,6 +125,7 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
+        [InvalidTestNodeDefinition]
         class NodeWithManagedDataTypeWithoutAttribute : NodeDefinition<NodeWithManagedDataTypeWithoutAttribute.Data, EmptyPorts>
         {
             public struct Data : INodeData
@@ -176,5 +165,63 @@ namespace Unity.DataFlowGraph.Tests
                 set.Destroy(set.Create<NodeWithManagedData>());
             }
         }
+
+        class GenericNonScaffoldedNode<T> : SimulationNodeDefinition<GenericNonScaffoldedNode<T>.Ports>
+        {
+            public struct Ports : ISimulationPortDefinition
+            {
+
+            }
+
+            protected struct Data : INodeData
+            {
+                T m_Secret;
+            }
+        }
+
+        [Test]
+        public void CanInstantiate_GenericNonScaffoldedNode()
+        {
+            using (var set = new NodeSet())
+            {
+                set.Destroy(set.Create<GenericNonScaffoldedNode<int>>());
+            }
+        }
+
+        class Node_WithNestedGenericAspects : GenericNonScaffoldedNode<int>
+        {
+        }
+
+        [Test]
+        public void CanInstantiate_NonScaffoldedNode_WithNestedGenericAspects()
+        {
+            using (var set = new NodeSet())
+            {
+                set.Destroy(set.Create<Node_WithNestedGenericAspects>());
+            }
+        }
+
+#if !ENABLE_IL2CPP  // Issue #581: IL2CPP bug with NodeDefinitions with trait aspects across assembly boundaries.
+        public class NodeWithTraitsFromDifferentAssemblies : ExternalKernelNode<NodeWithTraitsFromDifferentAssemblies, float, float, NodeWithTraitsFromDifferentAssemblies.Kernel>
+        {
+            public struct Kernel : IGraphKernel<EmptyKernelData, KernelDefs>
+            {
+                public void Execute(RenderContext ctx, EmptyKernelData data, ref KernelDefs ports) =>
+                    ctx.Resolve(ref ports.Output) = ctx.Resolve(ports.Input);
+            }
+        }
+
+        [Test]
+        public void CanInstantiate_NodeDefinition_WithTraits_FromDifferentAssemblies()
+        {
+
+            using (var set = new NodeSet())
+            {
+                Assert.That(typeof(NodeWithTraitsFromDifferentAssemblies.Kernel).Module, Is.EqualTo(typeof(NodeWithTraitsFromDifferentAssemblies).Module));
+                Assert.That(typeof(NodeWithTraitsFromDifferentAssemblies.Kernel).Module, Is.Not.EqualTo(typeof(NodeWithTraitsFromDifferentAssemblies.KernelDefs).Module));
+                set.Destroy(set.Create<NodeWithTraitsFromDifferentAssemblies>());
+            }
+        }
+#endif  // !ENABLE_IL2CPP
     }
 }

@@ -16,7 +16,6 @@ namespace Unity.DataFlowGraph
 
     partial class NodeSet
     {
-        
         public enum RenderExecutionModel
         {
             /// <summary>
@@ -140,7 +139,7 @@ namespace Unity.DataFlowGraph
                         if (DataInputUtility.PortOwnsMemory(inputPortPatch))
                             UnsafeUtility.Free(*inputPortPatch, PortAllocator);
                     }
-                    else 
+                    else
                     {
                         UntypedPortArray.Free(ref portDecl.AsPortArray(Instance.Ports), PortAllocator);
                     }
@@ -160,23 +159,25 @@ namespace Unity.DataFlowGraph
         BlitList<KernelNode> m_Nodes = new BlitList<KernelNode>(0);
         NativeList<JobHandle> m_IslandFences;
         NativeList<JobHandle> m_BackScheduledJobs;
+        NativeList<ValidatedHandle> m_ChangedNodes;
 
         NodeSet m_Set;
         internal Topology.TraversalCache Cache;
         internal SharedData m_SharedData;
         // TODO: Test this is in sync with # of kernel nodes
-        internal int m_ExistingNodes = 0;
+        internal int m_NumExistingNodes = 0;
         NodeSet.RenderExecutionModel m_Model;
         Topology.CacheAPI.VersionTracker m_PreviousVersion;
         bool m_IsRendering;
         AtomicSafetyManager.BufferProtectionScope m_BufferScope;
+        EntityQuery m_NodeSetAttachmentQuery;
 
         public RenderGraph(NodeSet set)
         {
             m_Set = set;
             Cache = new Topology.TraversalCache(
-                16, 
-                (uint)PortDescription.Category.Data | ((uint)PortDescription.Category.Data << (int)PortDescription.CategoryShift.BackConnection), 
+                16,
+                (uint)PortDescription.Category.Data | ((uint)PortDescription.Category.Data << (int)PortDescription.CategoryShift.BackConnection),
                 (uint)PortDescription.Category.Data | ((uint)PortDescription.Category.Data << (int)PortDescription.CategoryShift.FeedbackConnection));
             m_SharedData = new SharedData(32);
             m_Model = NodeSet.RenderExecutionModel.MaximallyParallel;
@@ -184,12 +185,12 @@ namespace Unity.DataFlowGraph
             m_BackScheduledJobs = new NativeList<JobHandle>(16, Allocator.Persistent);
             m_PreviousVersion = Topology.CacheAPI.VersionTracker.Create();
             m_BufferScope = AtomicSafetyManager.BufferProtectionScope.Create();
+            m_ChangedNodes = new NativeList<ValidatedHandle>(16, Allocator.Persistent);
         }
 
         public void CopyWorlds(GraphDiff ownedGraphDiff, JobHandle ecsExternalDependencies, NodeSet.RenderExecutionModel executionModel, VersionedList<DataOutputValue> values)
         {
             var topologyContext = new Topology.ComputationContext<FlatTopologyMap>();
-            var activeNodes = new NativeArray<ValidatedHandle>();
             var bufferResizeCommands = new BufferResizeCommands();
             var inputPortUpdateCommands = new InputPortUpdateCommands();
 
@@ -211,7 +212,7 @@ namespace Unity.DataFlowGraph
                 Markers.SyncPreviousRenderProfilerMarker.End();
 
                 Markers.AlignWorldProfilerMarker.Begin();
-                activeNodes = AlignWorld(ref ownedGraphDiff, out bufferResizeCommands, out inputPortUpdateCommands);
+                AlignWorld(ref ownedGraphDiff, out bufferResizeCommands, out inputPortUpdateCommands);
                 Markers.AlignWorldProfilerMarker.End();
 
                 Markers.PrepareGraphProfilerMarker.Begin();
@@ -221,12 +222,13 @@ namespace Unity.DataFlowGraph
                     m_Set.GetTopologyDatabase(),
                     m_Set.GetTopologyMap(),
                     Cache,
-                    activeNodes,
+                    m_ChangedNodes,
+                    m_NumExistingNodes,
                     m_Set.TopologyVersion,
                     AlgorithmFromModel(executionModel)
                 );
 
-                parallelKernelBlit = CopyDirtyRenderData(internalDependencies, ref ownedGraphDiff, activeNodes);
+                parallelKernelBlit = CopyDirtyRenderData(internalDependencies, ref ownedGraphDiff);
 
                 parallelResizeBuffers = ResizeDataPortBuffers(internalDependencies, bufferResizeCommands);
                 bufferResizeCommands = new BufferResizeCommands(); // (owned by above system now)
@@ -245,7 +247,7 @@ namespace Unity.DataFlowGraph
                 );
 
                 asyncMemoryCopy = ResolveDataOutputsToGraphValues(parallelResizeBuffers, values);
-                
+
                 m_ExternalDependencies = Utility.CombineDependencies(
                     m_ExternalDependencies,
                     ecsExternalDependencies,
@@ -298,9 +300,6 @@ namespace Unity.DataFlowGraph
                 if (topologyContext.IsCreated)
                     topologyContext.Dispose();
 
-                if (activeNodes.IsCreated)
-                    activeNodes.Dispose();
-
                 // only happens if we had an exception, otherwise the job takes ownership.
                 if (bufferResizeCommands.IsCreated)
                     bufferResizeCommands.Dispose();
@@ -326,6 +325,7 @@ namespace Unity.DataFlowGraph
             m_IslandFences.Dispose();
             m_BufferScope.Dispose();
             m_BackScheduledJobs.Dispose();
+            m_ChangedNodes.Dispose();
         }
 
         /// <param name="internalDeps">Dependencies for scheduling the graph</param>
@@ -348,9 +348,9 @@ namespace Unity.DataFlowGraph
                 Markers.WaitForSchedulingDependenciesProfilerMarker.Begin();
                 internalDeps.Complete();
 
-                Markers.WaitForSchedulingDependenciesProfilerMarker.End(); 
+                Markers.WaitForSchedulingDependenciesProfilerMarker.End();
                 // TODO: Change to job.Run() to run it through burst (currently not supported due to faulty detected of main thread).
-                // Next TODO: Change to job.Schedule() if we can ever schedule jobs from non-main thread. This would remove any trace of 
+                // Next TODO: Change to job.Schedule() if we can ever schedule jobs from non-main thread. This would remove any trace of
                 // the render graph on the main thread, and still be completely deterministic (although the future logic in copy worlds
                 // would have to be rewritten a bit).
                 job.Execute();
@@ -403,14 +403,13 @@ namespace Unity.DataFlowGraph
             return new CopyValueDependenciesJob { Nodes = m_Nodes, Values = values, Model = m_Model, IslandFences = m_IslandFences, Marker = Markers.CopyValueDependencies }.Schedule(inputDependencies);
         }
 
-        unsafe JobHandle CopyDirtyRenderData(JobHandle inputDependencies, /* in */ ref GraphDiff ownedGraphDiff, NativeArray<ValidatedHandle> aliveNodes)
+        unsafe JobHandle CopyDirtyRenderData(JobHandle inputDependencies, /* in */ ref GraphDiff ownedGraphDiff)
         {
             CopyDirtyRendererDataJob job;
-            job.AliveNodes = aliveNodes;
             job.KernelNodes = m_Nodes;
             job.SimulationNodes = m_Set.GetInternalData();
 
-            return job.Schedule(aliveNodes.Length, Mathf.Max(10, aliveNodes.Length / JobsUtility.MaxJobThreadCount), inputDependencies);
+            return job.Schedule(m_Nodes.Count, Mathf.Max(10, m_Nodes.Count / JobsUtility.MaxJobThreadCount), inputDependencies);
         }
 
         JobHandle RefreshTopology(JobHandle dependency, in Topology.ComputationContext<FlatTopologyMap> context)
@@ -424,7 +423,7 @@ namespace Unity.DataFlowGraph
 
             // No need to schedule ComponentNode related jobs if there are no nodes in existence since they would be a
             // no-op. This is also a workaround to a problem with entity queries during ECS shutdown.
-            bool performComponentNodeJobs = m_ExistingNodes > 0 && world != null;
+            bool performComponentNodeJobs = m_NumExistingNodes > 0 && world != null;
 
             if (m_Set.TopologyVersion != m_PreviousVersion)
             {
@@ -432,11 +431,20 @@ namespace Unity.DataFlowGraph
                 if(performComponentNodeJobs)
                 {
                     ClearLocalECSInputsAndOutputsJob clearJob;
+#pragma warning disable 618 // 'EntityManager.EntityComponentStore' is obsolete: 'This is slow. Use The EntityDataAccess directly in new code.'
                     clearJob.EntityStore = world.EntityManager.EntityComponentStore;
+#pragma warning restore 618
                     clearJob.KernelNodes = m_Nodes;
                     clearJob.NodeSetID = m_Set.NodeSetID;
+                    clearJob.NodeSetAttachmentType = m_Set.HostSystem.GetBufferTypeHandle<NodeSetAttachment>(true);
+                    clearJob.EntityType = m_Set.HostSystem.GetEntityTypeHandle();
 
-                    deps = clearJob.Schedule(m_Set.HostSystem, deps);
+                    // FIXME: In lieu of a proper ECS mechanism for ordering system creation, we initialize our query lazily to
+                    // give a chance for the HostSystem to be properly created through OnCreate().
+                    if (m_NodeSetAttachmentQuery == default)
+                        m_NodeSetAttachmentQuery = NodeSetAttachmentQuery(m_Set.HostSystem);
+
+                    deps = clearJob.Schedule(m_NodeSetAttachmentQuery, deps);
                 }
 
                 ComputeValueChunkAndPatchPortsJob job;
@@ -444,19 +452,23 @@ namespace Unity.DataFlowGraph
                 job.Nodes = m_Nodes;
                 job.Shared = m_SharedData;
                 job.Marker = Markers.ComputeValueChunkAndResizeBuffers;
-                deps = job.Schedule(Cache.Islands, 1, deps);
+                deps = job.Schedule(Cache.Groups, 1, deps);
             }
 
             if (performComponentNodeJobs)
             {
                 RepatchDFGInputsIfNeededJob ecsPatchJob;
 
+#pragma warning disable 618 // 'EntityManager.EntityComponentStore' is obsolete: 'This is slow. Use The EntityDataAccess directly in new code.'
                 ecsPatchJob.EntityStore = world.EntityManager.EntityComponentStore;
+#pragma warning restore 618
                 ecsPatchJob.KernelNodes = m_Nodes;
                 ecsPatchJob.NodeSetID = m_Set.NodeSetID;
                 ecsPatchJob.Shared = m_SharedData;
+                ecsPatchJob.NodeSetAttachmentType = m_Set.HostSystem.GetBufferTypeHandle<NodeSetAttachment>();
+                ecsPatchJob.EntityType = m_Set.HostSystem.GetEntityTypeHandle();
 
-                deps = ecsPatchJob.Schedule(m_Set.HostSystem, deps);
+                deps = ecsPatchJob.Schedule(m_NodeSetAttachmentQuery, deps);
             }
 
             return deps;
@@ -485,7 +497,7 @@ namespace Unity.DataFlowGraph
             return AllocateAndCopyData(Unsafe.AsPointer(ref Unsafe.AsRef(data)), SimpleType.Create<TData>());
         }
 
-        NativeArray<ValidatedHandle> AlignWorld(/* in */ ref GraphDiff ownedGraphDiff, out BufferResizeCommands bufferResizeCommands, out InputPortUpdateCommands inputPortUpdateCommands)
+        void AlignWorld(/* in */ ref GraphDiff ownedGraphDiff, out BufferResizeCommands bufferResizeCommands, out InputPortUpdateCommands inputPortUpdateCommands)
         {
             var simulationNodes = m_Set.GetInternalData();
             var llTraits = m_Set.GetLLTraits();
@@ -560,7 +572,7 @@ namespace Unity.DataFlowGraph
 
                             if (StillExists(handle))
                             {
-                                // TODO: This is an error condition that will only happen if worlds 
+                                // TODO: This is an error condition that will only happen if worlds
                                 // are misaligned; provided not to crash right now
                                 // but should be handled in another place.
                                 Debug.LogError("Reconstructing already existing node");
@@ -576,7 +588,7 @@ namespace Unity.DataFlowGraph
                     {
                         var handleAndIndex = ownedGraphDiff.DeletedNodes[ownedGraphDiff.Commands[i].ContainerIndex];
 
-                        // Only destroy the ones that for sure exist in our set (destroyed nodes can also be 
+                        // Only destroy the ones that for sure exist in our set (destroyed nodes can also be
                         // non-kernel, which we don't care about)
                         if (StillExists(handleAndIndex.Handle))
                         {
@@ -620,16 +632,15 @@ namespace Unity.DataFlowGraph
                 }
             }
 
-            var array = new NativeArray<ValidatedHandle>(m_ExistingNodes, Allocator.TempJob);
-
             // It's just way faster in Burst.
+            m_ChangedNodes.Clear();
             AnalyseLiveNodes liveNodesJob;
             liveNodesJob.KernelNodes = m_Nodes;
-            liveNodesJob.LiveNodes = array;
+            liveNodesJob.ChangedNodes = m_ChangedNodes;
             liveNodesJob.Marker = Markers.AnalyseLiveNodes;
+            liveNodesJob.Map = m_Set.GetTopologyMap();
+            liveNodesJob.Filter = m_Set.GetTopologyDatabase();
             liveNodesJob.Run();
-
-            return array;
         }
 
         bool StillExists(ValidatedHandle handle)
@@ -649,7 +660,7 @@ namespace Unity.DataFlowGraph
         void Destruct(ValidatedHandle handle)
         {
             m_Nodes[handle.VHandle.Index].FreeInplace();
-            m_ExistingNodes--;
+            m_NumExistingNodes--;
         }
 
         unsafe void Construct((ValidatedHandle handle, int traitsIndex, LLTraitsHandle traitsHandle) args)
@@ -684,7 +695,7 @@ namespace Unity.DataFlowGraph
                 InternalComponentNode.GetGraphKernel(node.Instance.Kernel).Create();
             }
 
-            m_ExistingNodes++;
+            m_NumExistingNodes++;
         }
 
         void ClearNodes()
@@ -696,7 +707,7 @@ namespace Unity.DataFlowGraph
                     m_Nodes[i].FreeInplace();
                 }
             }
-            m_ExistingNodes = 0;
+            m_NumExistingNodes = 0;
         }
 
         // stuff exposed for tests.

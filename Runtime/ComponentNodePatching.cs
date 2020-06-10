@@ -18,10 +18,7 @@ namespace Unity.DataFlowGraph
     /// if not necessary. Instead, chunks should be collected and walked, checking for versions.
     /// </remarks>
     [BurstCompile]
-    unsafe struct RepatchDFGInputsIfNeededJob
-#pragma warning disable 618  // warning CS0618: 'IJobForEach' is obsolete: 'Please use Entities.ForEach or IJobChunk to schedule jobs that work on Entities. (RemovedAfter 2020-06-20)
-        : IJobForEachWithEntity_EB<NodeSetAttachment>
-#pragma warning restore 618
+    unsafe struct RepatchDFGInputsIfNeededJob : IJobChunk
     {
         public BlitList<RenderGraph.KernelNode> KernelNodes;
         [NativeDisableUnsafePtrRestriction]
@@ -29,16 +26,26 @@ namespace Unity.DataFlowGraph
         public RenderGraph.SharedData Shared;
         public int NodeSetID;
 
-        public void Execute(Entity e, int _, [ReadOnly] DynamicBuffer<NodeSetAttachment> attachments)
-        {
-            for (int i = 0; i < attachments.Length; ++i)
-            {
-                var attach = attachments[i];
+        [ReadOnly] public BufferTypeHandle<NodeSetAttachment> NodeSetAttachmentType;
+        [ReadOnly] public EntityTypeHandle EntityType;
 
-                if (NodeSetID == attach.NodeSetID)
+        public void Execute(ArchetypeChunk chunk, int chunkIndex, int firstEntityIndex)
+        {
+            NativeArray<Entity> entities = chunk.GetNativeArray(EntityType);
+            BufferAccessor<NodeSetAttachment> buffers = chunk.GetBufferAccessor(NodeSetAttachmentType);
+
+            for (int c = 0; c < chunk.Count; c++)
+            {
+                //An individual dynamic buffer for a specific entity
+                DynamicBuffer<NodeSetAttachment> attachmentBuffer = buffers[c];
+                for (int b = 0; b < attachmentBuffer.Length; ++b)
                 {
-                    PatchDFGInputsFor(e, attach.Node);
-                    return;
+                    var attachment = attachmentBuffer[b];
+                    if (NodeSetID == attachment.NodeSetID)
+                    {
+                        PatchDFGInputsFor(entities[c], attachment.Node);
+                        break;
+                    }
                 }
             }
         }
@@ -84,30 +91,33 @@ namespace Unity.DataFlowGraph
     /// This job runs before any port patching, to start with a clean state.
     /// </summary>
     [BurstCompile]
-    unsafe struct ClearLocalECSInputsAndOutputsJob
-#pragma warning disable 618  // warning CS0618: 'IJobForEach' is obsolete: 'Please use Entities.ForEach or IJobChunk to schedule jobs that work on Entities. (RemovedAfter 2020-06-20)
-        : IJobForEach_B<NodeSetAttachment>
-#pragma warning restore 618
+    unsafe struct ClearLocalECSInputsAndOutputsJob : IJobChunk
     {
         public BlitList<RenderGraph.KernelNode> KernelNodes;
         [NativeDisableUnsafePtrRestriction]
         public EntityComponentStore* EntityStore;
         public int NodeSetID;
-
-        public void Execute([ReadOnly] DynamicBuffer<NodeSetAttachment> attachments)
+        [ReadOnly] public BufferTypeHandle<NodeSetAttachment> NodeSetAttachmentType;
+        [ReadOnly] public EntityTypeHandle EntityType;
+        public void Execute(ArchetypeChunk chunk, int chunkIndex, int firstEntityIndex)
         {
-            for (int i = 0; i < attachments.Length; ++i)
+            BufferAccessor<NodeSetAttachment> buffers = chunk.GetBufferAccessor(NodeSetAttachmentType);
+
+            for (int c = 0; c < chunk.Count; c++)
             {
-                var attach = attachments[i];
+                DynamicBuffer<NodeSetAttachment> attachmentBuffer = buffers[c];
+                for (int b = 0; b < attachmentBuffer.Length; ++b)
+                {
+                    var attachment = attachmentBuffer[b];
 
-                if (NodeSetID != attach.NodeSetID)
-                    continue;
+                    if (NodeSetID != attachment.NodeSetID)
+                        continue;
 
-                ref var buffers = ref InternalComponentNode.GetGraphKernel(KernelNodes[attach.Node.VHandle.Index].Instance.Kernel);
+                    ref var graphBuffers = ref InternalComponentNode.GetGraphKernel(KernelNodes[attachment.Node.VHandle.Index].Instance.Kernel);
 
-                buffers.Clear();
-
-                return;
+                    graphBuffers.Clear();
+                    break;
+                }
             }
         }
     }

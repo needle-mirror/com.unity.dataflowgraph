@@ -23,6 +23,11 @@ namespace Unity.DataFlowGraph.Tests
         public bool Equals(Node other) => Id == other.Id;
         public static bool operator == (Node a, Node b) => a.Equals(b);
         public static bool operator != (Node a, Node b) => a.Equals(b);
+
+        public override string ToString()
+        {
+            return $"Node[{Id.ToString()}]";
+        }
     }
 #pragma warning restore CS0661
 #pragma warning restore CS0660
@@ -63,10 +68,17 @@ namespace Unity.DataFlowGraph.Tests
                 return new Node(m_List.Length - 1);
             }
 
-            public void DestroyAll()
+            public void DestroyAll(Topology.Database db)
             {
+                for (int i = 0; i < m_List.Length; ++i)
+                {
+                    db.VertexDeleted(ref this, new Node(i));
+                }
+
                 m_List.Clear();
             }
+
+
 
             public TopologyIndex this[Node node]
             {
@@ -106,7 +118,14 @@ namespace Unity.DataFlowGraph.Tests
             Connections.Dispose();
         }
 
-        public Node CreateNode() => Nodes.CreateNode();
+        public Node CreateNode()
+        {
+            var node = Nodes.CreateNode();
+            Connections.VertexCreated(ref Nodes, node);
+
+            return node;
+        }
+
         public void Connect(uint traversalFlags, Node source, OutputPort sourcePort, Node dest, InputPort destinationPort) =>
             Connections.Connect(ref Nodes, traversalFlags, source, sourcePort, dest, destinationPort);
         public void Connect(Node source, OutputPort sourcePort, Node dest, InputPort destinationPort) =>
@@ -118,8 +137,7 @@ namespace Unity.DataFlowGraph.Tests
         public void DisconnectAndRelease(Topology.Connection connection) =>
             Connections.DisconnectAndRelease(ref Nodes, connection);
 
-        public void DestroyAllNodes()
-            => Nodes.DestroyAll();
+        public void DestroyAllNodes() => Nodes.DestroyAll(Connections);
 
         public Topology.Connection FindConnection(Node source, OutputPort sourcePort, Node dest, InputPort destinationPort) =>
             Connections.FindConnection(ref Nodes, source, sourcePort, dest, destinationPort);
@@ -143,10 +161,29 @@ namespace Unity.DataFlowGraph.Tests
         [Test]
         public void ConstructedDatabaseIsCreated()
         {
-            var thing = new Topology.Database(1, Allocator.Temp);
-            Assert.IsTrue(thing.IsCreated);
-            Assert.DoesNotThrow(() => thing.Dispose());
-            Assert.IsFalse(thing.IsCreated);
+            var db = new Topology.Database(1, Allocator.Temp);
+            Assert.IsTrue(db.IsCreated);
+            Assert.DoesNotThrow(() => db.Dispose());
+            Assert.IsFalse(db.IsCreated);
+        }
+
+        [Test]
+        public void ConstructedDatabase_ContainsOneGroup()
+        {
+            using (var db = new Topology.Database(1, Allocator.Temp))
+                Assert.AreEqual(db.ChangedGroups.Length, 1);
+        }
+
+        [Test]
+        public void NewlyCreatedNodes_InitiallyBelongsTo_GenerationZero()
+        {
+            using (var topoDB = new TopologyTestDatabase(Allocator.Temp))
+            {
+                var node = topoDB.CreateNode();
+                var index = topoDB.Nodes[node];
+
+                Assert.AreEqual(index.GroupID, Topology.Database.OrphanGroupID);
+            }
         }
 
 #if ENABLE_UNITY_COLLECTIONS_CHECKS

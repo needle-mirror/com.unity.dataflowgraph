@@ -140,6 +140,9 @@ namespace Unity.DataFlowGraph
         }
     }
 
+// xyz fields never assigned to, and will always have default value. This is because we access these jobs aliased through the job reflection system, never directly.
+#pragma warning disable 649
+
     [BurstCompile]
     unsafe struct GraphKernel<TUserKernel, TKernelData, TKernelPortDefinition>
        where TKernelData : struct, IKernelData
@@ -207,4 +210,7 @@ namespace Unity.DataFlowGraph
 
         public void Execute() => Function.Invoke(ref m_RenderContext, Instance);
     }
+
+
+#pragma warning restore 649
 }

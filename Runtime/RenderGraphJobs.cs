@@ -107,13 +107,16 @@ namespace Unity.DataFlowGraph
             {
                 ExternalDependencies.Complete();
 
-                foreach (var nodeCache in new Topology.CacheWalker(Cache))
+                for(int i = 0; i < Cache.Groups.Length; ++i)
                 {
-                    var index = nodeCache.Vertex.VHandle.Index;
-                    ref var node = ref Nodes[index];
-                    ref var traits = ref node.TraitsHandle.Resolve();
-                    var ctx = new RenderContext(nodeCache.Vertex, Shared.SafetyManager);
-                    traits.VTable.KernelFunction.Invoke(ctx, node.Instance);
+                    foreach (var nodeCache in new Topology.GroupWalker(Cache.Groups[i]))
+                    {
+                        var index = nodeCache.Vertex.VHandle.Index;
+                        ref var node = ref Nodes[index];
+                        ref var traits = ref node.TraitsHandle.Resolve();
+                        var ctx = new RenderContext(nodeCache.Vertex, Shared.SafetyManager);
+                        traits.VTable.KernelFunction.Invoke(ctx, node.Instance);
+                    }
                 }
             }
 
@@ -126,7 +129,7 @@ namespace Unity.DataFlowGraph
                     Shared = Shared
                 };
 
-                IslandFences.Add(job.Schedule(Cache.Islands.Length, 1, ExternalDependencies));
+                IslandFences.Add(job.Schedule(Cache.Groups.Length, 1, ExternalDependencies));
             }
 
             void ScheduleSingle()
@@ -143,35 +146,38 @@ namespace Unity.DataFlowGraph
 
             void ScheduleJobified()
             {
-                foreach (var nodeCache in new Topology.CacheWalker(Cache))
+                for (int i = 0; i < Cache.Groups.Length; ++i)
                 {
-                    var index = nodeCache.Vertex.VHandle.Index;
-                    ref var node = ref Nodes[index];
-                    ref var traits = ref node.TraitsHandle.Resolve();
-
-                    DependencyCombiner.Clear();
-
-                    var parents = nodeCache.GetParents();
-
-                    foreach (var parentCache in parents)
+                    foreach (var nodeCache in new Topology.GroupWalker(Cache.Groups[i]))
                     {
-                        var parentIndex = parentCache.Vertex.VHandle.Index;
-                        ref var parent = ref Nodes[parentIndex];
-                        DependencyCombiner.Add(parent.Fence);
+                        var index = nodeCache.Vertex.VHandle.Index;
+                        ref var node = ref Nodes[index];
+                        ref var traits = ref node.TraitsHandle.Resolve();
+
+                        DependencyCombiner.Clear();
+
+                        var parents = nodeCache.GetParents();
+
+                        foreach (var parentCache in parents)
+                        {
+                            var parentIndex = parentCache.Vertex.VHandle.Index;
+                            ref var parent = ref Nodes[parentIndex];
+                            DependencyCombiner.Add(parent.Fence);
+                        }
+
+                        JobHandle inputDependencies;
+
+                        if (DependencyCombiner.Length > 0)
+                            inputDependencies = JobHandle.CombineDependencies(DependencyCombiner);
+                        else
+                            inputDependencies = ExternalDependencies;
+
+                        node.Fence = traits.VTable.KernelFunction.Schedule(
+                            inputDependencies,
+                            new RenderContext(nodeCache.Vertex, Shared.SafetyManager),
+                            node.Instance
+                        );
                     }
-
-                    JobHandle inputDependencies;
-
-                    if (DependencyCombiner.Length > 0)
-                        inputDependencies = JobHandle.CombineDependencies(DependencyCombiner);
-                    else
-                        inputDependencies = ExternalDependencies;
-
-                    node.Fence = traits.VTable.KernelFunction.Schedule(
-                        inputDependencies,
-                        new RenderContext(nodeCache.Vertex, Shared.SafetyManager),
-                        node.Instance
-                    );
                 }
             }
         }
@@ -282,7 +288,7 @@ namespace Unity.DataFlowGraph
                 // It would make more sense to walk by node type, and batch all nodes for these types.
                 // Requires sorting or ECS/whatever firstly, though.
 
-                foreach (var nodeCache in new Topology.CacheWalker(Cache, Cache.Islands[islandIndex]))
+                foreach (var nodeCache in new Topology.GroupWalker(Cache.Groups[islandIndex]))
                 {
                     var index = nodeCache.Vertex.VHandle.Index;
                     ref var nodeKernel = ref Nodes[index];
@@ -513,17 +519,14 @@ namespace Unity.DataFlowGraph
         [BurstCompile]
         unsafe struct CopyDirtyRendererDataJob : IJobParallelFor
         {
-            [ReadOnly]
-            public NativeArray<ValidatedHandle> AliveNodes;
-
             public BlitList<KernelNode> KernelNodes;
             public BlitList<InternalNodeData> SimulationNodes;
 
-            public void Execute(int index)
+            public void Execute(int nodeIndex)
             {
-                var nodeIndex = AliveNodes[index].VHandle.Index;
-
-                UnsafeUtility.MemCpy(KernelNodes[nodeIndex].Instance.Data, SimulationNodes[nodeIndex].KernelData, KernelNodes[nodeIndex].KernelDataSize);
+                var data = KernelNodes[nodeIndex].Instance.Data;
+                if (data != null) // Alive ?
+                    UnsafeUtility.MemCpy(data, SimulationNodes[nodeIndex].KernelData, KernelNodes[nodeIndex].KernelDataSize);
             }
         }
 
@@ -536,20 +539,23 @@ namespace Unity.DataFlowGraph
 
             public void Execute()
             {
-                foreach (var nodeCache in new Topology.CacheWalker(Cache))
+                for (int i = 0; i < Cache.Groups.Length; ++i)
                 {
-                    var index = nodeCache.Vertex.VHandle.Index;
-                    ref var node = ref Nodes[index];
-                    ref var traits = ref node.TraitsHandle.Resolve();
+                    foreach (var nodeCache in new Topology.GroupWalker(Cache.Groups[i]))
+                    {
+                        var index = nodeCache.Vertex.VHandle.Index;
+                        ref var node = ref Nodes[index];
+                        ref var traits = ref node.TraitsHandle.Resolve();
 #if DFG_PER_NODE_PROFILING
                     traits.VTable.KernelMarker.Begin();
 #endif
 
-                    traits.VTable.KernelFunction.Invoke(new RenderContext(nodeCache.Vertex, Shared.SafetyManager), node.Instance);
+                        traits.VTable.KernelFunction.Invoke(new RenderContext(nodeCache.Vertex, Shared.SafetyManager), node.Instance);
 
 #if DFG_PER_NODE_PROFILING
                     traits.VTable.KernelMarker.End();
 #endif
+                    }
                 }
             }
         }
@@ -563,7 +569,7 @@ namespace Unity.DataFlowGraph
 
             public void Execute(int islandIndex)
             {
-                foreach (var nodeCache in new Topology.CacheWalker(Cache, Cache.Islands[islandIndex]))
+                foreach (var nodeCache in new Topology.GroupWalker(Cache.Groups[islandIndex]))
                 {
                     var index = nodeCache.Vertex.VHandle.Index;
                     ref var node = ref Nodes[index];
@@ -583,28 +589,31 @@ namespace Unity.DataFlowGraph
         }
 
         [BurstCompile]
-        unsafe struct AnalyseLiveNodes : IJob
+        internal unsafe struct AnalyseLiveNodes : IJob
         {
-            public NativeArray<ValidatedHandle> LiveNodes;
+            public NativeList<ValidatedHandle> ChangedNodes;
+            public Topology.Database Filter;
+            public FlatTopologyMap Map;
             public BlitList<KernelNode> KernelNodes;
             public ProfilerMarker Marker;
 
             public void Execute()
             {
                 Marker.Begin();
-
-                for (int i = 0, n = 0; i < LiveNodes.Length; ++i)
+                // TODO: It seems inevitable that we have a full scan of all nodes each frame
+                // because there's no 1:1 equivalence between kernel nodes and normal nodes..
+                // Ideally this wouldn't happen since it's another O(n) operation
+                for (int i = 0; i < KernelNodes.Count; ++i)
                 {
-                    // TODO: It seems inevitable that we have a full scan of all nodes each frame
-                    // because there's no 1:1 equivalence between kernel nodes and normal nodes..
-                    // Ideally this wouldn't happen since it's another O(n) operation
-                    for (; n < KernelNodes.Count; ++n)
+                    ref readonly var node = ref KernelNodes[i];
+                    if (!node.AliveInRenderer)
+                        continue;
+
+                    ref readonly var topology = ref Map.GetRef(node.Handle);
+
+                    if(Filter.DidChange(topology.GroupID))
                     {
-                        if (KernelNodes[n].AliveInRenderer)
-                        {
-                            LiveNodes[i] = KernelNodes[n++].Handle;
-                            break;
-                        }
+                        ChangedNodes.Add(node.Handle);
                     }
                 }
 

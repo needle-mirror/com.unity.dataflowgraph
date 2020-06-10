@@ -29,23 +29,27 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        struct HookPatchJob
-#pragma warning disable 618  // warning CS0618: 'IJobForEach' is obsolete: 'Please use Entities.ForEach or IJobChunk to schedule jobs that work on Entities. (RemovedAfter 2020-06-20)
-            : IJobForEachWithEntity_EB<NodeSetAttachment>
-#pragma warning restore 618
+        struct HookPatchJob : IJobChunk
         {
-            public NativeQueue<Entity> NotifiedEntities;
+            public NativeQueue<Entity>.ParallelWriter NotifiedEntities;
+            [ReadOnly] public BufferTypeHandle<NodeSetAttachment> NodeSetAttachmentType;
+            [ReadOnly] public EntityTypeHandle EntityType;
 
-            public void Execute(Entity entity, int index, [ReadOnly] DynamicBuffer<NodeSetAttachment> b0)
+            public void Execute(ArchetypeChunk chunk, int chunkIndex, int firstEntityIndex)
             {
-                NotifiedEntities.Enqueue(entity);
+                NativeArray<Entity> entities = chunk.GetNativeArray(EntityType);
+                foreach (var entity in entities)
+                    NotifiedEntities.Enqueue(entity);
             }
+
         }
 
         [DisableAutoCreation, AlwaysUpdateSystem]
         public class RepatchSystemDelegate : INodeSetSystemDelegate
         {
             public NativeQueue<Entity> UpdatedEntities = new NativeQueue<Entity>(Allocator.Persistent);
+            EntityQuery m_Query;
+
             public List<Entity> DequeueToList()
             {
                 var list = new List<Entity>();
@@ -56,7 +60,10 @@ namespace Unity.DataFlowGraph.Tests
                 return list;
             }
 
-            public void OnCreate(ComponentSystemBase system) {}
+            public void OnCreate(ComponentSystemBase system)
+            {
+                m_Query = RenderGraph.NodeSetAttachmentQuery(system);
+            }
 
             public void OnDestroy(ComponentSystemBase system, NodeSet set)
             {
@@ -66,8 +73,11 @@ namespace Unity.DataFlowGraph.Tests
             public void OnUpdate(ComponentSystemBase system, NodeSet set, JobHandle inputDeps, out JobHandle outputDeps)
             {
                 var job = new HookPatchJob();
-                job.NotifiedEntities = UpdatedEntities;
-                var deps = job.ScheduleSingle(system, inputDeps);
+                job.NotifiedEntities = UpdatedEntities.AsParallelWriter();
+                job.NodeSetAttachmentType = system.GetBufferTypeHandle<NodeSetAttachment>();
+                job.EntityType = system.GetEntityTypeHandle();
+
+                var deps = job.Schedule(m_Query, inputDeps);
 
                 deps.Complete(); // Set does not expect another job running on NodeSetAttachment
 
@@ -78,10 +88,8 @@ namespace Unity.DataFlowGraph.Tests
         [Test]
         public void HookPatchJob_MatchesInternalRepatchJob()
         {
-#pragma warning disable 618  // warning CS0618: 'IJobForEach' is obsolete: 'Please use Entities.ForEach or IJobChunk to schedule jobs that work on Entities. (RemovedAfter 2020-06-20)
-            Assert.True(typeof(IJobForEachWithEntity_EB<NodeSetAttachment>).IsAssignableFrom(typeof(HookPatchJob)));
-            Assert.True(typeof(IJobForEachWithEntity_EB<NodeSetAttachment>).IsAssignableFrom(typeof(RepatchDFGInputsIfNeededJob)));
-#pragma warning restore 618
+            Assert.True(typeof(IJobChunk).IsAssignableFrom(typeof(HookPatchJob)));
+            Assert.True(typeof(IJobChunk).IsAssignableFrom(typeof(RepatchDFGInputsIfNeededJob)));
 
             var hookAttributes = 
                 typeof(HookPatchJob)
@@ -93,24 +101,7 @@ namespace Unity.DataFlowGraph.Tests
                 .GetCustomAttributes(true)
                 .Where(o => !(o is BurstCompileAttribute));
 
-            CollectionAssert.AreEqual(hookAttributes, internalAttributes);
-
-            var hookParams = typeof(HookPatchJob).GetMethod("Execute").GetParameters();
-            var internalParams = typeof(RepatchDFGInputsIfNeededJob).GetMethod("Execute").GetParameters();
-
-            // Defaults compare by name... !
-            CollectionAssert.AreEqual(
-                hookParams.Select(p => p.ParameterType), 
-                internalParams.Select(p => p.ParameterType)
-            );
-
-            for(int i = 0; i < hookParams.Length; ++i)
-            {
-                CollectionAssert.AreEqual(
-                    hookParams[i].GetCustomAttributes(true), 
-                    internalParams[i].GetCustomAttributes(true)
-                );
-            }
+            CollectionAssert.AreEqual(hookAttributes, internalAttributes);  
         }
 
         [Test]
@@ -185,7 +176,9 @@ namespace Unity.DataFlowGraph.Tests
             public unsafe T* GetComponent<T>(Entity e)
                 where T : unmanaged
             {
+#pragma warning disable 618 // 'EntityManager.EntityComponentStore' is obsolete: 'This is slow. Use The EntityDataAccess directly in new code.'
                 return (T*)World.EntityManager.EntityComponentStore->GetComponentDataWithTypeRO(e, ComponentType.ReadWrite<T>().TypeIndex);
+#pragma warning restore 618
             }
         }
 

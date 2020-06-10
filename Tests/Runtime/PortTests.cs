@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using NUnit.Framework;
+using Unity.Burst;
 using Unity.Entities;
 using UnityEngine.Scripting;
 
@@ -117,6 +118,72 @@ namespace Unity.DataFlowGraph.Tests
 
             CollectionAssert.AllItemsAreUnique(connectionCategories);
             Assert.AreEqual(10, connectionCategories.Count);
+        }
+
+        public class KernelPortTestNode : NodeDefinition<EmptyData, EmptyKernelData, KernelPortTestNode.KernelDefs, KernelPortTestNode.Kernel>
+        {
+            public struct KernelDefs : IKernelPortDefinition
+            {
+#pragma warning disable 649
+                public DataInput<KernelPortTestNode, int> Input1, Input2;
+                public PortArray<DataInput<KernelPortTestNode, int>> Input3;
+                public DataOutput<KernelPortTestNode, int> Output1, Output2, Output3;
+#pragma warning restore 649
+
+                public struct PortIDs
+                {
+                    public InputPortID Input1PortID, Input2PortID, Input3PortID;
+                    public OutputPortID Output1PortID, Output2PortID, Output3PortID;
+                }
+                public DataOutput<KernelPortTestNode, PortIDs> PortIDsFromKernel;
+            }
+
+            [BurstCompile(CompileSynchronously = true)]
+            public struct Kernel : IGraphKernel<EmptyKernelData, KernelDefs>
+            {
+                public void Execute(RenderContext ctx, EmptyKernelData data, ref KernelDefs ports)
+                {
+                    ref var portIDs = ref ctx.Resolve(ref ports.PortIDsFromKernel);
+                    portIDs.Input1PortID = KernelPorts.Input1.Port;
+                    portIDs.Input2PortID = KernelPorts.Input2.Port;
+                    portIDs.Input3PortID = KernelPorts.Input3.Port;
+                    portIDs.Output1PortID = KernelPorts.Output1.Port;
+                    portIDs.Output2PortID = KernelPorts.Output2.Port;
+                    portIDs.Output3PortID = KernelPorts.Output3.Port;
+                }
+            }
+        }
+
+        [Test]
+        public void PortIDs_AreTheSame_InSimulation_AndInRendering()
+        {
+            using (var set = new NodeSet())
+            {
+                var node = set.Create<KernelPortTestNode>();
+                var gv = set.CreateGraphValue(node, KernelPortTestNode.KernelPorts.PortIDsFromKernel);
+
+                set.Update();
+                var portIDs = set.GetValueBlocking(gv);
+
+                // Verify that PortIDs in the NodeDefinition match those seen by the Kernel.
+                Assert.AreEqual(KernelPortTestNode.KernelPorts.Input1.Port, portIDs.Input1PortID);
+                Assert.AreEqual(KernelPortTestNode.KernelPorts.Input2.Port, portIDs.Input2PortID);
+                Assert.AreEqual(KernelPortTestNode.KernelPorts.Input3.Port, portIDs.Input3PortID);
+                Assert.AreEqual(KernelPortTestNode.KernelPorts.Output1.Port, portIDs.Output1PortID);
+                Assert.AreEqual(KernelPortTestNode.KernelPorts.Output2.Port, portIDs.Output2PortID);
+                Assert.AreEqual(KernelPortTestNode.KernelPorts.Output3.Port, portIDs.Output3PortID);
+
+                // Verify that PortIDs are unique.
+                Assert.AreNotEqual(KernelPortTestNode.KernelPorts.Input1.Port, portIDs.Input2PortID);
+                Assert.AreNotEqual(KernelPortTestNode.KernelPorts.Input1.Port, portIDs.Input3PortID);
+                Assert.AreNotEqual(KernelPortTestNode.KernelPorts.Input2.Port, portIDs.Input3PortID);
+                Assert.AreNotEqual(KernelPortTestNode.KernelPorts.Output1.Port, portIDs.Output2PortID);
+                Assert.AreNotEqual(KernelPortTestNode.KernelPorts.Output1.Port, portIDs.Output3PortID);
+                Assert.AreNotEqual(KernelPortTestNode.KernelPorts.Output2.Port, portIDs.Output3PortID);
+
+                set.ReleaseGraphValue(gv);
+                set.Destroy(node);
+            }
         }
     }
 }

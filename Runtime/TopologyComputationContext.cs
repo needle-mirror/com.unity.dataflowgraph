@@ -10,17 +10,6 @@ namespace Unity.DataFlowGraph
         where TInputPort : unmanaged, IEquatable<TInputPort>
         where TOutputPort : unmanaged, IEquatable<TOutputPort>
     {
-        public static class VertexTools
-        {
-            public struct VisitCache
-            {
-                public int VisitCount;
-                public int ParentCount;
-                public int TraversalIndex;
-                public int CurrentlyResolving;
-            }
-        }
-
         public struct ComputationContext<TTopologyFromVertex> : IDisposable
             where TTopologyFromVertex : Database.ITopologyFromVertex
         {
@@ -43,7 +32,6 @@ namespace Unity.DataFlowGraph
             public bool IsCreated => Vertices != null;
 
             public TTopologyFromVertex Topologies;
-            [ReadOnly]
             public Database Database;
 
             /// <summary>
@@ -58,15 +46,12 @@ namespace Unity.DataFlowGraph
             /// </remarks>
             [ReadOnly]
             public NativeArray<TVertex> Vertices;
-
             public MutableTopologyCache Cache;
-
-            public NativeArray<VertexTools.VisitCache> VisitCache;
-            public NativeList<int> VisitCacheLeafIndicies;
-
             public SortingAlgorithm Algorithm;
-
             internal ProfilerMarkers Markers;
+
+            internal int TargetMinimumGroupSize;
+            internal int TotalNodes;
 
             /// <summary>
             /// Note that no ownership is taken over the following:
@@ -78,6 +63,17 @@ namespace Unity.DataFlowGraph
             /// The returned context must ONLY be used after the jobhandle is completed. Additionally, this must happen
             /// in the current scope.
             /// </summary>
+            /// <param name="totalNodes">
+            /// The total amount of nodes in the graph that can be reached given all incremental updates.
+            /// This is used for cycle detection.
+            /// </param>
+            /// <param name="targetMinimumGroupSize">
+            /// A guide factor for how many nodes should approximately be placed in every group.
+            /// Value of -1 means a default heuristic is used.
+            /// A value of 0 means each group will contain exactly one connected set of nodes. This represents the largest
+            /// possible fragmentation of the cache, but also the most incremental version. 
+            /// Otherwise, connected sets of nodes will be coalesced into larger groups with at least this number of nodes. 
+            /// </param>
             public static JobHandle InitializeContext(
                 JobHandle inputDependencies,
                 out ComputationContext<TTopologyFromVertex> context,
@@ -85,24 +81,29 @@ namespace Unity.DataFlowGraph
                 TTopologyFromVertex topologies,
                 TraversalCache cache,
                 NativeArray<TVertex> sourceNodes,
+                int totalNodes,
                 CacheAPI.VersionTracker version,
-                SortingAlgorithm algorithm = SortingAlgorithm.GlobalBreadthFirst
+                SortingAlgorithm algorithm = SortingAlgorithm.GlobalBreadthFirst,
+                int targetMinimumGroupSize = -1
             )
             {
+
+                if (sourceNodes.Length > totalNodes)
+                    throw new ArgumentException("More changed nodes than total amount");
+
                 context = default;
                 context.Cache = new MutableTopologyCache(cache);
 
                 context.Vertices = sourceNodes;
+                context.TotalNodes = totalNodes;
 
                 context.Database = connectionTable;
                 context.Topologies = topologies;
-
-                context.VisitCache =
-                    new NativeArray<VertexTools.VisitCache>(context.Vertices.Length, Allocator.TempJob);
-                context.VisitCacheLeafIndicies = new NativeList<int>(10, Allocator.TempJob);
                 context.Algorithm = algorithm;
 
                 context.Markers = ProfilerMarkers.Markers;
+
+                context.TargetMinimumGroupSize = targetMinimumGroupSize;
 
                 return inputDependencies;
             }
@@ -110,8 +111,6 @@ namespace Unity.DataFlowGraph
 
             public void Dispose()
             {
-                VisitCache.Dispose();
-                VisitCacheLeafIndicies.Dispose();
             }
         }
     }

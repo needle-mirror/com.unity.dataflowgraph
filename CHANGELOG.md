@@ -4,6 +4,44 @@ All notable changes to this package will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [0.15.0-preview.4] - 2020-06-10
+### Fixed
+- Fix regression where post-processing would crash on `NodeDefinition`'s who's `INodeData`, `ISimulationPortDefinition`, `IKernelData`, `IKernelPortDefinition`, or `IGraphKernel` were defined in an assembly other than the `NodeDefinition` itself
+
+## [0.15.0-preview.3] - 2020-06-08
+### Added
+- Improved topological recomputation costs when touching few out of many graph islands
+
+### Fixed
+- Correcting release of DFG with the proper/expected set of dependencies:
+    com.unity.entities to 0.11.0-preview.7
+    com.unity.jobs to 0.2.10-preview.11
+    com.unity.collections to 0.9.0-preview.5
+    com.unity.burst to 1.3.0-preview.12
+
+## [0.15.0-preview.2] - 2020-05-29
+### Fixed
+- Introduced workaround for users facing issues due to nondeterministic order of ECS system creation; a `NodeSet` may be constructed with a `ComponentSystemBase` which has not yet been initialized via its `OnCreate` method, however, `ComponentNode` creation and `NodeSet.Update` should not be done before said system has been created.
+
+## [0.15.0-preview.1] - 2020-05-26
+### Added
+- `DestroyContext`, see changed `NodeDefinition.OnDestroy`
+- Note: Upgrade to Burst 1.3.0-preview.12 brings with it support for Debug.Log and use of generics within Bursted `IGraphKernel` implementations
+
+### Changed
+- Non-disposed `NodeSet`s no longer try to clean up anything on garbage collections.
+- Forgetting to `Dispose` a `NodeSet` is now only reported if "Leak Detection" is enabled.
+- `NodeSet.IsDisposed()` replaced by `NodeSet.IsCreated`
+- `NodeTraits<>`, `NodeTraitsBase` and `NodeDefinition.BaseTraits` are now internal as they were nothing but user-required boilerplate in edge cases. They will now automatically be generated for you.
+- `NodeDefinition.OnDestroy(NodeHandle)` changed to `NodeDefinition.OnDestroy(DestroyContext)`. The previous handle can be found at `DestroyContext.Handle`
+- Upgraded dependency com.unity.entities to 0.11.0-preview.7
+- Upgraded dependency com.unity.jobs to 0.2.10-preview.11
+- Upgraded dependency com.unity.collections to 0.9.0-preview.5
+- Upgraded dependency com.unity.burst to 1.3.0-preview.12
+
+### Fixed
+- Unique PortID assignments are now done through ILPP instead of Reflection (resolves issue #414)
+
 ## [0.14.0-preview.2] - 2020-05-04
 ### Added
 - `NodeSet.IsDisposed()` to query Dispose state

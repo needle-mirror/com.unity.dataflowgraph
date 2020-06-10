@@ -32,6 +32,7 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
             public override void AnalyseConsistency(Diag diag)
             {
                 AnalyseCalls++;
+                base.AnalyseConsistency(diag);
             }
 
             public override void ParseSymbols(Diag diag)
@@ -42,8 +43,7 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
             public override void PostProcess(Diag diag, out bool mutated)
             {
                 ProcessCalls++;
-
-                mutated = false;
+                base.PostProcess(diag, out mutated);
             }
 
         }
@@ -68,6 +68,7 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
             }
         }
 
+        public enum AccumulationType { NodeDefinitions, PortDefinitions }
         static List<Type> FindDotNetNodeDefinitions(Assembly assembly)
         {
             var mostBasicNodeDefinition = typeof(NodeDefinition);
@@ -75,33 +76,45 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
             return nodes;
         }
 
+        static List<Type> FindDotNetPortDefinitions(Assembly assembly)
+        {
+            var nodes = assembly.GetTypes().Where(t => t.IsValueType && (typeof(ISimulationPortDefinition).IsAssignableFrom(t) || typeof(IKernelPortDefinition).IsAssignableFrom(t))).ToList();
+            return nodes;
+        }
+
         [Test]
-        public void AccumulateNodeDefinitions_FindsAllNodeDefinitions()
+        public void AccumulateDefinitions_FindsAllExpectedDefinitions([Values] AccumulationType accumulationType)
         {
             using (var testAssembly = AssemblyManager.LoadDFGTestsAssembly())
             {
                 var mainModule = testAssembly.CecilAssembly.MainModule;
-                var cecilTypes = AssemblyVisitor.AccumulateNodeDefinitions(mainModule);
-                var dotNetNodes = FindDotNetNodeDefinitions(testAssembly.DotNetAssembly);
 
-                Assert.AreEqual(dotNetNodes.Count, cecilTypes.Count);
-                Assert.That(dotNetNodes.Count, Is.GreaterThan(100), "Expecting at least 100 NodeDefinitions in the DFG test assembly");
+                var cecilTypes = accumulationType == AccumulationType.NodeDefinitions ?
+                    AssemblyVisitor.AccumulateNodeDefinitions(mainModule) :
+                    AssemblyVisitor.AccumulatePortDefinitions(mainModule);
 
-                var dotNetTypes = dotNetNodes.Select(n => mainModule.ImportReference(n)).ToList();
+                var dotNetTypes = accumulationType == AccumulationType.NodeDefinitions ?
+                    FindDotNetNodeDefinitions(testAssembly.DotNetAssembly) :
+                    FindDotNetPortDefinitions(testAssembly.DotNetAssembly);
+
+                Assert.AreEqual(dotNetTypes.Count, cecilTypes.Count);
+                Assert.That(dotNetTypes.Count, Is.GreaterThan(100), "Expecting at least 100 types in the DFG test assembly");
+
+                var importedDotNetTypes = dotNetTypes.Select(n => mainModule.ImportReference(n)).ToList();
 
                 // Sort them first to remove 15 second O(N^2) resolve comparison nightmare
                 cecilTypes.Sort((a, b) => string.Compare(a.FullName, b.FullName));
-                dotNetTypes.Sort((a, b) => string.Compare(a.FullName, b.FullName));
+                importedDotNetTypes.Sort((a, b) => string.Compare(a.FullName, b.FullName));
 
                 for(int i = 0; i < cecilTypes.Count; ++i)
                 {
-                    Assert.AreEqual(cecilTypes[i].FullName, dotNetTypes[i].FullName);
+                    Assert.AreEqual(cecilTypes[i].FullName, importedDotNetTypes[i].FullName);
                 }
             } 
         }
 
         [Test]
-        public void AssemblyVisitor_ListsNodeDefinitionProcessors_ForAllNodeDefinitions()
+        public void AssemblyVisitor_CreatesExpectedProcessors_ForAllExpectedDefinitions([Values] AccumulationType accumulationType)
         {
             using (var testAssembly = AssemblyManager.LoadDFGTestsAssembly())
             {
@@ -110,17 +123,27 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
                 visitor.Prepare(new Diag(), testAssembly.CecilAssembly);
 
                 var mainModule = testAssembly.CecilAssembly.MainModule;
-                var cecilTypes = AssemblyVisitor.AccumulateNodeDefinitions(mainModule);
+                var cecilTypes = accumulationType == AccumulationType.NodeDefinitions ?
+                    AssemblyVisitor.AccumulateNodeDefinitions(mainModule) :
+                    AssemblyVisitor.AccumulatePortDefinitions(mainModule);
 
                 Assert.GreaterOrEqual(visitor.Processors.Count, cecilTypes.Count);
 
-                var nodeDefinitionProcessors = visitor.Processors.Where(p => p is NodeDefinitionProcessor).Cast<NodeDefinitionProcessor>().ToList();
+                var definitionProcessors =
+                    visitor.Processors.Where(
+                        p => (accumulationType == AccumulationType.NodeDefinitions && p is NodeDefinitionProcessor ||
+                              accumulationType == AccumulationType.PortDefinitions && p is PortDefinitionProcessor)
+                    ).ToList();
 
-                Assert.AreEqual(nodeDefinitionProcessors.Count, cecilTypes.Count);
+                Assert.AreEqual(definitionProcessors.Count, cecilTypes.Count);
 
-                foreach(var ndp in nodeDefinitionProcessors)
+                var definitionRoots = accumulationType == AccumulationType.NodeDefinitions ?
+                    definitionProcessors.Cast<NodeDefinitionProcessor>().Select(p => p.DefinitionRoot).ToList() :
+                    definitionProcessors.Cast<PortDefinitionProcessor>().Select(p => p.DefinitionRoot).ToList();
+                    
+                foreach(var processorRoot in definitionRoots)
                 {
-                    Assert.NotNull(cecilTypes.Find(ct => ct.FullName == ndp.DefinitionRoot.FullName));
+                    Assert.NotNull(cecilTypes.Find(ct => ct.FullName == processorRoot.FullName));
                 }
             }
         }
@@ -221,9 +244,9 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
             void RecordDiag(Diag diag)
             {
                 if (m_DiagType == DiagnosticType.Error)
-                    diag.Error(DiagnosticMessage);
+                    diag.TestingError(DiagnosticMessage);
                 else if (m_DiagType == DiagnosticType.Warning)
-                    diag.Warning(DiagnosticMessage);
+                    diag.TestingWarning(DiagnosticMessage);
             }
         }
 

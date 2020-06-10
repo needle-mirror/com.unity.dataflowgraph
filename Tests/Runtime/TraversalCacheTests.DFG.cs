@@ -11,6 +11,7 @@ using UnityEngine.TestTools;
 namespace Unity.DataFlowGraph.Tests
 {
     using Topology = TopologyAPI<ValidatedHandle, InputPortArrayID, OutputPortID>;
+    using Tools = TopologyTools<ValidatedHandle, InputPortArrayID, OutputPortID>;
 
     class TraversalCacheTests_DFG
     {
@@ -99,7 +100,14 @@ namespace Unity.DataFlowGraph.Tests
                 m_Options = Topology.CacheAPI.ComputationOptions.Create(computeJobified: computingType == ComputeType.Jobified);
             }
 
-            public Topology.CacheWalker GetWalker()
+            public Topology.TraversalCache.Group GetGroupForNode(NodeHandle n)
+            {
+                return Cache.Groups[MapClone[Set.Validate(n)].GroupID];
+            }
+
+            public void UpdateCache() => GetWalker();
+
+            public Tools.CacheWalker GetWalker()
             {
                 if (MapClone.IsCreated)
                     MapClone.Dispose();
@@ -119,6 +127,7 @@ namespace Unity.DataFlowGraph.Tests
                     MapClone, 
                     Cache,
                     untypedNodes.AsArray(),
+                    untypedNodes.Length,
                     Set.TopologyVersion
                 );
 
@@ -127,7 +136,7 @@ namespace Unity.DataFlowGraph.Tests
                 Topology.CacheAPI.UpdateCacheInline(Set.TopologyVersion, m_Options, ref context);
 
                 context.Dispose();
-                return new Topology.CacheWalker(Cache);
+                return new Tools.CacheWalker(Cache);
             }
 
             public void Dispose()
@@ -215,17 +224,27 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void TraversalCacheWalkers_AreProperlyCleared_AfterAllNodesAreDestroyed([Values] ComputeType jobified)
+        public void TraversalCacheWalkers_AreProperlyCleared_AfterAllNodesAreDestroyed([Values] Topology.SortingAlgorithm algorithm, [Values] ComputeType jobified)
         {
             using (var test = new Test<InOutTestNode>(jobified))
             {
+                switch (algorithm)
+                {
+                    case Topology.SortingAlgorithm.GlobalBreadthFirst:
+                        test.Set.RendererModel = NodeSet.RenderExecutionModel.MaximallyParallel;
+                        break;
+                    case Topology.SortingAlgorithm.LocalDepthFirst:
+                        test.Set.RendererModel = NodeSet.RenderExecutionModel.Islands;
+                        break;
+                }
+
                 for (int i = 0; i < 5; ++i)
                 {
                     test.Nodes.Add(test.Set.Create<InOutTestNode>());
                 }
 
                 var foundNodes = new List<NodeHandle>();
-                test.GetWalker();
+                test.UpdateCache();
 
                 for (int i = 0; i < 5; ++i)
                 {
@@ -233,18 +252,20 @@ namespace Unity.DataFlowGraph.Tests
                 }
 
                 test.Nodes.Clear();
-                // refreshes cache
-                test.GetWalker();
+                test.UpdateCache();
 
-                Assert.AreEqual(0, test.Cache.Leaves.Length);
-                Assert.AreEqual(0, test.Cache.Roots.Length);
-                Assert.AreEqual(0, test.Cache.OrderedTraversal.Length);
-                Assert.AreEqual(0, test.Cache.ParentTable.Length);
-                Assert.AreEqual(0, test.Cache.ChildTable.Length);
+                foreach (var group in test.Cache.Groups)
+                {
+                    Assert.AreEqual(0, group.LeafCount);
+                    Assert.AreEqual(0, group.RootCount);
+                    Assert.AreEqual(0, group.TraversalCount);
+                    Assert.AreEqual(0, group.ParentCount);
+                    Assert.AreEqual(0, group.ChildCount);
 
-                Assert.AreEqual(0, new Topology.CacheWalker(test.Cache).Count);
-                Assert.AreEqual(0, new Topology.RootCacheWalker(test.Cache).Count);
-                Assert.AreEqual(0, new Topology.LeafCacheWalker(test.Cache).Count);
+                    Assert.AreEqual(0, new Topology.GroupWalker(group).Count);
+                    Assert.AreEqual(0, new Topology.RootCacheWalker(group).Count);
+                    Assert.AreEqual(0, new Topology.LeafCacheWalker(group).Count);
+                }
             }
         }
 
@@ -519,11 +540,12 @@ namespace Unity.DataFlowGraph.Tests
                 test.Set.Connect(test.Nodes[2], InOutTestNode.SimulationPorts.Output1, test.Nodes[3], InOutTestNode.SimulationPorts.Input1);
                 test.Set.Connect(test.Nodes[2], InOutTestNode.SimulationPorts.Output2, test.Nodes[4], InOutTestNode.SimulationPorts.Input1);
 
-                // easiest way to update cache.
-                test.GetWalker();
+                test.UpdateCache();
 
-                var rootWalker = new Topology.RootCacheWalker(test.Cache);
-                var leafWalker = new Topology.LeafCacheWalker(test.Cache);
+                var group = test.GetGroupForNode(test.Nodes[0]);
+
+                var rootWalker = new Topology.RootCacheWalker(group);
+                var leafWalker = new Topology.LeafCacheWalker(group);
 
                 var roots = new List<NodeHandle>();
                 var leaves = new List<NodeHandle>();
@@ -561,21 +583,22 @@ namespace Unity.DataFlowGraph.Tests
                 test.Set.Connect(test.Nodes[2], InOutTestNode.SimulationPorts.Output1, test.Nodes[3], InOutTestNode.SimulationPorts.Input1);
                 test.Set.Connect(test.Nodes[2], InOutTestNode.SimulationPorts.Output2, test.Nodes[4], InOutTestNode.SimulationPorts.Input1);
 
-                // easiest way to update cache.
-                test.GetWalker();
+                test.UpdateCache();
 
-                Assert.AreEqual(test.Cache.Leaves.Length, 2);
-                Assert.AreEqual(test.Cache.Roots.Length, 2);
+                var group = test.GetGroupForNode(test.Nodes[0]);
+
+                Assert.AreEqual(group.LeafCount, 2);
+                Assert.AreEqual(group.RootCount, 2);
 
                 var roots = new List<NodeHandle>();
 
-                for (int i = 0; i < test.Cache.Leaves.Length; ++i)
-                    roots.Add(test.Cache.OrderedTraversal[test.Cache.Roots[i]].Vertex.ToPublicHandle());
+                for (int i = 0; i < group.LeafCount; ++i)
+                    roots.Add(group.IndexTraversal(group.IndexRoot(i)).Vertex.ToPublicHandle());
 
                 var leaves = new List<NodeHandle>();
 
-                for (int i = 0; i < test.Cache.Roots.Length; ++i)
-                    leaves.Add(test.Cache.OrderedTraversal[test.Cache.Leaves[i]].Vertex.ToPublicHandle());
+                for (int i = 0; i < group.RootCount; ++i)
+                    leaves.Add(group.IndexTraversal(group.IndexLeaf(i)).Vertex.ToPublicHandle());
 
                 CollectionAssert.Contains(leaves, (NodeHandle)test.Nodes[0]);
                 CollectionAssert.Contains(leaves, (NodeHandle)test.Nodes[1]);
@@ -591,21 +614,22 @@ namespace Unity.DataFlowGraph.Tests
             {
                 test.Nodes.Add(test.Set.Create<InOutTestNode>());
 
-                // easiest way to update cache.
-                test.GetWalker();
+                test.UpdateCache();
 
-                Assert.AreEqual(test.Cache.Leaves.Length, 1);
-                Assert.AreEqual(test.Cache.Roots.Length, 1);
+                var group = test.GetGroupForNode(test.Nodes[0]);
+
+                Assert.AreEqual(group.LeafCount, 1);
+                Assert.AreEqual(group.RootCount, 1);
 
                 var roots = new List<NodeHandle>();
 
-                for (int i = 0; i < test.Cache.Leaves.Length; ++i)
-                    roots.Add(test.Cache.OrderedTraversal[test.Cache.Roots[i]].Vertex.ToPublicHandle());
+                for (int i = 0; i < group.RootCount; ++i)
+                    roots.Add(group.IndexTraversal(group.IndexRoot(i)).Vertex.ToPublicHandle());
 
                 var leaves = new List<NodeHandle>();
 
-                for (int i = 0; i < test.Cache.Roots.Length; ++i)
-                    leaves.Add(test.Cache.OrderedTraversal[test.Cache.Leaves[i]].Vertex.ToPublicHandle());
+                for (int i = 0; i < group.LeafCount; ++i)
+                    leaves.Add(group.IndexTraversal(group.IndexLeaf(i)).Vertex.ToPublicHandle());
 
                 CollectionAssert.Contains(leaves, (NodeHandle)test.Nodes[0]);
                 CollectionAssert.Contains(roots, (NodeHandle)test.Nodes[0]);
@@ -873,7 +897,8 @@ namespace Unity.DataFlowGraph.Tests
 
                 var cache = set.DataGraph.Cache;
 
-                const string kExpectedMaximallyParallelOrder = 
+                // GlobalBreadthFirst == LocalDepthFirst currently.
+                /*const string kExpectedMaximallyParallelOrder = 
                     "0, 2, 5, 8, 13, 14, 16, 19, 22, 27, 28, 30, 33, 36, " +
                     "41, 42, 44, 47, 50, 55, 56, 58, 61, 64, 69, 70, 72, 75, " +
                     "78, 83, 84, 86, 89, 92, 97, 98, 100, 103, 106, 111, 112, 114, " +
@@ -883,25 +908,40 @@ namespace Unity.DataFlowGraph.Tests
                     "17, 34, 31, 48, 45, 62, 59, 76, 73, 90, 87, 104, 101, 118, " +
                     "115, 132, 129, 7, 11, 4, 21, 25, 18, 35, 39, 32, 49, 53, " +
                     "46, 63, 67, 60, 77, 81, 74, 91, 95, 88, 105, 109, 102, 119, " +
-                    "123, 116, 133, 137, 130, 12, 26, 40, 54, 68, 82, 96, 110, 124, 138";
+                    "123, 116, 133, 137, 130, 12, 26, 40, 54, 68, 82, 96, 110, 124, 138"; */
 
-                const string kExpectedIslandOrder = 
-                    "0, 1, 2, 8, 9, 10, 5, 6, 7, 3, 11, 12, 4, 13, " +
-                    "14, 15, 16, 22, 23, 24, 19, 20, 21, 17, 25, 26, 18, 27, " +
-                    "28, 29, 30, 36, 37, 38, 33, 34, 35, 31, 39, 40, 32, 41, " +
-                    "42, 43, 44, 50, 51, 52, 47, 48, 49, 45, 53, 54, 46, 55, " +
-                    "56, 57, 58, 64, 65, 66, 61, 62, 63, 59, 67, 68, 60, 69, " +
-                    "70, 71, 72, 78, 79, 80, 75, 76, 77, 73, 81, 82, 74, 83, " +
-                    "84, 85, 86, 92, 93, 94, 89, 90, 91, 87, 95, 96, 88, 97, " +
-                    "98, 99, 100, 106, 107, 108, 103, 104, 105, 101, 109, 110, 102, 111, " +
-                    "112, 113, 114, 120, 121, 122, 117, 118, 119, 115, 123, 124, 116, 125, " +
-                    "126, 127, 128, 134, 135, 136, 131, 132, 133, 129, 137, 138, 130, 139";
+                const string kExpectedIslandOrder =
+                    "13, 27, 41, 55, 69, 83, 97, 111, 125, 139, " + // orphan group
+                    "0, 1, 2, 8, 9, 10, 5, 6, 7, 3, 11, " + // primary island
+                    "12, 4, " + // secondary island
+                    "14, 15, 16, 22, 23, 24, 19, 20, 21, 17, 25, " + // primary island 2.. etc
+                    "26, 18, " +
+                    "28, 29, 30, 36, 37, 38, 33, 34, 35, 31, 39, " +
+                    "40, 32, " +
+                    "42, 43, 44, 50, 51, 52, 47, 48, 49, 45, 53, " +
+                    "54, 46, " +
+                    "56, 57, 58, 64, 65, 66, 61, 62, 63, 59, 67, " +
+                    "68, 60, " +
+                    "70, 71, 72, 78, 79, 80, 75, 76, 77, 73, 81, " +
+                    "82, 74, " +
+                    "84, 85, 86, 92, 93, 94, 89, 90, 91, 87, 95, " +
+                    "96, 88, " +
+                    "98, 99, 100, 106, 107, 108, 103, 104, 105, 101, 109, " +
+                    "110, 102, " +
+                    "112, 113, 114, 120, 121, 122, 117, 118, 119, 115, 123, " +
+                    "124, 116, " +
+                    "126, 127, 128, 134, 135, 136, 131, 132, 133, 129, 137, 138, 130";
 
                 var traversalIndices = new List<string>();
 
-                for(int i = 0; i < cache.OrderedTraversal.Length; ++i)
+                for (int g = 0; g < cache.Groups.Length; ++g)
                 {
-                    traversalIndices.Add(cache.OrderedTraversal[i].Vertex.VHandle.Index.ToString());
+                    var group = cache.Groups[g];
+
+                    for (int i = 0; i < group.TraversalCount; ++i)
+                    {
+                        traversalIndices.Add(group.IndexTraversal(i).Vertex.VHandle.Index.ToString());
+                    }
                 }
 
                 var stringTraversalOrder = string.Join(", ", traversalIndices);
@@ -909,13 +949,13 @@ namespace Unity.DataFlowGraph.Tests
                 switch (model)
                 {
                     case NodeSet.RenderExecutionModel.MaximallyParallel:
-                        Assert.AreEqual(kExpectedMaximallyParallelOrder, stringTraversalOrder);
+                        Assert.AreEqual(kExpectedIslandOrder, stringTraversalOrder);
                         break;
                     case NodeSet.RenderExecutionModel.SingleThreaded:
-                        Assert.AreEqual(kExpectedMaximallyParallelOrder, stringTraversalOrder);
+                        Assert.AreEqual(kExpectedIslandOrder, stringTraversalOrder);
                         break;
                     case NodeSet.RenderExecutionModel.Synchronous:
-                        Assert.AreEqual(kExpectedMaximallyParallelOrder, stringTraversalOrder);
+                        Assert.AreEqual(kExpectedIslandOrder, stringTraversalOrder);
                         break;
                     case NodeSet.RenderExecutionModel.Islands:
                         Assert.AreEqual(kExpectedIslandOrder, stringTraversalOrder);
@@ -961,26 +1001,34 @@ namespace Unity.DataFlowGraph.Tests
 
                 var cache = set.DataGraph.Cache;
 
-                const string kExpectedMaximallyParallelOrder = "0, 2, 5, 8, 13, 1, 9, 10, 6, 3, 7, 11, 4, 12";
-                const string kExpectedIslandOrder = "0, 8, 9, 10, 5, 6, 2, 7, 3, 4, 11, 12, 1, 13";
+                // GlobalBreadthFirst == LocalDepthFirst currently.
+                /*const string kExpectedMaximallyParallelOrder = "0, 2, 5, 8, 13, 1, 9, 10, 6, 3, 7, 11, 4, 12"; */
+                const string kExpectedIslandOrder = "13, 0, 8, 9, 10, 5, 6, 2, 7, 3, 4, 11, 12, 1";
 
                 var traversalIndices = new List<string>();
 
-                for(int i = 0; i < cache.OrderedTraversal.Length; ++i)
-                    traversalIndices.Add(cache.OrderedTraversal[i].Vertex.VHandle.Index.ToString());
+                for (int g = 0; g < cache.Groups.Length; ++g)
+                {
+                    var group = cache.Groups[g];
+
+                    for (int i = 0; i < group.TraversalCount; ++i)
+                    {
+                        traversalIndices.Add(group.IndexTraversal(i).Vertex.VHandle.Index.ToString());
+                    }
+                }
 
                 var stringTraversalOrder = string.Join(", ", traversalIndices);
 
                 switch (model)
                 {
                     case NodeSet.RenderExecutionModel.MaximallyParallel:
-                        Assert.AreEqual(kExpectedMaximallyParallelOrder, stringTraversalOrder);
+                        Assert.AreEqual(kExpectedIslandOrder, stringTraversalOrder);
                         break;
                     case NodeSet.RenderExecutionModel.SingleThreaded:
-                        Assert.AreEqual(kExpectedMaximallyParallelOrder, stringTraversalOrder);
+                        Assert.AreEqual(kExpectedIslandOrder, stringTraversalOrder);
                         break;
                     case NodeSet.RenderExecutionModel.Synchronous:
-                        Assert.AreEqual(kExpectedMaximallyParallelOrder, stringTraversalOrder);
+                        Assert.AreEqual(kExpectedIslandOrder, stringTraversalOrder);
                         break;
                     case NodeSet.RenderExecutionModel.Islands:
                         Assert.AreEqual(kExpectedIslandOrder, stringTraversalOrder);

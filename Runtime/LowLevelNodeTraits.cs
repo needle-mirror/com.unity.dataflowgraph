@@ -177,7 +177,7 @@ namespace Unity.DataFlowGraph
 
             try
             {
-                var kernelPortValue = definitionType.GetField("s_KernelPorts", BindingFlags.FlattenHierarchy | BindingFlags.Static | BindingFlags.NonPublic)?.GetValue(null);
+                var kernelPortValue = definitionType.GetField("KernelPorts", BindingFlags.FlattenHierarchy | BindingFlags.Static | BindingFlags.Public)?.GetValue(null);
 
                 foreach (var potentialPortFieldInfo in kernelPortType.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
                 {

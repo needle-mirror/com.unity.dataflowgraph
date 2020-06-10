@@ -2,6 +2,7 @@
     "name": "Unity.DataFlowGraph.Tests",
     "references": [
         "Unity.DataFlowGraph",
+        "Unity.DataFlowGraph.Tests.Shared",
         "Unity.Collections",
         "Unity.Burst",
         "Unity.Mathematics",

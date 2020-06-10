@@ -3,7 +3,7 @@
     "references": [
         "Unity.DataFlowGraph",
         "Unity.DataFlowGraph.Tests",
-        "Unity.Burst",
+        "Unity.DataFlowGraph.Tests.Shared",
         "Unity.DataFlowGraph.CodeGen"
     ],
     "optionalUnityReferences": [

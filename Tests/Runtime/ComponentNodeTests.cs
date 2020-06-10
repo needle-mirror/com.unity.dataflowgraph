@@ -89,7 +89,9 @@ namespace Unity.DataFlowGraph.Tests
                 ref readonly var kdata = ref f.Set.GetSimulationSide_KernelData(f.Set.CastHandle<InternalComponentNode>(node));
 
                 Assert.AreEqual(entity, kdata.Entity);
+#pragma warning disable 618 // 'EntityManager.EntityComponentStore' is obsolete: 'This is slow. Use The EntityDataAccess directly in new code.'
                 Assert.True(f.World.EntityManager.EntityComponentStore == kdata.EntityStore);
+#pragma warning restore 618
                 f.Set.Destroy(node);
             }
         }
@@ -418,28 +420,38 @@ namespace Unity.DataFlowGraph.Tests
         class IntArgumentSystemDelegate : INodeSetSystemDelegate
         {
             public int DataArgument;
+            EntityQuery m_Query;
 
-            protected struct ProcessJob
-#pragma warning disable 618  // warning CS0618: 'IJobForEach' is obsolete: 'Please use Entities.ForEach or IJobChunk to schedule jobs that work on Entities. (RemovedAfter 2020-06-20)
-                : IJobForEach<SimpleData>
-#pragma warning restore 618
+            protected struct ProcessJob : IJobChunk
             {
                 public int Arg;
+                public ComponentTypeHandle<SimpleData> SimpleDataType;
 
-                public void Execute(ref SimpleData c0)
+                public void Execute(ArchetypeChunk chunk, int chunkIndex, int firstEntityIndex)
                 {
-                    c0.Something = Arg;
-                    c0.SomethingElse = Arg;
+                    var buffers = chunk.GetNativeArray(SimpleDataType);
+
+                    for (int c = 0; c < chunk.Count; c++)
+                    {
+                        SimpleData data;
+                        data.Something = Arg;
+                        data.SomethingElse = Arg;
+                        buffers[c] = data;
+                    }
                 }
             }
 
-            public void OnCreate(ComponentSystemBase system) {}
+
+            public void OnCreate(ComponentSystemBase system)
+            {
+                m_Query = system.GetEntityQuery(ComponentType.ReadOnly<SimpleData>());
+            }
 
             public void OnDestroy(ComponentSystemBase system, NodeSet set) {}
 
             public void OnUpdate(ComponentSystemBase system, NodeSet set, JobHandle inputDeps, out JobHandle outputDeps)
             {
-                outputDeps = set.Update(new ProcessJob { Arg = DataArgument }.Schedule(system, inputDeps));
+                outputDeps = set.Update(new ProcessJob { Arg = DataArgument, SimpleDataType = system.GetComponentTypeHandle<SimpleData>() }.Schedule(m_Query, inputDeps));
             }
         }
 

@@ -63,7 +63,7 @@ namespace Unity.DataFlowGraph.Tests
                 context.ForwardOutput(SimulationPorts.ForwardedOutput, data.ChildNode, InOutTestNode.SimulationPorts.Output);
             }
 
-            protected internal override void Destroy(NodeHandle handle) => Set.Destroy(GetNodeData(handle).ChildNode);
+            protected internal override void Destroy(DestroyContext ctx) => Set.Destroy(GetNodeData(ctx.Handle).ChildNode);
 
             public ref Data ExposeData(NodeHandle handle) => ref GetNodeData(handle);
         }
@@ -207,9 +207,9 @@ namespace Unity.DataFlowGraph.Tests
                 ctx.ForwardOutput(SimulationPorts.ForwardedOutput, data.Child, NestedUberNodeMiddle.SimulationPorts.ForwardedOutput);
             }
 
-            protected internal override void Destroy(NodeHandle handle)
+            protected internal override void Destroy(DestroyContext ctx)
             {
-                Set.Destroy(GetNodeData(handle).Child);
+                Set.Destroy(GetNodeData(ctx.Handle).Child);
             }
 
             public ref Data ExposeData(NodeHandle handle) => ref GetNodeData(handle);
@@ -245,9 +245,9 @@ namespace Unity.DataFlowGraph.Tests
                 ctx.ForwardOutput(SimulationPorts.ForwardedOutput, data.Child, InOutTestNode.SimulationPorts.Output);
             }
 
-            protected internal override void Destroy(NodeHandle handle)
+            protected internal override void Destroy(DestroyContext ctx)
             {
-                Set.Destroy(GetNodeData(handle).Child);
+                Set.Destroy(GetNodeData(ctx.Handle).Child);
             }
 
             public ref Data ExposeData(NodeHandle handle) => ref GetNodeData(handle);
@@ -452,12 +452,6 @@ namespace Unity.DataFlowGraph.Tests
         {
             BlitList<ForwardedPort.Unchecked> ports = default;
 
-            using (var set = new NodeSet())
-            {
-                // Must touch the Node type first to ensure PortIDs have been assigned.
-                set.GetDefinition<NodeWithAllTypesOfPorts>();
-            }
-
             try
             {
                 var source = ValidatedHandle.Create(1, 3);
@@ -569,9 +563,9 @@ namespace Unity.DataFlowGraph.Tests
                 ctx.ForwardOutput(SimulationPorts.ForwardedOutput, data.Child, InOutTestNode.SimulationPorts.Output);
             }
 
-            protected internal override void Destroy(NodeHandle handle)
+            protected internal override void Destroy(DestroyContext ctx)
             {
-                Set.Destroy(GetNodeData(handle).Child);
+                Set.Destroy(GetNodeData(ctx.Handle).Child);
             }
         }
 
@@ -699,7 +693,7 @@ namespace Unity.DataFlowGraph.Tests
 
             }
 
-            protected internal override void Destroy(NodeHandle handle) => Set.Destroy(GetNodeData(handle).Child);
+            protected internal override void Destroy(DestroyContext ctx) => Set.Destroy(GetNodeData(ctx.Handle).Child);
             public void HandleMessage(in MessageContext ctx, in Message msg) => throw new NotImplementedException();
         }
 
@@ -789,9 +783,9 @@ namespace Unity.DataFlowGraph.Tests
                 ctx.ForwardOutput(KernelPorts.ForwardedDataOutputBuffer, data.Child, NodeWithAllTypesOfPorts.KernelPorts.OutputBuffer);
             }
 
-            protected internal override void Destroy(NodeHandle handle)
+            protected internal override void Destroy(DestroyContext ctx)
             {
-                Set.Destroy(GetNodeData(handle).Child);
+                Set.Destroy(GetNodeData(ctx.Handle).Child);
             }
 
             public ref Data ExposeData(NodeHandle handle) => ref GetNodeData(handle);
@@ -906,7 +900,7 @@ namespace Unity.DataFlowGraph.Tests
                 set.Destroy(child);
             }
         }
-        
+
         public class UberNode_ThatForwards_NonMonotonically
             : NodeDefinition<UberNode_ThatForwards_NonMonotonically.Data, UberNode_ThatForwards_NonMonotonically.SimPorts>
         , IMsgHandler<Message>
@@ -939,7 +933,7 @@ namespace Unity.DataFlowGraph.Tests
 
             }
 
-            protected internal override void Destroy(NodeHandle handle) => Set.Destroy(GetNodeData(handle).Child);
+            protected internal override void Destroy(DestroyContext ctx) => Set.Destroy(GetNodeData(ctx.Handle).Child);
             public void HandleMessage(in MessageContext ctx, in Message msg) => throw new NotImplementedException();
         }
 
@@ -988,11 +982,11 @@ namespace Unity.DataFlowGraph.Tests
                 ctx.ForwardOutput(KernelPorts.Output, data.Child, ComponentNode.Output<SimpleData>());
             }
 
-            protected internal override void Destroy(NodeHandle handle)
+            protected internal override void Destroy(DestroyContext ctx)
             {
-                Set.Destroy(GetNodeData(handle).Child);
+                Set.Destroy(GetNodeData(ctx.Handle).Child);
             }
-        }        
+        }
 
         [Test]
         public void CanPortForward_InputsAndOutputs_OfEntityNodes_AndPipeDataCompletelyThrough([Values] FixtureSystemType systemType)

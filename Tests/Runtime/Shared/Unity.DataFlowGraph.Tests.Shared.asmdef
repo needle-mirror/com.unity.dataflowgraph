@@ -1,0 +1,21 @@
+{
+    "name": "Unity.DataFlowGraph.Tests.Shared",
+    "references": [
+        "Unity.Entities",
+        "Unity.DataFlowGraph",
+        "Unity.Burst"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

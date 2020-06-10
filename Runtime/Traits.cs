@@ -15,7 +15,7 @@ namespace Unity.DataFlowGraph
         }
     }
 
-    public abstract class NodeTraitsBase
+    abstract class NodeTraitsBase
     {
         internal NodeSet Set { get; set; }
         internal abstract IManagedMemoryPoolAllocator ManagedAllocator { get; }
@@ -25,7 +25,7 @@ namespace Unity.DataFlowGraph
         internal virtual IKernelData DebugGetKernelData(NodeHandle handle) => null;
     }
 
-    public sealed class NodeTraits<TSimPorts> : NodeTraitsBase
+    sealed class NodeTraits<TSimPorts> : NodeTraitsBase
         where TSimPorts : struct, ISimulationPortDefinition
     {
         struct EmptyData : INodeData { }
@@ -34,7 +34,7 @@ namespace Unity.DataFlowGraph
         internal override IManagedMemoryPoolAllocator ManagedAllocator => throw new NotImplementedException();
     }
 
-    public sealed class NodeTraits<TNodeData, TSimPorts> : NodeTraitsBase
+    sealed class NodeTraits<TNodeData, TSimPorts> : NodeTraitsBase
         where TNodeData : struct, INodeData
         where TSimPorts : struct, ISimulationPortDefinition
     {
@@ -54,7 +54,7 @@ namespace Unity.DataFlowGraph
         internal override IManagedMemoryPoolAllocator ManagedAllocator => m_Allocator;
     }
 
-    public sealed class NodeTraits<TKernelData, TKernelPortDefinition, TKernel> : NodeTraitsBase
+    sealed class NodeTraits<TKernelData, TKernelPortDefinition, TKernel> : NodeTraitsBase
         where TKernelData : struct, IKernelData
         where TKernelPortDefinition : struct, IKernelPortDefinition
         where TKernel : struct, IGraphKernel<TKernelData, TKernelPortDefinition>
@@ -78,7 +78,7 @@ namespace Unity.DataFlowGraph
         internal override IManagedMemoryPoolAllocator ManagedAllocator => throw new NotImplementedException();
     }
 
-    public class NodeTraits<TNodeData, TSimPorts, TKernelData, TKernelPortDefinition, TKernel> : NodeTraitsBase
+    class NodeTraits<TNodeData, TSimPorts, TKernelData, TKernelPortDefinition, TKernel> : NodeTraitsBase
         where TNodeData : struct, INodeData
         where TSimPorts : struct, ISimulationPortDefinition
         where TKernelData : struct, IKernelData
@@ -109,7 +109,7 @@ namespace Unity.DataFlowGraph
         internal override IManagedMemoryPoolAllocator ManagedAllocator => m_Allocator;
     }
 
-    public sealed class NodeTraits<TNodeData, TKernelData, TKernelPortDefinition, TKernel>
+    sealed class NodeTraits<TNodeData, TKernelData, TKernelPortDefinition, TKernel>
         : NodeTraits<TNodeData, NodeTraits<TNodeData, TKernelData, TKernelPortDefinition, TKernel>.EmptySimPorts, TKernelData, TKernelPortDefinition, TKernel>
             where TNodeData : struct, INodeData
             where TKernelData : struct, IKernelData

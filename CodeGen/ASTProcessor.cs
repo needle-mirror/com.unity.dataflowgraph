@@ -1,43 +1,27 @@
-﻿using System.Collections.Generic;
-using System.Linq;
+﻿using System;
+using System.Collections.Generic;
 using Mono.Cecil;
-using Unity.CompilationPipeline.Common.Diagnostics;
 
 namespace Unity.DataFlowGraph.CodeGen
 {
-    class Diag
-    {
-        public List<DiagnosticMessage> Messages = new List<DiagnosticMessage>();
-
-        public void Exception(string contents) =>
-            AddDiagnostic(contents, DiagnosticType.Error);
-
-        public void Error(string contents) =>
-            AddDiagnostic(contents, DiagnosticType.Error);
-
-        public void Warning(string contents) =>
-            AddDiagnostic(contents, DiagnosticType.Warning);
-
-        public bool HasErrors()
-        {
-            return Messages.Any(m => m.DiagnosticType == DiagnosticType.Error);
-        }
-
-        void AddDiagnostic(string contents, DiagnosticType diagType)
-        {
-            var message = new DiagnosticMessage();
-            message.DiagnosticType = diagType;
-            message.MessageData = contents;
-            Messages.Add(message);
-        }
-    }
+    /// <summary>
+    /// Annotation for a symbol that must always exist.
+    /// See <see cref="HelperExtensions.DiagnoseNullSymbolFields(Diag, IDefinitionContext)"/>
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Field)]
+    public class NSymbolAttribute : Attribute { }
 
     /// <summary>
     /// Base class for something that wants to parse / analyse / process Cecil ASTs 
     /// related to DataFlowGraph
     /// </summary>
-    abstract class ASTProcessor
+    abstract class ASTProcessor : IDefinitionContext
     {
+        /// <summary>
+        /// Any codegenerated symbol should have this prepended.
+        /// <seealso cref="MakeSymbol(string)"/>
+        /// </summary>
+        const string k_InjectedSymbolPrefix = "DFG_CG_";
         /// <summary>
         /// The module the processor analyses / affects
         /// </summary>
@@ -70,22 +54,152 @@ namespace Unity.DataFlowGraph.CodeGen
         /// </param>
         public virtual void PostProcess(Diag diag, out bool mutated) { mutated = false; }
 
+
+        public virtual string GetContextName()
+        {
+            return Module.Name;
+        }
+
         /// <summary>
         /// Make a (simple) clone of the <paramref name="completelyOpenMethod"/> function, that is pointing to the generic
         /// instantiation of <paramref name="closedOuterType"/>, instead of being completely open.
         /// </summary>
-        protected MethodReference DeriveEnclosedMethodReference(MethodReference completelyOpenMethod, GenericInstanceType closedOuterType)
+        protected MethodReference DeriveEnclosedMethodReference(MethodReference completelyOpenMethod, TypeReference closedOuterType)
         {
-            var reference = new MethodReference(completelyOpenMethod.Name, completelyOpenMethod.ReturnType, closedOuterType);
+            var reference = new MethodReference(completelyOpenMethod.Name, completelyOpenMethod.ReturnType, closedOuterType)
+            {
+                HasThis = completelyOpenMethod.HasThis,
+                ExplicitThis = completelyOpenMethod.ExplicitThis,
+                CallingConvention = completelyOpenMethod.CallingConvention
+            };
 
             foreach (var genericParameter in completelyOpenMethod.GenericParameters)
                 reference.GenericParameters.Add(new GenericParameter(genericParameter.Name, reference));
 
             foreach (var parameter in completelyOpenMethod.Parameters)
-                reference.Parameters.Add(new ParameterDefinition(parameter.Name, parameter.Attributes, Module.ImportReference(parameter.ParameterType)));
+                reference.Parameters.Add(new ParameterDefinition(parameter.Name, parameter.Attributes, EnsureImported(parameter.ParameterType)));
 
             return reference;
+        }
 
+        /// <summary>
+        /// Use this function to decorate a generated symbol in a standardized way.
+        /// </summary>
+        protected string MakeSymbol(string localName)
+        {
+            return k_InjectedSymbolPrefix + localName;
+        }
+
+        /// <summary>
+        /// Returns an enumeration of potential name clashes existing in <paramref name="def"/>
+        /// together with <see cref="MakeSymbol(string)"/>
+        /// </summary>
+        public static IEnumerable<MemberReference> GetSymbolNameOverlaps(TypeDefinition def)
+        {
+            foreach(var m in def.Methods)
+            {
+                if (m.Name.StartsWith(k_InjectedSymbolPrefix))
+                    yield return m;
+            }
+
+            foreach (var f in def.Fields)
+            {
+                if (f.Name.StartsWith(k_InjectedSymbolPrefix))
+                    yield return f;
+            }
+
+            foreach (var p in def.Properties)
+            {
+                if (p.Name.StartsWith(k_InjectedSymbolPrefix))
+                    yield return p;
+            }
+
+            // Name hiding is allowed through inheritance, so we don't need to scan recursively.
+            // It will generate CS0108 normally, though not in IL.
+            yield break;
+        }
+
+        /// <summary>
+        /// Get a Cecil <see cref="TypeReference"/> from a <see cref="System.Type"/> and import it into the current
+        /// <see cref="Module"/> if necessary.
+        /// </summary>
+        public TypeReference GetImportedReference(Type type)
+        {
+            return Module.GetImportedReference(type);
+        }
+
+        /// <summary>
+        /// Ensure that the given Cecil <see cref="TypeReference"/> is imported into the current <see cref="Module"/> if
+        /// necessary.
+        /// </summary>
+        public TypeReference EnsureImported(TypeReference type)
+        {
+            if (type.Module == Module)
+                return type;
+
+            return Module.ImportReference(type);
+        }
+
+        /// <summary>
+        /// Ensure that the given Cecil <see cref="MethodReference"/> is imported into the current <see cref="Module"/> if
+        /// necessary.
+        /// </summary>
+        public MethodReference EnsureImported(MethodReference method)
+        {
+            if (method.Module == Module)
+                return method;
+
+            return Module.ImportReference(method);
+        }
+
+        /// <summary>
+        /// Find a generic Cecil <see cref="MethodReference"/> by its name and parameters for the given type and import
+        /// it into the current <see cref="Module"/> if necessary.
+        /// </summary>
+        public MethodReference FindGenericMethod(TypeReference type, string name, int genericCount, params TypeReference[] parameters)
+        {
+            foreach (var m in type.Resolve().Methods)
+            {
+                if (m.Name == name && m.Parameters.Count == parameters.Length && m.GenericParameters.Count == genericCount)
+                {
+                    int i;
+                    for (i = 0; i < parameters.Length; ++i)
+                        if (!m.Parameters[i].ParameterType.RefersToSame(parameters[i]))
+                            break;
+                    if (i == parameters.Length)
+                        return EnsureImported(m);
+                }
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Find a Cecil <see cref="MethodReference"/> by its name and parameters for the given type and import
+        /// it into the current <see cref="Module"/> if necessary.
+        /// </summary>
+        public MethodReference FindMethod(TypeReference type, string name, params TypeReference[] parameters)
+        {
+            return FindGenericMethod(type, name, 0, parameters);
+        }
+
+        /// <summary>
+        /// Find a Cecil <see cref="MethodReference"/> for a type constructor given its parameter list and import
+        /// it into the current <see cref="Module"/> if necessary.
+        /// </summary>
+        public MethodReference FindConstructor(TypeReference type, params TypeReference[] parameters)
+        {
+            return FindMethod(type, ".ctor", parameters);
+        }
+
+        /// <summary>
+        /// Create a bodiless <see cref="MethodDefinition"/> to implement the given interface method.
+        /// </summary>
+        public MethodDefinition CreateEmptyInterfaceMethodImplementation(MethodDefinition interfaceMethod)
+        {
+            var method = new MethodDefinition(interfaceMethod.Name, DFGLibrary.MethodPublicFinalFlags,EnsureImported(interfaceMethod.ReturnType));
+            foreach (var p in interfaceMethod.Parameters)
+                method.Parameters.Add(new ParameterDefinition(p.Name, p.Attributes, EnsureImported(p.ParameterType)));
+            return method;
         }
     }
 }

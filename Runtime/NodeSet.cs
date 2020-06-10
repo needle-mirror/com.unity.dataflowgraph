@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
+using Unity.Entities;
 using Unity.Profiling;
 
 namespace Unity.DataFlowGraph
@@ -23,7 +24,7 @@ namespace Unity.DataFlowGraph
         static ProfilerMarker m_FenceOutputConsumerProfilerMarker = new ProfilerMarker("NodeSet.FenceOutputConsumers");
         static ProfilerMarker m_SimulateProfilerMarker = new ProfilerMarker("NodeSet.Simulate");
         static ProfilerMarker m_SwapGraphValuesProfilerMarker = new ProfilerMarker("NodeSet.SwapGraphValues");
-        
+
 
         internal RenderGraph DataGraph => m_RenderGraph;
 
@@ -48,15 +49,27 @@ namespace Unity.DataFlowGraph
         /// Unique ID for this particular instance.
         /// </summary>
         readonly internal ushort NodeSetID;
+
         static ushort s_NodeSetCounter;
 
         bool m_IsDisposed;
+
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+        DisposeSentinel m_Sentinel;
+        AtomicSafetyHandle m_UnusedSafetyHandle;
+#endif
 
         /// <summary>
         /// Construct a node set. Remember to dispose it.
         /// <seealso cref="Dispose"/>
         /// </summary>
         public NodeSet()
+            : this(null, ConstructorType.InternalConstructor)
+        {
+        }
+
+        enum ConstructorType { InternalConstructor }
+        NodeSet(ComponentSystemBase hostSystem, ConstructorType _constructorType)
         {
             m_NodeDefinitions.Add(s_InvalidDefinitionSlot);
 
@@ -69,6 +82,7 @@ namespace Unity.DataFlowGraph
             m_ManagedAllocators.Add(default);
             // (we don't need a zeroth invalid index for nodes, because they are versioned)
 
+            HostSystem = hostSystem;
             RendererModel = RenderExecutionModel.MaximallyParallel;
             m_RenderGraph = new RenderGraph(this);
             NodeSetID = ++s_NodeSetCounter;
@@ -76,6 +90,10 @@ namespace Unity.DataFlowGraph
             m_GraphValues = new VersionedList<DataOutputValue>(Allocator.Persistent, NodeSetID);
 
             DebugInfo.RegisterNodeSetCreation(this);
+
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+            DisposeSentinel.Create(out m_UnusedSafetyHandle, out m_Sentinel, 1, Allocator.Persistent);
+#endif
         }
 
         /// <summary>
@@ -122,7 +140,7 @@ namespace Unity.DataFlowGraph
             {
                 // To ensure consistency with Destroy(, false)
                 m_Diff.NodeCreated(handle);
-
+                m_Database.VertexCreated(ref m_Topology, handle);
                 def.Definition.Init(context);
 
                 if (StillExists(handle) && forwardedConnections.IsCreated && forwardedConnections.Count > 0)
@@ -147,7 +165,7 @@ namespace Unity.DataFlowGraph
 
         /// <summary>
         /// Destroys a node, identified by the handle.
-        /// This invokes <see cref="NodeDefinition.Destroy(NodeHandle)"/>
+        /// This invokes <see cref="NodeDefinition.Destroy(DestroyContext context)"/>
         /// if implemented.
         /// </summary>
         /// <exception cref="ArgumentException">
@@ -250,7 +268,7 @@ namespace Unity.DataFlowGraph
             {
                 try
                 {
-                    m_NodeDefinitions[index].Destroy(node.Self.ToPublicHandle());
+                    m_NodeDefinitions[index].Destroy(new DestroyContext(node.Self, this));
                 }
                 catch (Exception e)
                 {
@@ -291,17 +309,16 @@ namespace Unity.DataFlowGraph
             }
 
             m_Diff.NodeDeleted(node.Self, index);
-
+            m_Database.VertexDeleted(ref m_Topology, node.Self);
             ValidatedHandle.Bump(ref node.Self);
             m_FreeNodes.Add(node.Self.VHandle.Index);
             SignalTopologyChanged();
         }
 
-        ~NodeSet()
-        {
-            Debug.LogError("Leaked NodeSet - remember to call .Dispose() on it!");
-            Dispose(false);
-        }
+        /// <summary>
+        /// Query whether <see cref="Dispose"/> has been called on the <see cref="NodeSet"/>.
+        /// </summary>
+        public bool IsCreated => !m_IsDisposed;
 
         /// <summary>
         /// Cleans up the node set, and releasing any resources associated with it.
@@ -312,27 +329,14 @@ namespace Unity.DataFlowGraph
         /// </remarks>
         public void Dispose()
         {
-            Dispose(true);
-        }
-
-        /// <summary>
-        /// Query whether <see cref="Dispose"/> has been called on the <see cref="NodeSet"/>.
-        /// </summary>
-        public bool IsDisposed()
-        {
-            return m_IsDisposed;
-        }
-
-        internal void Dispose(bool isDisposing)
-        {
             if (m_IsDisposed)
                 return;
 
-            m_IsDisposed = true;
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+            DisposeSentinel.Dispose(ref m_UnusedSafetyHandle, ref m_Sentinel);
+#endif
 
-            if (isDisposing)
-                // TODO: It seems to be ever-more unsafe to dispose through a GC Finalizer...
-                GC.SuppressFinalize(this);
+            m_IsDisposed = true;
 
             unsafe
             {

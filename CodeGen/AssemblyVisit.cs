@@ -11,7 +11,8 @@ namespace Unity.DataFlowGraph.CodeGen
 
         public void Prepare(Diag diag, AssemblyDefinition assemblyDefinition)
         {
-            if (assemblyDefinition.Name.Name == "Unity.DataFlowGraph.CodeGen.Tests")
+            if (assemblyDefinition.Name.Name == "Unity.DataFlowGraph.CodeGen.Tests" ||
+                assemblyDefinition.Name.Name == "Unity.DataFlowGraph.CodeGen.InternalsAccess.Tests")
                 return;
 
             var lib = new DFGLibrary(assemblyDefinition.MainModule);
@@ -24,6 +25,9 @@ namespace Unity.DataFlowGraph.CodeGen
             var nodeTypes = AccumulateNodeDefinitions(assemblyDefinition.MainModule);
 
             Processors.AddRange(nodeTypes.Select(nt => new NodeDefinitionProcessor(lib, nt)));
+
+            var portTypes = AccumulatePortDefinitions(assemblyDefinition.MainModule);
+            Processors.AddRange(portTypes.Select(nt => new PortDefinitionProcessor(lib, nt)));
         }
 
         /// <returns>True on success, false on any error (see <paramref name="diag"/>)</returns>
@@ -32,6 +36,7 @@ namespace Unity.DataFlowGraph.CodeGen
             madeAChange = false;
 
             Processors.ForEach(n => n.ParseSymbols(diag));
+
             Processors.ForEach(n => n.AnalyseConsistency(diag));
 
             if (diag.HasErrors())
@@ -46,35 +51,53 @@ namespace Unity.DataFlowGraph.CodeGen
                     anyMutations |= locallyMutated;
                 }
             );
-
+            
             madeAChange |= anyMutations;
-
             return !diag.HasErrors();
         }
 
         public static List<TypeDefinition> AccumulateNodeDefinitions(ModuleDefinition module)
         {
-            var results = new List<TypeDefinition>();
+            var nodeDefinitions = new List<TypeDefinition>();
+            var nodeDefinition = module.GetImportedReference(typeof(NodeDefinition));
 
-            // Pick up all node definitions
             foreach (var type in module.GetAllTypes())
             {
                 if (type.IsClass && !type.IsAbstract)
                 {
                     for (var baseType = type.BaseType; baseType != null; baseType = baseType.Resolve().BaseType)
                     {
-                        if (baseType.FullName == typeof(NodeDefinition).FullName) // TODO: Use IsOrImplements in future
+                        if (baseType.IsOrImplements(nodeDefinition))
                         {
-                            results.Add(type);
+                            nodeDefinitions.Add(type);
                             break;
                         }
                     }
                 }
             }
 
-            return results;
+            return nodeDefinitions;
         }
 
+        public static List<TypeDefinition> AccumulatePortDefinitions(ModuleDefinition module)
+        {
+            var portDefinitions = new List<TypeDefinition>();
+            var simulationPortDefinition = module.GetImportedReference(typeof(ISimulationPortDefinition));
+            var kernelPortDefinition = module.GetImportedReference(typeof(IKernelPortDefinition));
 
+            foreach (var type in module.GetAllTypes())
+            {
+                if (type.IsValueType && type.HasInterfaces)
+                {
+                    if (type.Interfaces.Any(i => i.InterfaceType.IsOrImplements(simulationPortDefinition) ||
+                                                 i.InterfaceType.IsOrImplements(kernelPortDefinition)))
+                    {
+                        portDefinitions.Add(type);
+                    }
+                }
+            }
+
+            return portDefinitions;
+        }
     }
 }

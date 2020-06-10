@@ -301,8 +301,8 @@ namespace Unity.DataFlowGraph.Tests
                 // and anything that has been resolved from it
                 set.Update();
 
-                Assert.Throws<InvalidOperationException>(() => resolver.Resolve(rootValue));
-                Assert.Throws<InvalidOperationException>(() => readback = array[k_BufferSize - 1]);
+                UtilityAssert.ThrowsEither<InvalidOperationException, ObjectDisposedException>(() => resolver.Resolve(rootValue));
+                UtilityAssert.ThrowsEither<InvalidOperationException, ObjectDisposedException>(() => readback = array[k_BufferSize - 1]);
 
                 set.Destroy(root);
                 set.ReleaseGraphValue(rootValue);
@@ -420,7 +420,7 @@ namespace Unity.DataFlowGraph.Tests
 
                         valueResolverDependency.Complete();
 
-                        Assert.Throws<InvalidOperationException>(
+                        UtilityAssert.ThrowsEither<InvalidOperationException, ObjectDisposedException>(
                             () =>
                             {
                             /**

@@ -291,25 +291,26 @@ namespace Unity.DataFlowGraph.Tests
 
         class SimpleProcessingSystemDelegate : INodeSetSystemDelegate
         {
+            protected EntityQuery m_Query { get; private set; }
+
             public void OnCreate(ComponentSystemBase system)
             {
+                m_Query = system.GetEntityQuery(ComponentType.ReadOnly<SimpleData>());
                 for (int i = 0; i < 1000; ++i)
                     system.EntityManager.CreateEntity(typeof(SimpleData));
             }
 
             public void OnDestroy(ComponentSystemBase system, NodeSet set) {}
 
-            protected struct SimpleJob
-#pragma warning disable 618  // warning CS0618: 'IJobForEach' is obsolete: 'Please use Entities.ForEach or IJobChunk to schedule jobs that work on Entities. (RemovedAfter 2020-06-20)
-                : IJobForEach<SimpleData>
-#pragma warning restore 618
+            protected struct SimpleJob : IJobChunk
             {
-                public void Execute(ref SimpleData c0) { }
+                public ComponentTypeHandle<SimpleData> SimpleDataType;
+                public void Execute(ArchetypeChunk chunk, int chunkIndex, int firstEntityIndex) { }
             }
 
             public virtual void OnUpdate(ComponentSystemBase system, NodeSet set, JobHandle inputDeps, out JobHandle outputDeps)
             {
-                outputDeps = set.Update(new SimpleJob().Schedule(system, inputDeps));
+                outputDeps = set.Update(new SimpleJob { SimpleDataType = system.GetComponentTypeHandle<SimpleData>() }.Schedule(m_Query, inputDeps));
             }
         }
 
@@ -326,7 +327,7 @@ namespace Unity.DataFlowGraph.Tests
         {
             public override void OnUpdate(ComponentSystemBase system, NodeSet set, JobHandle inputDeps, out JobHandle outputDeps)
             {
-                var job = new SimpleJob().Schedule(system, inputDeps);
+                var job = new SimpleJob { SimpleDataType = system.GetComponentTypeHandle<SimpleData>() }.Schedule(m_Query, inputDeps);
                 var dfg = set.Update(inputDeps);
 
                 outputDeps = JobHandle.CombineDependencies(job, dfg);
@@ -355,9 +356,9 @@ namespace Unity.DataFlowGraph.Tests
                 var dfg = set.Update(inputDeps);
 
                 if (ExpectException)
-                    Assert.Throws<InvalidOperationException>(() => job = new SimpleJob().Schedule(system, inputDeps));
+                    Assert.Throws<InvalidOperationException>(() => job = new SimpleJob { SimpleDataType = system.GetComponentTypeHandle<SimpleData>() }.Schedule(m_Query, inputDeps));
                 else
-                    job = new SimpleJob().Schedule(system, inputDeps);
+                    job = new SimpleJob { SimpleDataType = system.GetComponentTypeHandle<SimpleData>() }.Schedule(m_Query, inputDeps);
 
                 outputDeps = JobHandle.CombineDependencies(job, dfg);
             }

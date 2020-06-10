@@ -58,25 +58,6 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        interface ITaskPortNoHandler : ITaskPort<ITaskPortNoHandler> { }
-
-        class TaskPortNoHandlerNode
-            : NodeDefinition<NodeData, TaskPortNoHandlerNode.SimPorts>
-            , ITaskPortNoHandler
-        {
-            public struct SimPorts : ISimulationPortDefinition
-            {
-#pragma warning disable 649  // Assigned through internal DataFlowGraph reflection
-                public MessageInput<MessageTaskPortNode, MessageContent> Input;
-#pragma warning restore 649
-            }
-
-            public InputPortID GetPort(NodeHandle node)
-            {
-                return (InputPortID)SimulationPorts.Input;
-            }
-        }
-
         [Test]
         public void SendMessage_WithInterfaceLink()
         {

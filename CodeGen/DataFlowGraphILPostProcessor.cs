@@ -17,34 +17,42 @@ namespace Unity.DataFlowGraph.CodeGen
             if (!WillProcess(compiledAssembly))
                 return null;
 
-            var assemblyDefinition = AssemblyDefinitionFor(compiledAssembly);
-
-            Diag diag = new Diag();
-
-            try
+#if DFG_TIME_POST_PROCESSING
+            using (var watch = new CompilationWatch(compiledAssembly.Name))
+#endif
             {
-                AssemblyVisitor visitor = new AssemblyVisitor();
 
-                visitor.Prepare(diag, assemblyDefinition);
+                var assemblyDefinition = AssemblyDefinitionFor(compiledAssembly);
 
-                if (!visitor.Process(diag, out var madeAnyChange) || !madeAnyChange)
+                Diag diag = new Diag();
+
+                try
+                {
+                    AssemblyVisitor visitor = new AssemblyVisitor();
+
+                    visitor.Prepare(diag, assemblyDefinition);
+
+                    if (!visitor.Process(diag, out var madeAnyChange) || !madeAnyChange)
+                        return new ILPostProcessResult(null, diag.Messages);
+                }
+                catch (Exception e)
+                {
+                    diag.DFG_IE_04(e);
                     return new ILPostProcessResult(null, diag.Messages);
-            }
-            catch(Exception e)
-            {
-                diag.Exception(e.ToString());
-                return new ILPostProcessResult(null, diag.Messages);
-            }
+                }
 
-            var pe = new MemoryStream();
-            var pdb = new MemoryStream();
-            var writerParameters = new WriterParameters
-            {
-                SymbolWriterProvider = new PortablePdbWriterProvider(), SymbolStream = pdb, WriteSymbols = true
-            };
+                var pe = new MemoryStream();
+                var pdb = new MemoryStream();
+                var writerParameters = new WriterParameters
+                {
+                    SymbolWriterProvider = new PortablePdbWriterProvider(),
+                    SymbolStream = pdb,
+                    WriteSymbols = true
+                };
 
-            assemblyDefinition.Write(pe, writerParameters);
-            return new ILPostProcessResult(new InMemoryAssembly(pe.ToArray(), pdb.ToArray()), diag.Messages);
+                assemblyDefinition.Write(pe, writerParameters);
+                return new ILPostProcessResult(new InMemoryAssembly(pe.ToArray(), pdb.ToArray()), diag.Messages);
+            }
         }
 
         // FIXME: Boilerplate copied from EntitiesILPostProcessors - refactor to share code

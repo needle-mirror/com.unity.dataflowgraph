@@ -225,12 +225,6 @@ namespace Unity.DataFlowGraph.Tests
         [Test]
         public void ConnectingOutOfArrayPortIndicesRange_ThrowsException()
         {
-            using (var set = new NodeSet())
-            {
-                // Must touch the Node type first to ensure PortIDs have been assigned.
-                set.GetDefinition<NodeWithAllTypesOfPorts>();
-            }
-
             ConnectingOutOfArrayPortIndicesRange_ThrowsException<NodeWithAllTypesOfPorts>(
                 (InputPortID)NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayIn, (OutputPortID)NodeWithAllTypesOfPorts.SimulationPorts.MessageOut);
             ConnectingOutOfArrayPortIndicesRange_ThrowsException<NodeWithAllTypesOfPorts>(
@@ -268,12 +262,6 @@ namespace Unity.DataFlowGraph.Tests
         [Test]
         public void DisconnectingOutOfArrayPortIndicesRange_ThrowsException()
         {
-            using (var set = new NodeSet())
-            {
-                // Must touch the Node type first to ensure PortIDs have been assigned.
-                set.GetDefinition<NodeWithAllTypesOfPorts>();
-            }
-
             DisconnectingOutOfArrayPortIndicesRange_ThrowsException<NodeWithAllTypesOfPorts>(
                 (InputPortID)NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayIn, (OutputPortID)NodeWithAllTypesOfPorts.SimulationPorts.MessageOut);
             DisconnectingOutOfArrayPortIndicesRange_ThrowsException<NodeWithAllTypesOfPorts>(
@@ -308,12 +296,6 @@ namespace Unity.DataFlowGraph.Tests
         [Test]
         public void ReducingConnectedArrayPort_ThrowsException()
         {
-            using (var set = new NodeSet())
-            {
-                // Must touch the Node type first to ensure PortIDs have been assigned.
-                set.GetDefinition<NodeWithAllTypesOfPorts>();
-            }
-
             ReducingConnectedArrayPort_ThrowsException<NodeWithAllTypesOfPorts>(
                 (InputPortID)NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayIn, (OutputPortID)NodeWithAllTypesOfPorts.SimulationPorts.MessageOut);
             ReducingConnectedArrayPort_ThrowsException<NodeWithAllTypesOfPorts>(

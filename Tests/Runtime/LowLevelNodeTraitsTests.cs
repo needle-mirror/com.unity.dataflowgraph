@@ -260,6 +260,7 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
+        [InvalidTestNodeDefinition]
         class InvalidForBurstKernelNodeWithIO : NodeDefinition<Node, Data, InvalidForBurstKernelNodeWithIO.KernelDefs, InvalidForBurstKernelNodeWithIO.InvalidForBurstKernel>
         {
             public struct KernelDefs : IKernelPortDefinition

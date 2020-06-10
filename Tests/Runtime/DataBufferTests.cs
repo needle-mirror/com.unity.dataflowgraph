@@ -353,28 +353,36 @@ namespace Unity.DataFlowGraph.Tests
         [TestCase(typeof(int)), TestCase(typeof(float)), TestCase(typeof(double)), TestCase(typeof(CustomStructure))]
         public void CanWriteAndRead_GenericTypes_AndLoopBackTheSameValue(Type genericType)
         {
-#if !UNITY_EDITOR
-            if (JobsUtility.JobCompilerEnabled)
-                Assert.Ignore("Skipping test since Burst AOT is broken for generic kernels");
-#endif
-
             if (genericType == typeof(int))
-                TestGenericType(50, 5);
+                TestGenericType(genericType, 50, 5);
             else if (genericType == typeof(float))
-                TestGenericType(50, 15.0f);
+                TestGenericType(genericType, 50, 15.0f);
             else if (genericType == typeof(double))
-                TestGenericType(50, 15.0);
+                TestGenericType(genericType, 50, 15.0);
             else if (genericType == typeof(CustomStructure))
-                TestGenericType(50, new CustomStructure { Value = 55.555f });
+                TestGenericType(genericType, 50, new CustomStructure { Value = 55.555f });
         }
 
-        public void TestGenericType<T>(int testBufferSize, T testValue)
+        NodeHandle GenericNodeFactory(NodeSet set, bool input, Type genericType)
+        {
+            if (genericType == typeof(int))
+                return input ? (NodeHandle)set.Create<GenericInput<int>>() : set.Create<GenericOutput<int>>();
+            if (genericType == typeof(float))
+                return input ? (NodeHandle)set.Create<GenericInput<float>>() : set.Create<GenericOutput<float>>();
+            if (genericType == typeof(double))
+                return input ? (NodeHandle)set.Create<GenericInput<double>>() : set.Create<GenericOutput<double>>();
+            if (genericType == typeof(CustomStructure))
+                return input ? (NodeHandle)set.Create<GenericInput<CustomStructure>>() : set.Create<GenericOutput<CustomStructure>>();
+            return default;
+        }
+
+        public void TestGenericType<T>(Type genericType, int testBufferSize, T testValue)
             where T : struct
         {
             using (var set = new NodeSet())
             {
-                var output = set.Create<GenericOutput<T>>();
-                var input = set.Create<GenericInput<T>>();
+                var output = set.CastHandle<GenericOutput<T>>(GenericNodeFactory(set, false, genericType));
+                var input = set.CastHandle<GenericInput<T>>(GenericNodeFactory(set, true, genericType));
 
                 set.SetBufferSize(output, GenericOutput<T>.KernelPorts.Output, Buffer<T>.SizeRequest(testBufferSize));
                 set.Connect(output, GenericOutput<T>.KernelPorts.Output, input, GenericInput<T>.KernelPorts.Input);

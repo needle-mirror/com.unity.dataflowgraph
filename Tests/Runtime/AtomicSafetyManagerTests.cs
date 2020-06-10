@@ -170,8 +170,8 @@ namespace Unity.DataFlowGraph.Tests
                         manager.BumpTemporaryHandleVersions();
 
                         // R, W gone:
-                        Assert.Throws<InvalidOperationException>(() => something = nativeArray[0]);
-                        Assert.Throws<InvalidOperationException>(() => nativeArray[0] = something);
+                        UtilityAssert.ThrowsEither<InvalidOperationException, ObjectDisposedException>(() => something = nativeArray[0]);
+                        UtilityAssert.ThrowsEither<InvalidOperationException, ObjectDisposedException>(() => nativeArray[0] = something);
                     }
                 }
                 finally

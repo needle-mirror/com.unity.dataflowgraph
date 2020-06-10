@@ -49,9 +49,9 @@ namespace Unity.DataFlowGraph.Examples.RenderGraph
             GetNodeData(ctx.Handle).Output = Set.CreateGraphValue(Set.CastHandle<DirectionRotator>(ctx.Handle), KernelPorts.Output);
         }
 
-        protected override void Destroy(NodeHandle handle)
+        protected override void Destroy(DestroyContext ctx)
         {
-            Set.ReleaseGraphValue(GetNodeData(handle).Output);
+            Set.ReleaseGraphValue(GetNodeData(ctx.Handle).Output);
         }
 
         protected override void OnUpdate(in UpdateContext ctx)

@@ -1,5 +1,7 @@
 using System.Linq;
 using NUnit.Framework;
+using Unity.Collections;
+using Unity.Jobs;
 
 namespace Unity.DataFlowGraph.Tests
 {
@@ -263,6 +265,59 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-    }
+        [Test]
+        public unsafe void AnalyseLiveNodes_GathersEveryChangedNode_InAffectedGroups()
+        {
+            const int k_Nodes = 16;
+            const int k_Groups = 4;
 
+            using (var map = new FlatTopologyMap(16, Allocator.TempJob))
+            using (var knodes = new BlitList<RenderGraph.KernelNode>(0, Allocator.TempJob))
+            using (var db = new Topology.Database(16, Allocator.TempJob))
+            using (var gatheredNodes = new NativeList<ValidatedHandle>(Allocator.TempJob))
+            {
+                map.EnsureSize(k_Nodes);
+
+                var indirectVersions = db.ChangedGroups;
+                indirectVersions.Resize(k_Groups, NativeArrayOptions.ClearMemory);
+
+                for (int i = 0; i < k_Nodes; ++i)
+                {
+                    var handle = ValidatedHandle.Create(i, 0);
+                    RenderGraph.KernelNode knode = default;
+                    knode.Instance = new KernelLayout().VirtualReconstruct((void*)0xDEADBEEF);
+                    knode.Handle = handle;
+                    knodes.Add(knode);
+
+                    // split into groups
+                    map.GetRef(handle).GroupID = i % k_Groups; 
+                }
+                
+                for(int i = 0; i < k_Groups; ++i)
+                {
+                    gatheredNodes.Clear();
+
+                    for(int k = 0; k < k_Groups; ++k)
+                        indirectVersions[k] = false;
+
+                    indirectVersions[i] = true;
+
+                    RenderGraph.AnalyseLiveNodes analyseJob;
+                    analyseJob.Filter = db;
+                    analyseJob.KernelNodes = knodes;
+                    analyseJob.Map = map;
+                    analyseJob.Marker = RenderGraph.Markers.AnalyseLiveNodes;
+                    analyseJob.ChangedNodes = gatheredNodes;
+
+                    analyseJob.Schedule(default).Complete();
+
+                    Assert.AreEqual(k_Groups, gatheredNodes.Length, $"{i}");
+
+                    gatheredNodes.AsArray().ToArray().ToList().ForEach(
+                        n => Assert.AreEqual(map[n].GroupID, i)
+                    );
+                }
+            }
+        }
+    }
 }

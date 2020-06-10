@@ -388,10 +388,6 @@ namespace Unity.DataFlowGraph.Tests
             {
                 NodeHandle node = set.Create<DifferentHandlers>();
 
-                // Must touch the Node type first to ensure PortIDs have been assigned.
-                set.GetDefinition<NodeWithParametricPortType<float>>();
-                set.GetDefinition<SimpleMessageNode>();
-
                 // Try sending to port but using the wrong type.
                 Assert.Throws<InvalidOperationException>(() => set.SendMessage(node, (InputPortID)DifferentHandlers.SimulationPorts.Input1, 5f));
 
