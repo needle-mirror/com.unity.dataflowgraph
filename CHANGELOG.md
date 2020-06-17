@@ -4,6 +4,13 @@ All notable changes to this package will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [0.15.0-preview.5] - 2020-06-17
+### Changed
+- Upgraded dependency com.unity.entities to 0.11.1-preview.4
+- Upgraded dependency com.unity.jobs to 0.2.10-preview.12
+- Upgraded dependency com.unity.collections to 0.9.0-preview.6
+- Upgraded dependency com.unity.burst to 1.3.0
+
 ## [0.15.0-preview.4] - 2020-06-10
 ### Fixed
 - Fix regression where post-processing would crash on `NodeDefinition`'s who's `INodeData`, `ISimulationPortDefinition`, `IKernelData`, `IKernelPortDefinition`, or `IGraphKernel` were defined in an assembly other than the `NodeDefinition` itself
