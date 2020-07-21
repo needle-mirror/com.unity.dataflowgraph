@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using NUnit.Framework;
 using Unity.Burst;
 using Unity.Collections.LowLevel.Unsafe;
@@ -26,7 +25,7 @@ namespace Unity.DataFlowGraph.Tests
 
             public void Execute()
             {
-                ref int i = ref Unsafe.AsRef<int>(Int);
+                ref int i = ref Utility.AsRef<int>(Int);
                 i *= 2;
             }
         }
@@ -39,7 +38,7 @@ namespace Unity.DataFlowGraph.Tests
 
             public void Execute()
             {
-                ref int i = ref Unsafe.AsRef<int>(Int);
+                ref int i = ref Utility.AsRef<int>(Int);
                 i *= 2;
             }
         }

@@ -2,7 +2,6 @@
 using System.Reflection;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Collections;
-using System.Runtime.CompilerServices;
 using static Unity.DataFlowGraph.ReflectionTools;
 
 namespace Unity.DataFlowGraph
@@ -96,7 +95,7 @@ namespace Unity.DataFlowGraph
             public ref UntypedPortArray AsPortArray(RenderKernelFunction.BasePort* ports)
             {
                 // Assert IsArray ?
-                return ref Unsafe.AsRef<UntypedPortArray>((byte*)ports + PatchOffset);
+                return ref Utility.AsRef<UntypedPortArray>((byte*)ports + PatchOffset);
             }
         }
 
@@ -188,9 +187,6 @@ namespace Unity.DataFlowGraph
                     if (!portType.IsConstructedGenericType)
                         throw new InvalidNodeDefinitionException($"Simulation port definition contains disallowed field {portType}.");
 
-                    // Acquire the assigned port number of this port declaration
-                    var assignedPortNumberField = portType.GetField("Port", BindingFlags.Instance | BindingFlags.NonPublic);
-
                     var genericPortType = portType.GetGenericTypeDefinition();
 
                     var genericsForDeclaration = portType.GetGenericArguments();
@@ -219,6 +215,24 @@ namespace Unity.DataFlowGraph
 
                     if (genericPortType == typeof(DataInput<,>))
                     {
+                        InputPortID inputID;
+
+                        // Acquire the assigned port number of this port declaration
+                        if (isPortArray)
+                        {
+                            var inputOutputPortID = (InputOutputPortID)portValue
+                                .GetType()
+                                .GetField("m_PortID", BindingFlags.Instance | BindingFlags.NonPublic)
+                                .GetValue(portValue);
+                            inputID = inputOutputPortID.InputPort;
+                        }
+                        else
+                        {
+                            inputID = (InputPortID)portType
+                                .GetField("Port", BindingFlags.Instance | BindingFlags.NonPublic)
+                                .GetValue(portValue);
+                        }
+
                         if (UnsafeUtility.SizeOf(dataType) > k_MaxInputSize)
                             throw new InvalidNodeDefinitionException($"Node input data structure types cannot have a sizeof larger than {k_MaxInputSize}");
 
@@ -226,13 +240,15 @@ namespace Unity.DataFlowGraph
                             new InputDeclaration(
                                 new SimpleType(dataType),
                                 offsetOfWholePortDeclaration + k_PtrOffset,
-                                (InputPortID)assignedPortNumberField.GetValue(portValue),
+                                inputID,
                                 isPortArray
                             )
                         );
                     }
                     else if (genericPortType == typeof(DataOutput<,>))
                     {
+                        // Acquire the assigned port number of this port declaration
+                        var assignedPortNumberField = portType.GetField("Port", BindingFlags.Instance | BindingFlags.NonPublic);
                         SimpleType type;
 
                         if (IsBufferDefinition(dataType))
@@ -339,7 +355,7 @@ namespace Unity.DataFlowGraph
 
         internal ref LowLevelNodeTraits Resolve()
         {
-            return ref Unsafe.AsRef<LowLevelNodeTraits>(m_Traits);
+            return ref Utility.AsRef<LowLevelNodeTraits>(m_Traits);
         }
 
         LowLevelNodeTraits DebugDisplay => Resolve();

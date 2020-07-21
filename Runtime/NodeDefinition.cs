@@ -16,13 +16,13 @@ namespace Unity.DataFlowGraph
     public sealed class ManagedAttribute : System.Attribute { }
 
     /// <summary>
-    /// Interface tag to be implemented on a struct, that will contain the 
+    /// Interface tag to be implemented on a struct, that will contain the
     /// simulation-side contents of your node's instance data.
     /// </summary>
     public interface INodeData { }
 
     /// <summary>
-    /// Interface tag to be implemented on a struct, that will contain the 
+    /// Interface tag to be implemented on a struct, that will contain the
     /// the node definition's simulation port declarations.
     /// <seealso cref="MessageInput{TDefinition, TMsg}"/>
     /// <seealso cref="MessageOutput{TDefinition, TMsg}"/>
@@ -46,16 +46,16 @@ namespace Unity.DataFlowGraph
 
     /// <summary>
     /// Base class for all node definition declarations. Provides helper
-    /// functionality and base implementations around 
+    /// functionality and base implementations around
     /// <see cref="NodeDefinition"/>.
-    /// 
-    /// A <see cref="NodeDefinition"/> instance exists per existing 
+    ///
+    /// A <see cref="NodeDefinition"/> instance exists per existing
     /// <see cref="NodeSet"/>.
     /// </summary>
     public abstract class NodeDefinition
     {
         /// <summary>
-        /// The <see cref="NodeSet"/> associated with this instance of this 
+        /// The <see cref="NodeSet"/> associated with this instance of this
         /// node definition.
         /// </summary>
         protected internal NodeSet Set { get; internal set; }
@@ -81,7 +81,7 @@ namespace Unity.DataFlowGraph
         /// </param>
         protected internal virtual void Init(InitContext ctx) { }
         /// <summary>
-        /// Destructor, provides an opportunity to clean up resources related to 
+        /// Destructor, provides an opportunity to clean up resources related to
         /// this instance.
         /// <seealso cref="NodeSet.Destroy(NodeHandle)"/>
         /// </summary>
@@ -137,7 +137,7 @@ namespace Unity.DataFlowGraph
         /// exist, but a description of it can still be retrieved.
         /// <seealso cref="GetFormalOutput(ValidatedHandle, InputPortArrayID)"/>
         /// /// </summary>
-        internal virtual PortDescription.OutputPort GetVirtualOutput(ValidatedHandle handle, OutputPortID id)
+        internal virtual PortDescription.OutputPort GetVirtualOutput(ValidatedHandle handle, OutputPortArrayID id)
             => GetFormalOutput(handle, id);
 
         /// <summary>
@@ -149,8 +149,8 @@ namespace Unity.DataFlowGraph
         /// <summary>
         /// Indexer for getting a description given an <see cref="OutputPortID"/>.
         /// </summary>
-        internal virtual PortDescription.OutputPort GetFormalOutput(ValidatedHandle handle, OutputPortID id)
-            => AutoPorts.Outputs[id.Port];
+        internal virtual PortDescription.OutputPort GetFormalOutput(ValidatedHandle handle, OutputPortArrayID id)
+            => AutoPorts.Outputs[id.PortID.Port];
 
         internal void OnMessage<T>(in MessageContext ctx, in T msg)
         {
@@ -215,7 +215,7 @@ namespace Unity.DataFlowGraph
         protected void EmitMessage<T, TNodeDefinition>(NodeHandle from, MessageOutput<TNodeDefinition, T> port, in T msg)
             where TNodeDefinition : NodeDefinition
         {
-            Set.EmitMessage(Set.Validate(from), port.Port, msg);
+            Set.EmitMessage(Set.Validate(from), new OutputPortArrayID(port.Port), msg);
         }
 
         static void ParsePortDefinition(FieldInfo staticTopLevelField, PortDescription description, Type nodeType, bool isSimulation)
@@ -269,7 +269,7 @@ namespace Unity.DataFlowGraph
                     }
                     else if (genericField == typeof(MessageOutput<,>))
                     {
-                        description.Outputs.Add(PortDescription.OutputPort.Message(genericType, (ushort)description.Outputs.Count, fieldInfo.Name));
+                        description.Outputs.Add(PortDescription.OutputPort.Message(genericType, (ushort)description.Outputs.Count, isPortArray, fieldInfo.Name));
                     }
                     else if (genericField == typeof(DSLInput<,,>))
                     {
@@ -311,9 +311,9 @@ namespace Unity.DataFlowGraph
 
                         description.Inputs.Add(
                             PortDescription.InputPort.Data(
-                                genericType, 
-                                (ushort)description.Inputs.Count, 
-                                hasBuffers, 
+                                genericType,
+                                (ushort)description.Inputs.Count,
+                                hasBuffers,
                                 isPortArray,
                                 fieldInfo.Name
                             )
@@ -329,7 +329,7 @@ namespace Unity.DataFlowGraph
                                 .Select(fi => (UnsafeUtility.GetFieldOffset(fi), new SimpleType(fi.FieldType.GetGenericArguments()[0])));
 
                             bufferInfos.AddRange(recursiveBuffers);
-                        
+
                             if (bufferInfos.Count == 0 && typeof(IComponentData).IsAssignableFrom(genericType))
                             {
                                 description.ComponentTypes.Add(new ComponentType(genericType, ComponentType.AccessMode.ReadWrite));
@@ -349,9 +349,9 @@ namespace Unity.DataFlowGraph
 
                         description.Outputs.Add(
                             PortDescription.OutputPort.Data(
-                                genericType, 
-                                (ushort)description.Outputs.Count, 
-                                bufferInfos, 
+                                genericType,
+                                (ushort)description.Outputs.Count,
+                                bufferInfos,
                                 fieldInfo.Name
                             )
                         );
@@ -426,7 +426,7 @@ namespace Unity.DataFlowGraph
         /// <summary>
         /// The simulation port definition of this node's public contract. Use this to connect together messages and
         /// DSLs between nodes using the various methods of <see cref="NodeSet"/> which require a port.
-        /// 
+        ///
         /// This is the concrete static instance of the <see cref="ISimulationPortDefinition"/> struct used in the
         /// declaration of a node's <see cref="NodeDefinition{TNodeData,TSimulationPortDefinition}"/> or other variant.
         /// <seealso cref="NodeSet.Connect(NodeHandle, OutputPortID, NodeHandle, InputPortID)"/>
@@ -446,7 +446,7 @@ namespace Unity.DataFlowGraph
         /// <summary>
         /// The kernel port definition of this node's public contract.  Use this to connect together data flow in the
         /// rendering part of the graph using the various methods of <see cref="NodeSet"/> which require a port.
-        /// 
+        ///
         /// This is the concrete static instance of the <see cref="IKernelPortDefinition"/> struct used in the
         /// declaration of a node's <see cref="NodeDefinition{TKernelData,TKernelPortDefinition,TKernel}"/>.
         /// <seealso cref="NodeSet.Connect(NodeHandle, OutputPortID, NodeHandle, InputPortID)"/>
@@ -468,7 +468,7 @@ namespace Unity.DataFlowGraph
         /// <summary>
         /// The kernel port definition of this node's public contract.  Use this to connect together data flow in the
         /// rendering part of the graph using the various methods of <see cref="NodeSet"/> which require a port.
-        /// 
+        ///
         /// This is the concrete static instance of the <see cref="IKernelPortDefinition"/> struct used in the
         /// declaration of a node's <see cref="NodeDefinition{TNodeData,TSimulationportDefinition,TKernelData,TKernelPortDefinition,TKernel}"/>.
         /// <seealso cref="NodeSet.Connect(NodeHandle, OutputPortID, NodeHandle, InputPortID)"/>
@@ -543,7 +543,7 @@ namespace Unity.DataFlowGraph
     }
 
     /// <summary>
-    /// Helper class for defining a combined simulation / rendering node, 
+    /// Helper class for defining a combined simulation / rendering node,
     /// without a simulation port definition.
     /// <seealso cref="NodeDefinition"/>
     /// </summary>

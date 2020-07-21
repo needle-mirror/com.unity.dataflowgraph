@@ -1,13 +1,11 @@
 using System;
 using System.Collections.Generic;
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Mathematics;
-using UnityEngine;
 using System.ComponentModel;
 
 namespace Unity.DataFlowGraph
@@ -34,53 +32,53 @@ namespace Unity.DataFlowGraph
 
     /// <summary>
     /// A <see cref="ComponentNode"/> gives access to component data from a specific <see cref="Entity"/> in the rendering graph.
-    /// <see cref="IComponentData"/> and <see cref="IBufferElementData"/> components are modeled as 
-    /// <see cref="DataInput{TDefinition, TType}"/> or <see cref="DataOutput{TDefinition, TType}"/>, 
-    /// and <see cref="DataInput{TDefinition, Buffer{TType}}"/> or <see cref="DataOutput{TDefinition, Buffer{TType}}"/> respectively. 
-    /// 
-    /// Using <see cref="Input{ComponentType}"/> and <see cref="Output{ComponentType}"/> you can create ports 
+    /// <see cref="IComponentData"/> and <see cref="IBufferElementData"/> components are modeled as
+    /// <see cref="DataInput{TDefinition, TType}"/> or <see cref="DataOutput{TDefinition, TType}"/>,
+    /// and <see cref="DataInput{TDefinition, Buffer{TType}}"/> or <see cref="DataOutput{TDefinition, Buffer{TType}}"/> respectively.
+    ///
+    /// Using <see cref="Input{ComponentType}"/> and <see cref="Output{ComponentType}"/> you can create ports
     /// that can be connected to normal nodes, and the data will be readable and writable as usual in the rendering graph.
     /// <seealso cref="NodeSet.Connect(NodeHandle, OutputPortID, NodeHandle, InputPortID, NodeSet.ConnectionType)"/>.
-    /// 
+    ///
     /// The data will be committed after the returned <see cref="JobHandle"/> from <see cref="NodeSet.Update(Jobs.JobHandle)"/>
     /// is completed.
-    /// 
+    ///
     /// <see cref="ComponentNode"/>s behave as normal nodes and thus any normal API on the <see cref="NodeSet"/> is accessible to
-    /// them, with the exception that a <see cref="ComponentNode"/> does not have any ports predefined. 
-    /// 
+    /// them, with the exception that a <see cref="ComponentNode"/> does not have any ports predefined.
+    ///
     /// <seealso cref="NodeDefinition.GetPortDescription(NodeHandle)"/>
-    /// 
-    /// <see cref="ComponentNode"/>s have to be created through <see cref="NodeSet.CreateComponentNode(Entity)"/>, and cannot 
+    ///
+    /// <see cref="ComponentNode"/>s have to be created through <see cref="NodeSet.CreateComponentNode(Entity)"/>, and cannot
     /// be instantiated through <see cref="NodeSet.Create{TDefinition}"/>.
-    /// 
-    /// A <see cref="ComponentNode"/> doesn't do anything itself and cannot be extended - it merely offers a topological 
+    ///
+    /// A <see cref="ComponentNode"/> doesn't do anything itself and cannot be extended - it merely offers a topological
     /// dynamic read/write interface through ports to ECS.
     /// </summary>
     /// <remarks>
-    /// If the target <see cref="Entity"/> is destroyed, or if any referenced component data is missing, any I/O to this 
-    /// particular node or port is defaulted (but still continues to work). It's the user's responsibility to destroy the 
-    /// <see cref="ComponentNode"/> through <see cref="NodeSet.Destroy(NodeHandle)"/> (like any normal node), regardless of 
+    /// If the target <see cref="Entity"/> is destroyed, or if any referenced component data is missing, any I/O to this
+    /// particular node or port is defaulted (but still continues to work). It's the user's responsibility to destroy the
+    /// <see cref="ComponentNode"/> through <see cref="NodeSet.Destroy(NodeHandle)"/> (like any normal node), regardless of
     /// whether the target <see cref="Entity"/> exists or not.
-    /// 
+    ///
     /// This API is only available if the hosting <see cref="NodeSet"/> was created with a companion <see cref="ComponentSystemBase"/>.
     /// <seealso cref="NodeSet(ComponentSystemBase)"/>.
     ///
-    /// When a <see cref="DataOutput{TDefinition, Buffer{TType}}"/> is linked to a <see cref="ComponentNode"/>'s 
+    /// When a <see cref="DataOutput{TDefinition, Buffer{TType}}"/> is linked to a <see cref="ComponentNode"/>'s
     /// <see cref="IBufferElementData"/>, it is the user's responsibility to ensure that sizes match between DFG and ECS.
     ///
     /// <see cref="PortArray{TInputPort}"/> have no equivalent on <see cref="ComponentNode"/>s.
     ///
-    /// In order to implement in place read-modify-write systems of ECS data, connections with 
+    /// In order to implement in place read-modify-write systems of ECS data, connections with
     /// <see cref="NodeSet.ConnectionType.Feedback"/> need to be used in the following fashion.
-    /// 
-    /// <see cref="ComponentNode"/>s appearing downstream in a graph and connected back to parent node(s) via 
-    /// <see cref="NodeSet.ConnectionType.Feedback"/> connections can be understood to feed their "previous" component data 
-    /// to those parent nodes, and, update their component data at the end of any given <see cref="NodeSet.Update(Jobs.JobHandle)"/>. 
-    /// The "previous" component data will be the most current value from the ECS point of view, so this does not represent 
+    ///
+    /// <see cref="ComponentNode"/>s appearing downstream in a graph and connected back to parent node(s) via
+    /// <see cref="NodeSet.ConnectionType.Feedback"/> connections can be understood to feed their "previous" component data
+    /// to those parent nodes, and, update their component data at the end of any given <see cref="NodeSet.Update(Jobs.JobHandle)"/>.
+    /// The "previous" component data will be the most current value from the ECS point of view, so this does not represent
     /// a frame delay.
-    /// 
-    /// Therefore, if the desire is to model a graph that will read information from an <see cref="Entity"/>'s component data, 
-    /// modify it, and then write it back to ECS, <see cref="ComponentNode"/>s should appear downstream in the graph and have 
+    ///
+    /// Therefore, if the desire is to model a graph that will read information from an <see cref="Entity"/>'s component data,
+    /// modify it, and then write it back to ECS, <see cref="ComponentNode"/>s should appear downstream in the graph and have
     /// <see cref="NodeSet.ConnectionType.Feedback"/> connections to the upstream nodes.
     /// </remarks>
     public abstract class ComponentNode : NodeDefinition
@@ -164,7 +162,7 @@ namespace Unity.DataFlowGraph
         {
             unsafe
             {
-                return new DataInput<ComponentNode, TType>(null, Input(ComponentType.ReadWrite<TType>()));
+                return new DataInput<ComponentNode, TType>(Input(ComponentType.ReadWrite<TType>()));
             }
         }
 
@@ -173,7 +171,7 @@ namespace Unity.DataFlowGraph
         /// specifically for components implementing <see cref="IBufferElementData"/>.
         /// The data (coming from a <see cref="DynamicBuffer{T}"/>) can be connected to a
         /// <see cref="Buffer{T}"/> on a <see cref="NodeDefinition"/>'s <see cref="IKernelPortDefinition"/>.
-        /// 
+        ///
         /// <seealso cref="Output{TType}"/>
         /// </summary>
         public static DataOutput<ComponentNode, Buffer<TType>> Output<TType>(Detail.IsBuffer<TType> _ = default)
@@ -190,7 +188,7 @@ namespace Unity.DataFlowGraph
         /// specifically for components implementing <see cref="IBufferElementData"/>.
         /// The data (coming from a <see cref="Buffer{T}"/>) can be connected to a
         /// <see cref="DynamicBuffer{T}"/> on a <see cref="ComponentNode"/>.
-        /// 
+        ///
         /// <seealso cref="Input{TType}"/>
         /// </summary>
         public static DataInput<ComponentNode, Buffer<TType>> Input<TType>(Detail.IsBuffer<TType> _ = default)
@@ -198,14 +196,14 @@ namespace Unity.DataFlowGraph
         {
             unsafe
             {
-                return new DataInput<ComponentNode, Buffer<TType>>(null, Input(ComponentType.ReadWrite<TType>()));
+                return new DataInput<ComponentNode, Buffer<TType>>(Input(ComponentType.ReadWrite<TType>()));
             }
         }
     }
 
     /// <summary>
     /// Non-abstract version removes ability for user to instantiate a <see cref="ComponentNode"></see>.
-    /// </summary> 
+    /// </summary>
     partial class InternalComponentNode : ComponentNode
     {
         /// <summary>
@@ -312,7 +310,7 @@ namespace Unity.DataFlowGraph
             public readonly int ComponentType;
             public readonly int JITPortIndex;
         }
-    
+
 
         internal unsafe struct KernelData : IKernelData
         {
@@ -380,7 +378,7 @@ namespace Unity.DataFlowGraph
                             data.EntityStore->GlobalSystemVersion/*,
                             ref ports[i].TypeLookupCache */
                         );
-                        
+
                         int sourceSize = 0;
 
                         if(!ecsInput.IsECSSource)
@@ -401,7 +399,7 @@ namespace Unity.DataFlowGraph
                         var sharedSize = math.min(ecsBuffer->Length, sourceSize);
 
                         UnsafeUtility.MemCpy(
-                            BufferHeader.GetElementPointer(ecsBuffer), 
+                            BufferHeader.GetElementPointer(ecsBuffer),
                             source,
                             sharedSize * ecsInput.SizeOf
                         );
@@ -428,7 +426,7 @@ namespace Unity.DataFlowGraph
                 JITPorts.Resize(0);
             }
         }
-        
+
         static PortDescription ZeroPorts => new PortDescription
         {
             Inputs = new List<PortDescription.InputPort>(),
@@ -440,10 +438,10 @@ namespace Unity.DataFlowGraph
 
         // TODO: Use API on KernelLayout
         internal static unsafe ref KernelData GetEntityData(RenderKernelFunction.BaseData* data)
-            => ref Unsafe.AsRef<KernelData>(data);
+            => ref Utility.AsRef<KernelData>(data);
 
         internal static unsafe ref GraphKernel GetGraphKernel(RenderKernelFunction.BaseKernel* kernel)
-            => ref Unsafe.AsRef<GraphKernel>(kernel);
+            => ref Utility.AsRef<GraphKernel>(kernel);
 
         internal override PortDescription.InputPort GetVirtualInput(ValidatedHandle h, InputPortArrayID port)
         {
@@ -456,9 +454,9 @@ namespace Unity.DataFlowGraph
             return PortDescription.InputPort.Data(managedType, 0, hasBuffers: false, isPortArray: false, name: null /* #52 */);
         }
 
-        internal override PortDescription.OutputPort GetVirtualOutput(ValidatedHandle h, OutputPortID port)
+        internal override PortDescription.OutputPort GetVirtualOutput(ValidatedHandle h, OutputPortArrayID port)
         {
-            var ecsType = port.Storage.ReadWriteComponentType;
+            var ecsType = port.PortID.Storage.ReadWriteComponentType;
             Type managedType = ecsType.GetManagedType();
 
             if (ecsType.IsBuffer)
@@ -471,7 +469,7 @@ namespace Unity.DataFlowGraph
             => throw new NotImplementedException(
                 $"The requested API is not supported; {nameof(ComponentNode)}s do not have formal data flow graph ports");
 
-        internal override PortDescription.OutputPort GetFormalOutput(ValidatedHandle h, OutputPortID port)
+        internal override PortDescription.OutputPort GetFormalOutput(ValidatedHandle h, OutputPortArrayID port)
             => throw new NotImplementedException(
                 $"The requested API is not supported; {nameof(ComponentNode)}s do not have formal data flow graph ports");
 
@@ -531,10 +529,10 @@ namespace Unity.DataFlowGraph
         /// Instantiate an <see cref="ComponentNode"/>.
         /// </summary>
         /// <remarks>
-        /// A structural change will happen the first time you create a <see cref="ComponentNode"/> from this particular 
+        /// A structural change will happen the first time you create a <see cref="ComponentNode"/> from this particular
         /// <see cref="ComponentNode"/>.
-        /// 
-        /// This API is only available if the hosting <see cref="NodeSet"/> was created with a companion 
+        ///
+        /// This API is only available if the hosting <see cref="NodeSet"/> was created with a companion
         /// <see cref="ComponentSystemBase"/>.
         /// <seealso cref="NodeSet(ComponentSystemBase)"/>.
         /// <seealso cref="Create{TDefinition}"/>
@@ -543,7 +541,7 @@ namespace Unity.DataFlowGraph
         /// Thrown if the <paramref name="entity"/> is invalid.
         /// </exception>
         /// <exception cref="InvalidOperationException">
-        /// Thrown if a <see cref="ComponentNode"/> already exists for this <paramref name="entity"/> in this 
+        /// Thrown if a <see cref="ComponentNode"/> already exists for this <paramref name="entity"/> in this
         /// <see cref="NodeSet"/>.
         /// </exception>
         /// <exception cref="NullReferenceException">
@@ -583,10 +581,10 @@ namespace Unity.DataFlowGraph
 #pragma warning disable 618 // 'EntityManager.EntityComponentStore' is obsolete: 'This is slow. Use The EntityDataAccess directly in new code.'
                 kernelData.EntityStore = world.EntityManager.EntityComponentStore;
 #pragma warning restore 618
-                
+
                 return new NodeHandle<ComponentNode>(node.VHandle);
             }
-            
+
         }
 
         /// <summary>

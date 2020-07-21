@@ -1,11 +1,9 @@
 ﻿using System;
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Unity.Burst;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
 using Unity.Jobs.LowLevel.Unsafe;
-using UnityEngine;
 
 namespace Unity.DataFlowGraph
 {
@@ -17,7 +15,7 @@ namespace Unity.DataFlowGraph
     public interface IKernelData { }
 
     /// <summary>
-    /// Interface tag to be implemented on a struct, that will contain the 
+    /// Interface tag to be implemented on a struct, that will contain the
     /// the node definition's kernel port declarations.
     /// <seealso cref="DataInput{TDefinition,TType}"/>
     /// <seealso cref="DataOutput{TDefinition,TType}"/>
@@ -55,7 +53,7 @@ namespace Unity.DataFlowGraph
         internal struct BaseData { }
         internal struct BaseKernel { }
         internal struct BasePort { }
-        
+
         internal static RenderKernelFunction GetBurstedFunction<TKernelData, TKernelPortDefinition, TUserKernel>()
            where TKernelData : struct, IKernelData
            where TKernelPortDefinition : struct, IKernelPortDefinition
@@ -155,7 +153,7 @@ namespace Unity.DataFlowGraph
         [AOT.MonoPInvokeCallback (typeof(RenderKernelFunction.InvokeDelegate))]
         public static void Execute(ref RenderContext ctx, in KernelLayout.Pointers instance)
         {
-            Unsafe.AsRef<TUserKernel>(instance.Kernel).Execute(ctx, Unsafe.AsRef<TKernelData>(instance.Data), ref Unsafe.AsRef<TKernelPortDefinition>(instance.Ports));
+            Utility.AsRef<TUserKernel>(instance.Kernel).Execute(ctx, Utility.AsRef<TKernelData>(instance.Data), ref Utility.AsRef<TKernelPortDefinition>(instance.Ports));
         }
 
         /* TODO: Uncomment once issue #229 is fixed

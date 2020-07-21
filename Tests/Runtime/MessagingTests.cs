@@ -118,7 +118,7 @@ namespace Unity.DataFlowGraph.Tests
             {
 #pragma warning disable 649  // Assigned through internal DataFlowGraph reflection
                 public PortArray<MessageInput<SimpleMessageArrayNode, int>> Inputs;
-                public MessageOutput<SimpleMessageArrayNode, int> Output;
+                public PortArray<MessageOutput<SimpleMessageArrayNode, int>> Outputs;
 #pragma warning restore 649
             }
 
@@ -129,29 +129,45 @@ namespace Unity.DataFlowGraph.Tests
                 Assert.That(ctx.Port == SimulationPorts.Inputs);
                 ushort index = ctx.ArrayIndex;
                 data.Contents = msg + index;
-                ctx.EmitMessage(SimulationPorts.Output, index + 30);
+                ctx.EmitMessage(SimulationPorts.Outputs, index, index + 30);
             }
         }
 
         [Test]
-        public void TestSimpleMessageArraySending()
+        public void TestSimpleMessageArrayIO()
         {
             using (var set = new NodeSet())
             {
                 NodeHandle<SimpleMessageArrayNode>
                     a = set.Create<SimpleMessageArrayNode>(),
-                    b = set.Create<SimpleMessageArrayNode>();
+                    b = set.Create<SimpleMessageArrayNode>(),
+                    c = set.Create<SimpleMessageArrayNode>();
 
                 set.SetPortArraySize(a, SimpleMessageArrayNode.SimulationPorts.Inputs, 2);
-                set.SetPortArraySize(b, SimpleMessageArrayNode.SimulationPorts.Inputs, 3);
+                set.SetPortArraySize(a, SimpleMessageArrayNode.SimulationPorts.Outputs, 3);
+                set.SetPortArraySize(b, SimpleMessageArrayNode.SimulationPorts.Inputs, 4);
+                set.SetPortArraySize(b, SimpleMessageArrayNode.SimulationPorts.Outputs, 5);
+                set.SetPortArraySize(c, SimpleMessageArrayNode.SimulationPorts.Inputs, 6);
+                set.SetPortArraySize(c, SimpleMessageArrayNode.SimulationPorts.Outputs, 7);
 
-                set.Connect(a, SimpleMessageArrayNode.SimulationPorts.Output, b, SimpleMessageArrayNode.SimulationPorts.Inputs, 2);
+                set.Connect(a, SimpleMessageArrayNode.SimulationPorts.Outputs, 1, b, SimpleMessageArrayNode.SimulationPorts.Inputs, 2);
+                set.Connect(b, SimpleMessageArrayNode.SimulationPorts.Outputs, 2, c, SimpleMessageArrayNode.SimulationPorts.Inputs, 4);
                 set.SendMessage(a, SimpleMessageArrayNode.SimulationPorts.Inputs, 1, 10);
 
                 Assert.AreEqual(11, set.GetNodeData<Node>(a).Contents);
                 Assert.AreEqual(33, set.GetNodeData<Node>(b).Contents);
+                Assert.AreEqual(36, set.GetNodeData<Node>(c).Contents);
 
-                set.Destroy(a, b);
+                set.Disconnect(a, SimpleMessageArrayNode.SimulationPorts.Outputs, 1, b, SimpleMessageArrayNode.SimulationPorts.Inputs, 2);
+                set.Disconnect(b, SimpleMessageArrayNode.SimulationPorts.Outputs, 2, c, SimpleMessageArrayNode.SimulationPorts.Inputs, 4);
+                set.SendMessage(a, SimpleMessageArrayNode.SimulationPorts.Inputs, 1, 20);
+
+                // Only the contents of the first node should have changed since downstream nodes have been disconnected.
+                Assert.AreEqual(21, set.GetNodeData<Node>(a).Contents);
+                Assert.AreEqual(33, set.GetNodeData<Node>(b).Contents);
+                Assert.AreEqual(36, set.GetNodeData<Node>(c).Contents);
+
+                set.Destroy(a, b, c);
             }
         }
 

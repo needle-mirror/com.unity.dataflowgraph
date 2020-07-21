@@ -34,6 +34,7 @@ namespace Unity.DataFlowGraph.Tests
             public MessageInput<NodeWithAllTypesOfPorts, int> MessageIn;
             public PortArray<MessageInput<NodeWithAllTypesOfPorts, int>> MessageArrayIn;
             public MessageOutput<NodeWithAllTypesOfPorts, int> MessageOut;
+            public PortArray<MessageOutput<NodeWithAllTypesOfPorts, int>> MessageArrayOut;
             public DSLInput<NodeWithAllTypesOfPorts, DSL, TestDSL> DSLIn;
             public DSLOutput<NodeWithAllTypesOfPorts, DSL, TestDSL> DSLOut;
         }
@@ -128,7 +129,7 @@ namespace Unity.DataFlowGraph.Tests
 
     public class PassthroughTest<T>
         : NodeDefinition<
-            EmptyData,
+            PassthroughTest<T>.NodeData,
             PassthroughTest<T>.SimPorts,
             EmptyKernelData,
             PassthroughTest<T>.KernelDefs,
@@ -136,6 +137,11 @@ namespace Unity.DataFlowGraph.Tests
         , IMsgHandler<T>
             where T : struct
     {
+        public struct NodeData : INodeData
+        {
+            public T LastReceivedMsg;
+        }
+
         public struct KernelDefs : IKernelPortDefinition
         {
             public DataInput<PassthroughTest<T>, T> Input;
@@ -151,6 +157,7 @@ namespace Unity.DataFlowGraph.Tests
         public void HandleMessage(in MessageContext ctx, in T msg)
         {
             Assert.That(ctx.Port == SimulationPorts.Input);
+            GetNodeData(ctx.Handle).LastReceivedMsg = msg;
             ctx.EmitMessage(SimulationPorts.Output, msg);
         }
 

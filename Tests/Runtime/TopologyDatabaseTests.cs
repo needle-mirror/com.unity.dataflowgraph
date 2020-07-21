@@ -1,6 +1,7 @@
 using System;
 using NUnit.Framework;
 using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
 
 namespace Unity.DataFlowGraph.Tests
 {
@@ -52,7 +53,9 @@ namespace Unity.DataFlowGraph.Tests
 
         public struct NodeList : Topology.Database.ITopologyFromVertex, IDisposable
         {
+            [NativeDisableParallelForRestriction]
             NativeList<TopologyIndex> m_List;
+            [NativeDisableParallelForRestriction]
             NativeList<BurstConfig.ExecutionResult> m_ExecutionVehicle;
 
             public NodeList(Allocator allocator)

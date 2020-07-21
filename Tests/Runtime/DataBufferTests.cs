@@ -1,10 +1,8 @@
 using System;
-using System.Runtime.CompilerServices;
 using NUnit.Framework;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
-using Unity.Jobs.LowLevel.Unsafe;
 using Unity.Mathematics;
 using UnityEngine;
 using UnityEngine.TestTools;
@@ -686,7 +684,7 @@ namespace Unity.DataFlowGraph.Tests
                 ref CheatingNativeArrayStorage GetStorage()
                 {
                     fixed (byte* storage = m_NativeArrayStorage)
-                        return ref Unsafe.AsRef<CheatingNativeArrayStorage>(storage);
+                        return ref Utility.AsRef<CheatingNativeArrayStorage>(storage);
                 }
             }
         }
@@ -935,7 +933,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 var knodes = set.DataGraph.GetInternalData();
                 ref var aKNode = ref knodes[((NodeHandle)a).VHandle.Index];
-                ref var aKPorts = ref Unsafe.AsRef<ComplexKernelAggregateNode.KernelDefs>(aKNode.Instance.Ports);
+                ref var aKPorts = ref Utility.AsRef<ComplexKernelAggregateNode.KernelDefs>(aKNode.Instance.Ports);
                 Assert.AreEqual(aKPorts.Output.m_Value, outputA);
 
                 // Perform the B node transformation locally.
@@ -953,7 +951,7 @@ namespace Unity.DataFlowGraph.Tests
                 ComplexAggregate.ArbitraryTransformation(fakeRenderContext, outputA, ref outputB);
 
                 ref var bKNode = ref knodes[((NodeHandle)b).VHandle.Index];
-                ref var bKPorts = ref Unsafe.AsRef<ComplexKernelAggregateNode.KernelDefs>(bKNode.Instance.Ports);
+                ref var bKPorts = ref Utility.AsRef<ComplexKernelAggregateNode.KernelDefs>(bKNode.Instance.Ports);
                 Assert.AreEqual(bKPorts.Output.m_Value, outputB);
 
                 set.Destroy(a, b);

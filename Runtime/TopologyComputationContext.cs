@@ -1,7 +1,9 @@
 ﻿using System;
 using Unity.Burst;
 using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
+using Unity.Profiling;
 
 namespace Unity.DataFlowGraph
 {
@@ -24,8 +26,54 @@ namespace Unity.DataFlowGraph
                     if (Context.Cache.Version[0] == NewVersion)
                         return;
 
-                    CacheAPI.RecomputeCache(ref Context);
+                    CacheAPI.RecomputeTopology(ref Context);
+                }
+            }
+
+            [BurstCompile]
+            internal struct UpdateGenealogyJob : IJobParallelForDefer
+            {
+                public MutableTopologyCache.ConcurrentIncrementalContext<TTopologyFromVertex> Cache;
+                public ProfilerMarker BuildCacheMarker;
+                public int NewVersion;
+
+                public void Execute(int changedGroupIndex)
+                {
+                    if (Cache.Version[0] == NewVersion || Cache.Errors.Count > 0)
+                        return;
+
+                    // Build connection table, and finalize.
+                    BuildCacheMarker.Begin();
+
+                    var error = CacheAPI.RebakeGroup(
+                        Cache.TraversalMask | Cache.AlternateMask,
+                        ref Cache.Topology,
+                        ref Cache.Database,
+                        ref Cache.GetNewGroup(changedGroupIndex)
+                    );
+                    
+                    BuildCacheMarker.End();
+
+                    if (error != TraversalCache.Error.None)
+                        Cache.Errors.Enqueue(error);
+                }
+            }
+
+            [BurstCompile]
+            internal struct FinalizeTopologyJob : IJob
+            {
+                public ComputationContext<TTopologyFromVertex> Context;
+                public int NewVersion;
+
+                public void Execute()
+                {
+                    if (Context.Cache.Version[0] == NewVersion)
+                        return;
+
                     Context.Cache.Version[0] = NewVersion;
+
+                    if(Context.Cache.Errors.Count == 0)
+                        CacheAPI.AlignGroups(ref Context);
                 }
             }
 

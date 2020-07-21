@@ -146,7 +146,7 @@ namespace Unity.DataFlowGraph.Tests
                     ref var portIDs = ref ctx.Resolve(ref ports.PortIDsFromKernel);
                     portIDs.Input1PortID = KernelPorts.Input1.Port;
                     portIDs.Input2PortID = KernelPorts.Input2.Port;
-                    portIDs.Input3PortID = KernelPorts.Input3.Port;
+                    portIDs.Input3PortID = KernelPorts.Input3.InputPort;
                     portIDs.Output1PortID = KernelPorts.Output1.Port;
                     portIDs.Output2PortID = KernelPorts.Output2.Port;
                     portIDs.Output3PortID = KernelPorts.Output3.Port;
@@ -168,7 +168,7 @@ namespace Unity.DataFlowGraph.Tests
                 // Verify that PortIDs in the NodeDefinition match those seen by the Kernel.
                 Assert.AreEqual(KernelPortTestNode.KernelPorts.Input1.Port, portIDs.Input1PortID);
                 Assert.AreEqual(KernelPortTestNode.KernelPorts.Input2.Port, portIDs.Input2PortID);
-                Assert.AreEqual(KernelPortTestNode.KernelPorts.Input3.Port, portIDs.Input3PortID);
+                Assert.AreEqual(KernelPortTestNode.KernelPorts.Input3.InputPort, portIDs.Input3PortID);
                 Assert.AreEqual(KernelPortTestNode.KernelPorts.Output1.Port, portIDs.Output1PortID);
                 Assert.AreEqual(KernelPortTestNode.KernelPorts.Output2.Port, portIDs.Output2PortID);
                 Assert.AreEqual(KernelPortTestNode.KernelPorts.Output3.Port, portIDs.Output3PortID);

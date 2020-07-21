@@ -18,7 +18,7 @@ namespace Unity.DataFlowGraph.Tests
 #endif
     public class TestRunConfig : IPrebuildSetup
     {
-        static readonly string ForceIL2CPPBuildEnvVar = "FORCE_DFG_CI_IL2CPP_BUILD";
+        static readonly string ExpectIL2CPPBuildEnvVar = "EXPECT_DFG_CI_IL2CPP_BUILD";
         static readonly string ForceBurstCompileEnvVar = "FORCE_DFG_CI_BURST_COMPILE";
         static readonly string ForceSamplesImportEnvVar = "FORCE_DFG_CI_SAMPLES_IMPORT";
         static readonly string ForceDFGInternalAssertionsEnvVar = "FORCE_DFG_INTERNAL_ASSERTIONS";
@@ -41,24 +41,13 @@ namespace Unity.DataFlowGraph.Tests
         }
 #endif
 
-        static bool? ForceIL2CPPBuild => GetEnvVarEnabled(ForceIL2CPPBuildEnvVar);
+        static bool? ExpectIL2CPPBuild => GetEnvVarEnabled(ExpectIL2CPPBuildEnvVar);
 
         static bool? ForceBurstCompile => GetEnvVarEnabled(ForceBurstCompileEnvVar);
 
         static bool? ForceSamplesImport => GetEnvVarEnabled(ForceSamplesImportEnvVar);
 
         static bool? ForceDFGInternalAssertions => GetEnvVarEnabled(ForceDFGInternalAssertionsEnvVar);
-
-        const string SamplesAsmDefText = @"
-        {
-            ""name"": ""Unity.DataFlowGraph.Samples.Test"",
-            ""references"": [
-                ""Unity.DataFlowGraph"",
-                ""Unity.Mathematics"",
-                ""Unity.Burst"",
-                ""Unity.Collections""
-            ]
-        }";
 
 #if UNITY_EDITOR
         static readonly List<BuildTargetGroup> ValidBuildTargetGroups =
@@ -116,14 +105,14 @@ namespace Unity.DataFlowGraph.Tests
         }
 #endif
 
-        public static bool IsIL2CPPBuild => 
+        public static bool IsIL2CPPBuild =>
 #if ENABLE_IL2CPP
             true;
 #else
             false;
 #endif
 
-        public static bool IsDFGInternalAssertionsBuild => 
+        public static bool IsDFGInternalAssertionsBuild =>
 #if DFG_ASSERTIONS
             true;
 #else
@@ -133,16 +122,6 @@ namespace Unity.DataFlowGraph.Tests
 #if UNITY_EDITOR
         static TestRunConfig()
         {
-            if (ForceIL2CPPBuild != null)
-            {
-                foreach (BuildTargetGroup targetGroup in ValidBuildTargetGroups)
-                {
-                    PlayerSettings.SetScriptingBackend(
-                        targetGroup,
-                        (bool) ForceIL2CPPBuild ? ScriptingImplementation.IL2CPP : ScriptingImplementation.Mono2x);
-                }
-            }
-
             if (ForceBurstCompile != null)
             {
                 EnableBurstCompilation = (bool) ForceBurstCompile;
@@ -186,43 +165,34 @@ namespace Unity.DataFlowGraph.Tests
 
                 // Try to import the samples the Package Manager way, if not, do it ourselves.
                 // (This fails because the Package Manager list is still refreshing at initial application launch)
-                var importedSamplesRoot = Path.Combine(Application.dataPath, "Samples");
                 var samples = PackageManager.UI.Sample.FindByPackage(thisPkg.name, thisPkg.version);
                 if (samples.Any())
                 {
-                    importedSamplesRoot = samples.First().importPath;
                     foreach (var sample in samples)
                     {
-                        while (!sample.importPath.StartsWith(importedSamplesRoot))
-                            importedSamplesRoot = Path.GetDirectoryName(importedSamplesRoot);
-
                         if (!sample.isImported)
                         {
                             if (!sample.Import())
                                 throw new InvalidOperationException($"Failed to import sample \"{sample.displayName}\".");
                         }
                     }
-                    if (importedSamplesRoot.Length == 0)
-                        throw new InvalidOperationException("Could not find common part of path for imported samples");
                 }
-                else if (!Directory.Exists(importedSamplesRoot))
+                else
                 {
-                    string samplesPath = null;
-                    foreach (var path in new[] {"Samples", "Samples~"}.Select(dir => Path.Combine(thisPkg.resolvedPath, dir)))
+                    var importedSamplesRoot = Path.Combine(Application.dataPath, "Samples");
+                    if (!Directory.Exists(importedSamplesRoot))
                     {
-                        if (Directory.Exists(path))
-                            samplesPath = path;
+                        string samplesPath = null;
+                        foreach (var path in new[] {"Samples", "Samples~"}.Select(dir => Path.Combine(thisPkg.resolvedPath, dir)))
+                        {
+                            if (Directory.Exists(path))
+                                samplesPath = path;
+                        }
+                        if (samplesPath == null)
+                            throw new InvalidOperationException("Could not find package Samples directory");
+                        FileUtil.CopyFileOrDirectory(samplesPath, importedSamplesRoot);
+                        needAssetDBRefresh = true;
                     }
-                    if (samplesPath == null)
-                        throw new InvalidOperationException("Could not find package Samples directory");
-                    FileUtil.CopyFileOrDirectory(samplesPath, importedSamplesRoot);
-                    needAssetDBRefresh = true;
-                }
-
-                if (!File.Exists(Path.Combine(importedSamplesRoot, "Samples.asmdef")))
-                {
-                    File.WriteAllText(Path.Combine(importedSamplesRoot, "Samples.asmdef"), SamplesAsmDefText);
-                    needAssetDBRefresh = true;
                 }
             }
 
@@ -253,7 +223,7 @@ namespace Unity.DataFlowGraph.Tests
         public void Setup()
         {
 #if UNITY_EDITOR
-            foreach (var envVar in new[] {ForceIL2CPPBuildEnvVar, ForceBurstCompileEnvVar, ForceSamplesImportEnvVar, ForceDFGInternalAssertionsEnvVar})
+            foreach (var envVar in new[] {ExpectIL2CPPBuildEnvVar, ForceBurstCompileEnvVar, ForceSamplesImportEnvVar, ForceDFGInternalAssertionsEnvVar})
             {
                 BakeEnvVarToBuild(envVar);
             }
@@ -263,12 +233,12 @@ namespace Unity.DataFlowGraph.Tests
         [Test]
         public void IL2CPP_IsInUse()
         {
-            if (ForceIL2CPPBuild != null)
+            if (ExpectIL2CPPBuild != null)
             {
                 Assert.AreEqual(
-                    (bool) ForceIL2CPPBuild,
+                    (bool) ExpectIL2CPPBuild,
                     IsIL2CPPBuild,
-                    ((bool) ForceIL2CPPBuild ? "Expected" : "Did not expect") + " to be running in IL2CPP");
+                    ((bool) ExpectIL2CPPBuild ? "Expected" : "Did not expect") + " to be running in IL2CPP");
             }
 
             if (!IsIL2CPPBuild)

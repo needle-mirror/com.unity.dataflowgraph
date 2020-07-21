@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Runtime.CompilerServices;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
@@ -9,9 +8,9 @@ using Unity.Profiling;
 namespace Unity.DataFlowGraph
 {
     /// <summary>
-    /// A node set is a set of instantiated user nodes connected together in 
+    /// A node set is a set of instantiated user nodes connected together in
     /// some particular way, although not necessarily completely connected.
-    /// Nodes can communicate through flowing data or messages, and the 
+    /// Nodes can communicate through flowing data or messages, and the
     /// execution pattern is defined from the connections you establish.
     /// <seealso cref="NodeDefinition{TNodeData}"/>
     /// <seealso cref="Create{TDefinition}"/>
@@ -100,17 +99,17 @@ namespace Unity.DataFlowGraph
         /// Instantiates a particular type of node. If this is the first time
         /// this node type is created, the <typeparamref name="TDefinition"/>
         /// is instantiated as well.
-        /// 
+        ///
         /// Remember to destroy the node again.
         /// <seealso cref="Destroy(NodeHandle)"/>
         /// </summary>
         /// <returns>
         /// A handle to a node, that uniquely identifies the instantiated node.
-        /// The handle returned is "strongly" typed in that it is verified to 
+        /// The handle returned is "strongly" typed in that it is verified to
         /// refer to such a node type - see <see cref="NodeHandle{TDefinition}"/>
         /// for more information.
         /// This handle is the primary interface for all APIs on nodes.
-        /// After the node has been destroyed, any copy of this handle is 
+        /// After the node has been destroyed, any copy of this handle is
         /// invalidated, see <see cref="Exists(NodeHandle)"/>.
         /// </returns>
         /// <exception cref="InvalidNodeDefinitionException">
@@ -529,8 +528,8 @@ namespace Unity.DataFlowGraph
         }
 
         /// <summary>
-        /// Set the size of a <see cref="Buffer{T}"/> appearing in a <see cref="DataOutput{D,TType}"/>. 
-        /// See 
+        /// Set the size of a <see cref="Buffer{T}"/> appearing in a <see cref="DataOutput{D,TType}"/>.
+        /// See
         /// <see cref="SetBufferSize{TDefinition, TType}(NodeHandle{TDefinition}, DataOutputBuffer{TDefinition, TType}, int)"/>
         /// for more information.
         /// </summary>
@@ -543,7 +542,7 @@ namespace Unity.DataFlowGraph
         public void SetBufferSize<TType>(NodeHandle handle, OutputPortID port, in TType requestedSize)
             where TType : struct
         {
-            var source = new OutputPair(this, handle, port);
+            var source = new OutputPair(this, handle, new OutputPortArrayID(port));
 
             var portDescription = GetFormalPort(source);
 
@@ -562,14 +561,14 @@ namespace Unity.DataFlowGraph
         }
 
         /// <summary>
-        /// Set the size of a <see cref="Buffer{T}"/> appearing in a <see cref="DataOutput{D,TType}"/>. If 
-        /// <typeparamref name="TType"/> is itself a <see cref="Buffer{T}"/>, pass the result of 
-        /// <see cref="Buffer{T}.SizeRequest(int)"/> as the requestedSize argument. 
-        /// 
+        /// Set the size of a <see cref="Buffer{T}"/> appearing in a <see cref="DataOutput{D,TType}"/>. If
+        /// <typeparamref name="TType"/> is itself a <see cref="Buffer{T}"/>, pass the result of
+        /// <see cref="Buffer{T}.SizeRequest(int)"/> as the requestedSize argument.
+        ///
         /// If <typeparamref name="TType"/> is a struct containing one or multiple <see cref="Buffer{T}"/> instances,
         /// pass an instance of the struct as the requestedSize parameter with <see cref="Buffer{T}"/> instances within
-        /// it having been set using <see cref="Buffer{T}.SizeRequest(int)"/>. 
-        /// Any <see cref="Buffer{T}"/> instances within the given struct that have not been set using 
+        /// it having been set using <see cref="Buffer{T}.SizeRequest(int)"/>.
+        /// Any <see cref="Buffer{T}"/> instances within the given struct that have not been set using
         /// <see cref="Buffer{T}.SizeRequest(int)"/> will be unaffected by the call.
         /// </summary>
         /// <exception cref="ArgumentException">
@@ -582,7 +581,7 @@ namespace Unity.DataFlowGraph
             where TDefinition : NodeDefinition
             where TType : struct
         {
-            var source = new OutputPair(this, handle, port.Port);
+            var source = new OutputPair(this, handle, new OutputPortArrayID(port.Port));
             SetBufferSizeWithCorrectlyTypedSizeParameter(source, GetFormalPort(source), requestedSize);
         }
 
@@ -596,7 +595,7 @@ namespace Unity.DataFlowGraph
 
             foreach (var bufferInfo in port.BufferInfos)
             {
-                var requestedSizeBuf = (BufferDescription*)((byte*)Unsafe.AsPointer(ref sizeRequest) + bufferInfo.Offset);
+                var requestedSizeBuf = (BufferDescription*)((byte*)UnsafeUtility.AddressOf(ref sizeRequest) + bufferInfo.Offset);
                 var requestedSize = requestedSizeBuf->GetSizeRequest();
                 if (!requestedSize.IsValid)
                 {
@@ -619,7 +618,7 @@ namespace Unity.DataFlowGraph
 
             foreach (var bufferInfo in llTraits.Storage.KernelBufferInfos)
             {
-                var requestedSizeBuf = bufferInfo.Offset.AsUntyped((RenderKernelFunction.BaseKernel*)Unsafe.AsPointer(ref Unsafe.AsRef(requestedSize)));
+                var requestedSizeBuf = bufferInfo.Offset.AsUntyped((RenderKernelFunction.BaseKernel*)Utility.AsPointer(requestedSize));
                 var sizeRequest = requestedSizeBuf.GetSizeRequest();
                 if (!sizeRequest.IsValid)
                     throw new InvalidOperationException($"Expecting the return value of Buffer<T>.SizeRequest() on individual fields of {typeof(TGraphKernel)} for sizes being set.");
@@ -650,7 +649,7 @@ namespace Unity.DataFlowGraph
         unsafe internal ref InternalNodeData GetNode(ValidatedHandle handle) => ref *m_Nodes.Ref(handle.VHandle.Index);
         internal NodeDefinition GetDefinitionInternal(ValidatedHandle handle) => m_NodeDefinitions[GetNode(handle).TraitsIndex];
 
-        internal PortDescription.InputPort GetFormalPort(in InputPair destination) 
+        internal PortDescription.InputPort GetFormalPort(in InputPair destination)
             => GetDefinitionInternal(destination.Handle).GetFormalInput(destination.Handle, destination.Port);
         internal PortDescription.OutputPort GetFormalPort(in OutputPair source)
             => GetDefinitionInternal(source.Handle).GetFormalOutput(source.Handle, source.Port);
@@ -663,13 +662,13 @@ namespace Unity.DataFlowGraph
         internal unsafe ref TNode GetNodeData<TNode>(NodeHandle handle)
             where TNode : struct, INodeData
         {
-            return ref Unsafe.AsRef<TNode>(GetNodeChecked(handle).UserData);
+            return ref Utility.AsRef<TNode>(GetNodeChecked(handle).UserData);
         }
 
         internal unsafe ref TKernel GetKernelData<TKernel>(NodeHandle handle)
             where TKernel : struct, IKernelData
         {
-            return ref Unsafe.AsRef<TKernel>(GetNodeChecked(handle).KernelData);
+            return ref Utility.AsRef<TKernel>(GetNodeChecked(handle).KernelData);
         }
 
         internal ref InternalNodeData AllocateData()
@@ -694,12 +693,12 @@ namespace Unity.DataFlowGraph
         /// <summary>
         /// Converts and checks that the handle is valid, meaning the handle is safely
         /// indexable into the <see cref="m_Nodes"/> array, and that the versions match.
-        /// 
+        ///
         /// A <see cref="ValidatedHandle"/> is the only way to use internal API.
-        /// 
+        ///
         /// Note that a <see cref="ValidatedHandle"/> may grow stale (mismatching versions),
         /// but it will always be safe to index with this handle (you may just get a stale / newer node).
-        /// 
+        ///
         /// If you need to check the handle refers to the same <see cref="InternalNodeData"/>,
         /// use <see cref="StillExists(ValidatedHandle)"/>
         /// </summary>

@@ -462,17 +462,20 @@ namespace Unity.DataFlowGraph.Tests
                 InputPortID inputPort;
                 OutputPortID outputPort;
                 InputPortID inputArrayPort = default;
+                OutputPortID outputArrayPort = default;
 
                 switch (type)
                 {
                     case PortTypes.Message:
                         inputPort = NodeWithAllTypesOfPorts.SimulationPorts.MessageIn.Port;
                         outputPort = NodeWithAllTypesOfPorts.SimulationPorts.MessageOut.Port;
-                        inputArrayPort = NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayIn.Port;
+                        inputArrayPort = NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayIn.InputPort;
+                        outputArrayPort = NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayOut.OutputPort;
 
                         ctx.ForwardInput(NodeWithAllTypesOfPorts.SimulationPorts.MessageIn, dest, NodeWithAllTypesOfPorts.SimulationPorts.MessageIn);
                         ctx.ForwardOutput(NodeWithAllTypesOfPorts.SimulationPorts.MessageOut, dest, NodeWithAllTypesOfPorts.SimulationPorts.MessageOut);
                         ctx.ForwardInput(NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayIn, dest, NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayIn);
+                        ctx.ForwardOutput(NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayOut, dest, NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayOut);
                         break;
                     case PortTypes.DSL:
                         inputPort = NodeWithAllTypesOfPorts.SimulationPorts.DSLIn.Port;
@@ -484,7 +487,7 @@ namespace Unity.DataFlowGraph.Tests
                     case PortTypes.Data:
                         inputPort = NodeWithAllTypesOfPorts.KernelPorts.InputScalar.Port;
                         outputPort = NodeWithAllTypesOfPorts.KernelPorts.OutputScalar.Port;
-                        inputArrayPort = NodeWithAllTypesOfPorts.KernelPorts.InputArrayScalar.Port;
+                        inputArrayPort = NodeWithAllTypesOfPorts.KernelPorts.InputArrayScalar.InputPort;
 
                         ctx.ForwardInput(NodeWithAllTypesOfPorts.KernelPorts.InputScalar, dest, NodeWithAllTypesOfPorts.KernelPorts.InputScalar);
                         ctx.ForwardOutput(NodeWithAllTypesOfPorts.KernelPorts.OutputScalar, dest, NodeWithAllTypesOfPorts.KernelPorts.OutputScalar);
@@ -493,7 +496,7 @@ namespace Unity.DataFlowGraph.Tests
                     case PortTypes.DataBuffer:
                         inputPort = NodeWithAllTypesOfPorts.KernelPorts.InputBuffer.Port;
                         outputPort = NodeWithAllTypesOfPorts.KernelPorts.OutputBuffer.Port;
-                        inputArrayPort = NodeWithAllTypesOfPorts.KernelPorts.InputArrayBuffer.Port;
+                        inputArrayPort = NodeWithAllTypesOfPorts.KernelPorts.InputArrayBuffer.InputPort;
 
                         ctx.ForwardInput(NodeWithAllTypesOfPorts.KernelPorts.InputBuffer, dest, NodeWithAllTypesOfPorts.KernelPorts.InputBuffer);
                         ctx.ForwardOutput(NodeWithAllTypesOfPorts.KernelPorts.OutputBuffer, dest, NodeWithAllTypesOfPorts.KernelPorts.OutputBuffer);
@@ -504,7 +507,7 @@ namespace Unity.DataFlowGraph.Tests
                 }
 
                 Assert.IsTrue(ports.IsCreated);
-                Assert.AreEqual(type == PortTypes.DSL ? 2 : 3, ports.Count);
+                Assert.AreEqual(type == PortTypes.DSL ? 2 : type == PortTypes.Message ? 4 : 3, ports.Count);
 
                 var input = ports[0];
                 var output = ports[1];
@@ -526,6 +529,14 @@ namespace Unity.DataFlowGraph.Tests
                     Assert.AreEqual((NodeHandle)dest, inputArray.Replacement);
                     Assert.AreEqual(inputArrayPort.Storage.DFGPortIndex, inputArray.OriginPortID);
                     Assert.AreEqual(inputArrayPort.Storage, inputArray.ReplacedPortID);
+                    if (type == PortTypes.Message)
+                    {
+                        var outputArray = ports[3];
+                        Assert.IsFalse(outputArray.IsInput);
+                        Assert.AreEqual((NodeHandle)dest, outputArray.Replacement);
+                        Assert.AreEqual(outputArrayPort.Storage.DFGPortIndex, outputArray.OriginPortID);
+                        Assert.AreEqual(outputArrayPort.Storage, outputArray.ReplacedPortID);
+                    }
                 }
             }
             finally
@@ -831,7 +842,7 @@ namespace Unity.DataFlowGraph.Tests
                 var resize = diff.ResizedDataBuffers[0];
 
                 Assert.AreEqual((NodeHandle)child, resize.Handle.ToPublicHandle());
-                Assert.AreEqual((OutputPortID)NodeWithAllTypesOfPorts.KernelPorts.OutputBuffer, resize.Port);
+                Assert.AreEqual((OutputPortID)NodeWithAllTypesOfPorts.KernelPorts.OutputBuffer, resize.Port.PortID);
 
                 set.Destroy(uber);
             }
@@ -877,7 +888,7 @@ namespace Unity.DataFlowGraph.Tests
                 var value = values[gv.Handle.Index];
 
                 Assert.AreEqual((NodeHandle)child, value.Source.Handle.ToPublicHandle());
-                Assert.AreEqual(NodeWithAllTypesOfPorts.KernelPorts.OutputBuffer.Port, value.Source.Port);
+                Assert.AreEqual(NodeWithAllTypesOfPorts.KernelPorts.OutputBuffer.Port, value.Source.Port.PortID);
 
                 set.ReleaseGraphValue(gv);
                 set.Destroy(uber);

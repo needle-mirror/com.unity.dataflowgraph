@@ -2,6 +2,7 @@
 using System.Linq;
 using System.Reflection;
 using Mono.Cecil;
+using Mono.Cecil.Cil;
 
 namespace Unity.DataFlowGraph.CodeGen
 {
@@ -17,6 +18,11 @@ namespace Unity.DataFlowGraph.CodeGen
         /// <code>PortInitUtility.GetInitializedPortDef</code> and <code>PortInitUtility.GetInitializedPortDefImp</code>
         /// </summary>
         (MethodReference Original, MethodReference Replacement)[] PortInitUtilityGetInitializedPortDefMethods;
+
+        /// <summary>
+        /// <see cref="Utility.AsRef"/> and <see cref="Utility.AsPointer"/> methods.
+        /// </summary>
+        MethodReference[] UtilityAsRefMethods;
 
         public DFGAssemblyProcessor(ModuleDefinition def, DFGLibrary lib)
             : base(def)
@@ -35,12 +41,20 @@ namespace Unity.DataFlowGraph.CodeGen
                 PortInitUtilityGetInitializedPortDefMethods[i].Replacement =
                     FindGenericMethod(portInitUtilityType, nameof(PortInitUtility.GetInitializedPortDefImp), i+1);
             }
+
+            // Gather our local implementations of the Unsafe.AsRef<T>() and Unsafe.AsPointer<T>() methods
+            var utilityType = GetImportedReference(typeof(Utility));
+            UtilityAsRefMethods = utilityType.Resolve().Methods.Where(
+                m => m.Name == nameof(Utility.AsRef) || m.Name == nameof(Utility.AsPointer) && m.Parameters.Count == 1 && m.GenericParameters.Count == 1).ToArray();
         }
 
         public override void AnalyseConsistency(Diag diag)
         {
             if (PortInitUtilityGetInitializedPortDefMethods.Any(m => m.Original == null || m.Replacement == null))
                 diag.DFG_IE_01(this, GetType().GetField(nameof(PortInitUtilityGetInitializedPortDefMethods), BindingFlags.Instance | BindingFlags.NonPublic));
+
+            if (UtilityAsRefMethods.Length != 3)
+                diag.DFG_IE_01(this, GetType().GetField(nameof(UtilityAsRefMethods), BindingFlags.Instance | BindingFlags.NonPublic));
         }
 
         public override void PostProcess(Diag diag, out bool mutated)
@@ -65,6 +79,17 @@ namespace Unity.DataFlowGraph.CodeGen
             for (var i = 0; i < 2; ++i)
                 PortInitUtilityGetInitializedPortDefMethods[i].Original.Resolve().Body =
                     PortInitUtilityGetInitializedPortDefMethods[i].Replacement.Resolve().Body;
+
+            // Generate an implementation for our local implementations of the Unsafe.AsRef<T>() and Unsafe.AsPointer<T>() methods.
+            // (they all have the exact same IL opcodes)
+            foreach (var method in UtilityAsRefMethods)
+            {
+                var body = method.Resolve().Body;
+                body.Instructions.Clear();
+                var il = body.GetILProcessor();
+                il.Append(il.Create(OpCodes.Ldarg_0));
+                il.Append(il.Create(OpCodes.Ret));
+            }
 
             mutated = true;
         }

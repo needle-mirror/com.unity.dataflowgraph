@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Runtime.CompilerServices;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
@@ -9,7 +8,7 @@ using Unity.Entities;
 
 namespace Unity.DataFlowGraph
 {
-    using Topology = TopologyAPI<ValidatedHandle, InputPortArrayID, OutputPortID>;
+    using Topology = TopologyAPI<ValidatedHandle, InputPortArrayID, OutputPortArrayID>;
     using BufferResizeCommands = BlitList<RenderGraph.BufferResizeStruct>;
     using InputPortUpdateCommands = BlitList<RenderGraph.InputPortUpdateStruct>;
     using UntypedPortArray = PortArray<DataInput<InvalidDefinitionSlot, byte>>;
@@ -387,9 +386,9 @@ namespace Unity.DataFlowGraph
             m_BufferScope.Bump();
             m_IsRendering = false;
 
-            for(int i = 0; i < Cache.Errors.Length; ++i)
+            while(Cache.Errors.Count > 0)
             {
-                Debug.LogError($"NodeSet.RenderGraph.Traversal: {Topology.TraversalCache.FormatError(Cache.Errors[i])}");
+                Debug.LogError($"NodeSet.RenderGraph.Traversal: {Topology.TraversalCache.FormatError(Cache.Errors.Dequeue())}");
             }
         }
 
@@ -452,7 +451,7 @@ namespace Unity.DataFlowGraph
                 job.Nodes = m_Nodes;
                 job.Shared = m_SharedData;
                 job.Marker = Markers.ComputeValueChunkAndResizeBuffers;
-                deps = job.Schedule(Cache.Groups, 1, deps);
+                deps = job.Schedule(Cache.NewGroups, 1, deps);
             }
 
             if (performComponentNodeJobs)
@@ -494,7 +493,7 @@ namespace Unity.DataFlowGraph
         public static unsafe void* AllocateAndCopyData<TData>(in TData data)
             where TData : struct
         {
-            return AllocateAndCopyData(Unsafe.AsPointer(ref Unsafe.AsRef(data)), SimpleType.Create<TData>());
+            return AllocateAndCopyData(Utility.AsPointer(data), SimpleType.Create<TData>());
         }
 
         void AlignWorld(/* in */ ref GraphDiff ownedGraphDiff, out BufferResizeCommands bufferResizeCommands, out InputPortUpdateCommands inputPortUpdateCommands)
@@ -523,7 +522,7 @@ namespace Unity.DataFlowGraph
                         ref var node = ref simulationNodes[args.Handle.VHandle.Index];
                         ref var traits = ref llTraits[node.TraitsIndex].Resolve();
 
-                        var portNumber = args.Port == default ? BufferResizeStruct.KernelBufferResizeHint : traits.DataPorts.FindOutputDataPortNumber(args.Port);
+                        var portNumber = args.Port == default ? BufferResizeStruct.KernelBufferResizeHint : traits.DataPorts.FindOutputDataPortNumber(args.Port.PortID);
 
                         bufferResizeCommands.Add(
                             new BufferResizeStruct {

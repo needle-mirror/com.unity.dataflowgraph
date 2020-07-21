@@ -61,5 +61,33 @@ namespace Unity.DataFlowGraph
             var array = stackalloc JobHandle[4] { a, b, c, d };
             return JobHandleUnsafeUtility.CombineDependencies(array, 4);
         }
+
+        /// <summary>
+        /// Local implementation of <see cref="System.Runtime.CompilerServices.Unsafe.AsRef{T}(in T)"/>
+        /// </summary>
+        public static ref T AsRef<T>(in T source)
+        {
+            // This body is generated during ILPP.
+            throw new NotImplementedException();
+        }
+
+        /// <summary>
+        /// Local implementation of <see cref="System.Runtime.CompilerServices.Unsafe.AsRef{T}(void*)"/>
+        /// </summary>
+        public static unsafe ref T AsRef<T>(void* source)
+        {
+            // This body is generated during ILPP.
+            throw new NotImplementedException();
+        }
+
+        /// <summary>
+        /// Local implementation of <see cref="System.Runtime.CompilerServices.Unsafe.AsPointer{T}(ref T)"/> but taking an
+        /// "in" parameter instead of by "ref".
+        /// </summary>
+        public static unsafe void* AsPointer<T>(in T value)
+        {
+            // This body is generated during ILPP.
+            throw new NotImplementedException();
+        }
     }
 }

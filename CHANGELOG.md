@@ -4,6 +4,19 @@ All notable changes to this package will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [0.16.0-preview.2] - 2020-07-21
+### Internal
+- Removed dependency on System.Runtime.CompilerServices.Unsafe
+
+## [0.16.0-preview.1] - 2020-07-08
+### Added
+- Patching the memory in the rendering graph is now incremental (ComputeValueChunkAndPatchPorts). This is a sizable performance improvement when touching few out of many graph islands
+- Genealogy of topology is now computed in parallel
+- Support for `PortArray<MessageOutput<>>`
+
+### Changed
+- Minimum supported Unity version is now 2019.4
+
 ## [0.15.0-preview.5] - 2020-06-17
 ### Changed
 - Upgraded dependency com.unity.entities to 0.11.1-preview.4

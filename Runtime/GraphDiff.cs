@@ -31,7 +31,7 @@ namespace Unity.DataFlowGraph
         public struct BufferResizedTuple
         {
             public ValidatedHandle Handle;
-            public OutputPortID Port;
+            public OutputPortArrayID Port;
             /// <summary>
             /// Local offset from start of the port.
             /// </summary>

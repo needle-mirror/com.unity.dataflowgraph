@@ -2,6 +2,7 @@ using System;
 using NUnit.Framework;
 using Unity.Entities;
 using Unity.Jobs;
+using Unity.Jobs.LowLevel.Unsafe;
 using Unity.Mathematics;
 
 namespace Unity.DataFlowGraph.Tests
@@ -47,7 +48,7 @@ namespace Unity.DataFlowGraph.Tests
 
         internal class SimpleNode_WithECSTypes_OnInputs : NodeDefinition<InstanceData, KernelData, SimpleNode_WithECSTypes_OnInputs.KernelDefs, SimpleNode_WithECSTypes_OnInputs.GraphKernel>
         {
-            
+
             public struct KernelDefs : IKernelPortDefinition
             {
                 public DataInput<SimpleNode_WithECSTypes_OnInputs, DataOne> Input;
@@ -367,6 +368,9 @@ namespace Unity.DataFlowGraph.Tests
         [Test]
         public void SchedulingParallelJobs_UsingSameTypesAsDFG_ResultsInRaceConditionException([Values] FixtureSystemType systemType)
         {
+            if (!JobsUtility.JobDebuggerEnabled)
+                Assert.Ignore("JobsDebugger is disabled");
+
             using (var f = new Fixture<RaceConditionSystemDelegate>(systemType))
             {
                 f.System.Update();

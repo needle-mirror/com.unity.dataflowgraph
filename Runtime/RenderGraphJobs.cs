@@ -7,7 +7,7 @@ using Unity.Profiling;
 
 namespace Unity.DataFlowGraph
 {
-    using Topology = TopologyAPI<ValidatedHandle, InputPortArrayID, OutputPortID>;
+    using Topology = TopologyAPI<ValidatedHandle, InputPortArrayID, OutputPortArrayID>;
     using BufferResizeCommands = BlitList<RenderGraph.BufferResizeStruct>;
     using InputPortUpdateCommands = BlitList<RenderGraph.InputPortUpdateStruct>;
     using UntypedPortArray = PortArray<DataInput<InvalidDefinitionSlot, byte>>;
@@ -202,7 +202,7 @@ namespace Unity.DataFlowGraph
                     .TraitsHandle
                     .Resolve()
                     .DataPorts
-                    .FindOutputDataPort(value.Source.Port)
+                    .FindOutputDataPort(value.Source.Port.PortID)
                     .Resolve(node.Instance.Ports);
             }
         }
@@ -269,7 +269,7 @@ namespace Unity.DataFlowGraph
 
         /// <summary>
         /// Can run in parallel as long as no islands overlap.
-        /// Previously, patching of every node could run in parallel but this is no longer possible with component nodes 
+        /// Previously, patching of every node could run in parallel but this is no longer possible with component nodes
         /// (due to mutation of the I/O lists from multiple threads).
         /// </summary>
         [BurstCompile]
@@ -280,15 +280,17 @@ namespace Unity.DataFlowGraph
             public SharedData Shared;
 
             public ProfilerMarker Marker;
-            
-            public void Execute(int islandIndex)
+
+            public void Execute(int newGroup)
             {
                 Marker.Begin();
+
+                var translatedGroup = Cache.NewGroups[newGroup];
 
                 // It would make more sense to walk by node type, and batch all nodes for these types.
                 // Requires sorting or ECS/whatever firstly, though.
 
-                foreach (var nodeCache in new Topology.GroupWalker(Cache.Groups[islandIndex]))
+                foreach (var nodeCache in new Topology.GroupWalker(Cache.Groups[translatedGroup]))
                 {
                     var index = nodeCache.Vertex.VHandle.Index;
                     ref var nodeKernel = ref Nodes[index];
@@ -301,7 +303,7 @@ namespace Unity.DataFlowGraph
                             nodeKernel.Instance,
                             Nodes
                         );
-                        
+
                         continue;
                     }
 
@@ -358,7 +360,7 @@ namespace Unity.DataFlowGraph
                         // Clears any batch | port ownership (ports are just freed, batches freed elsewhere)
                         ownership = DataInputUtility.Ownership.None;
 
-                        PatchOrDeferInput(inputPortPatch, inputEnumerator.Current.Target.Vertex, inputEnumerator.Current.OutputPort);
+                        PatchOrDeferInput(inputPortPatch, inputEnumerator.Current.Target.Vertex, inputEnumerator.Current.OutputPort.PortID);
 
                         break;
                     default:
@@ -379,7 +381,7 @@ namespace Unity.DataFlowGraph
                         .DataPorts
                         .FindOutputDataPort(port)
                         .Resolve(parentKernel.Instance.Ports);
-                    
+
                     return;
                 }
 
@@ -417,7 +419,7 @@ namespace Unity.DataFlowGraph
                     {
                         // If the new size is relatively close to the old size re-use the existing allocation.
                         // (Note that skipping realloc down to command.Size/2 is stable since command.Size/2 will remain fixed
-                        // regardless of how many succesive downsizes are done. Note that we will not however benefit from 
+                        // regardless of how many succesive downsizes are done. Note that we will not however benefit from
                         // future upsizes which would fit in the original memory allocation.)
                         if (oldSize / 2 < command.Size)
                         {
@@ -435,8 +437,8 @@ namespace Unity.DataFlowGraph
                     }
 
                     buffer = new BufferDescription(
-                        command.Size == 0 ? null : (byte*)Utility.CAlloc(type, PortAllocator), 
-                        command.Size, 
+                        command.Size == 0 ? null : (byte*)Utility.CAlloc(type, PortAllocator),
+                        command.Size,
                         buffer.OwnerNode
                     );
                 }

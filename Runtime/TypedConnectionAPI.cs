@@ -16,7 +16,7 @@ namespace Unity.DataFlowGraph
             where TSource : NodeDefinition
             where TDestination : NodeDefinition, IMsgHandler<TMsg>
         {
-            Connect(((uint)PortDescription.Category.Message, typeof(TMsg), ConnectionType.Normal), new OutputPair(this, sourceHandle, sourcePort.Port), new InputPair(this, destHandle, new InputPortArrayID(destPort.Port)));
+            Connect(((uint)PortDescription.Category.Message, typeof(TMsg), ConnectionType.Normal), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePort.Port)), new InputPair(this, destHandle, new InputPortArrayID(destPort.Port)));
         }
 
         /// <summary>
@@ -29,12 +29,49 @@ namespace Unity.DataFlowGraph
             MessageOutput<TSource, TMsg> sourcePort,
             NodeHandle<TDestination> destHandle,
             PortArray<MessageInput<TDestination, TMsg>> destPortArray,
-            int index
+            int destArrayIndex
         )
             where TSource : NodeDefinition
             where TDestination : NodeDefinition, IMsgHandler<TMsg>
         {
-            Connect(((uint)PortDescription.Category.Message, typeof(TMsg), ConnectionType.Normal), new OutputPair(this, sourceHandle, sourcePort.Port), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.Port, index)));
+            Connect(((uint)PortDescription.Category.Message, typeof(TMsg), ConnectionType.Normal), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePort.Port)), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.InputPort, destArrayIndex)));
+        }
+
+        /// <summary>
+        /// Overload of <see cref="Connect(NodeHandle, OutputPortID, NodeHandle, InputPortID, ConnectionType)"/>
+        /// with a source port array with an index parameter.
+        /// </summary>
+        /// <exception cref="IndexOutOfRangeException">Thrown if the index is out of range with respect to the port array.</exception>
+        public void Connect<TMsg, TSource, TDestination>(
+            NodeHandle<TSource> sourceHandle,
+            PortArray<MessageOutput<TSource, TMsg>> sourcePortArray,
+            int sourceArrayIndex,
+            NodeHandle<TDestination> destHandle,
+            MessageInput<TDestination, TMsg> destPort
+        )
+            where TSource : NodeDefinition
+            where TDestination : NodeDefinition, IMsgHandler<TMsg>
+        {
+            Connect(((uint)PortDescription.Category.Message, typeof(TMsg), ConnectionType.Normal), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePortArray.OutputPort, sourceArrayIndex)), new InputPair(this, destHandle, new InputPortArrayID(destPort.Port)));
+        }
+
+        /// <summary>
+        /// Overload of <see cref="Connect(NodeHandle, OutputPortID, NodeHandle, InputPortID, ConnectionType)"/>
+        /// with a source port array with an index parameter and targeting a destination port array with an index parameter.
+        /// </summary>
+        /// <exception cref="IndexOutOfRangeException">Thrown if the index is out of range with respect to a port array.</exception>
+        public void Connect<TMsg, TSource, TDestination>(
+            NodeHandle<TSource> sourceHandle,
+            PortArray<MessageOutput<TSource, TMsg>> sourcePortArray,
+            int sourceArrayIndex,
+            NodeHandle<TDestination> destHandle,
+            PortArray<MessageInput<TDestination, TMsg>> destPortArray,
+            int destArrayIndex
+        )
+            where TSource : NodeDefinition
+            where TDestination : NodeDefinition, IMsgHandler<TMsg>
+        {
+            Connect(((uint)PortDescription.Category.Message, typeof(TMsg), ConnectionType.Normal), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePortArray.OutputPort, sourceArrayIndex)), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.InputPort, destArrayIndex)));
         }
 
         /// <summary>
@@ -50,7 +87,26 @@ namespace Unity.DataFlowGraph
             where TDestination : NodeDefinition
             where TMsg : struct
         {
-            Connect((PortDescription.MessageToDataConnectionCategory, typeof(TMsg), ConnectionType.Normal), new OutputPair(this, sourceHandle, sourcePort.Port), new InputPair(this, destHandle, new InputPortArrayID(destPort.Port)));
+            Connect((PortDescription.MessageToDataConnectionCategory, typeof(TMsg), ConnectionType.Normal), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePort.Port)), new InputPair(this, destHandle, new InputPortArrayID(destPort.Port)));
+        }
+
+        /// <summary>
+        /// Overload of <see cref="Connect(NodeHandle, OutputPortID, NodeHandle, InputPortID, ConnectionType)"/>
+        /// with a source port array with an index parameter.
+        /// </summary>
+        /// <exception cref="IndexOutOfRangeException">Thrown if the index is out of range with respect to the port array.</exception>
+        public void Connect<TMsg, TSource, TDestination>(
+            NodeHandle<TSource> sourceHandle,
+            PortArray<MessageOutput<TSource, TMsg>> sourcePortArray,
+            int sourceArrayIndex,
+            NodeHandle<TDestination> destHandle,
+            DataInput<TDestination, TMsg> destPort
+        )
+            where TSource : NodeDefinition
+            where TDestination : NodeDefinition
+            where TMsg : struct
+        {
+            Connect((PortDescription.MessageToDataConnectionCategory, typeof(TMsg), ConnectionType.Normal), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePortArray.OutputPort, sourceArrayIndex)), new InputPair(this, destHandle, new InputPortArrayID(destPort.Port)));
         }
 
         /// <summary>
@@ -63,13 +119,33 @@ namespace Unity.DataFlowGraph
             MessageOutput<TSource, TMsg> sourcePort,
             NodeHandle<TDestination> destHandle,
             PortArray<DataInput<TDestination, TMsg>> destPortArray,
-            int index
+            int destArrayIndex
         )
             where TSource : NodeDefinition
             where TDestination : NodeDefinition
             where TMsg : struct
         {
-            Connect((PortDescription.MessageToDataConnectionCategory, typeof(TMsg), ConnectionType.Normal), new OutputPair(this, sourceHandle, sourcePort.Port), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.Port, index)));
+            Connect((PortDescription.MessageToDataConnectionCategory, typeof(TMsg), ConnectionType.Normal), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePort.Port)), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.InputPort, destArrayIndex)));
+        }
+
+        /// <summary>
+        /// Overload of <see cref="Connect(NodeHandle, OutputPortID, NodeHandle, InputPortID, ConnectionType)"/>
+        /// with a source port array with an index parameter and targeting a destination port array with an index parameter.
+        /// </summary>
+        /// <exception cref="IndexOutOfRangeException">Thrown if the index is out of range with respect to a port array.</exception>
+        public void Connect<TMsg, TSource, TDestination>(
+            NodeHandle<TSource> sourceHandle,
+            PortArray<MessageOutput<TSource, TMsg>> sourcePortArray,
+            int sourceArrayIndex,
+            NodeHandle<TDestination> destHandle,
+            PortArray<DataInput<TDestination, TMsg>> destPortArray,
+            int destArrayIndex
+        )
+            where TSource : NodeDefinition
+            where TDestination : NodeDefinition
+            where TMsg : struct
+        {
+            Connect((PortDescription.MessageToDataConnectionCategory, typeof(TMsg), ConnectionType.Normal), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePortArray.OutputPort, sourceArrayIndex)), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.InputPort, destArrayIndex)));
         }
 
         /// <summary>
@@ -86,7 +162,7 @@ namespace Unity.DataFlowGraph
             where TDSLHandler : DSLHandler<TDSL>, new()
             where TDSL : class
         {
-            Connect(((uint)PortDescription.Category.DomainSpecific, typeof(TDSLHandler), ConnectionType.Normal), new OutputPair(this, sourceHandle, sourcePort.Port), new InputPair(this, destHandle, new InputPortArrayID(destPort.Port)));
+            Connect(((uint)PortDescription.Category.DomainSpecific, typeof(TDSLHandler), ConnectionType.Normal), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePort.Port)), new InputPair(this, destHandle, new InputPortArrayID(destPort.Port)));
         }
 
         /// <summary>
@@ -103,7 +179,7 @@ namespace Unity.DataFlowGraph
             where TDestination : NodeDefinition
             where TType : struct
         {
-            Connect(((uint)PortDescription.Category.Data, typeof(TType), connectionType), new OutputPair(this, sourceHandle, sourcePort.Port), new InputPair(this, destHandle, new InputPortArrayID(destPort.Port)));
+            Connect(((uint)PortDescription.Category.Data, typeof(TType), connectionType), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePort.Port)), new InputPair(this, destHandle, new InputPortArrayID(destPort.Port)));
         }
 
         /// <summary>
@@ -116,14 +192,14 @@ namespace Unity.DataFlowGraph
             DataOutput<TSource, TType> sourcePort,
             NodeHandle<TDestination> destHandle,
             PortArray<DataInput<TDestination, TType>> destPortArray,
-            int index,
+            int destArrayIndex,
             ConnectionType connectionType = ConnectionType.Normal
         )
             where TSource : NodeDefinition
             where TDestination : NodeDefinition
             where TType : struct
         {
-            Connect(((uint)PortDescription.Category.Data, typeof(TType), connectionType), new OutputPair(this, sourceHandle, sourcePort.Port), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.Port, index)));
+            Connect(((uint)PortDescription.Category.Data, typeof(TType), connectionType), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePort.Port)), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.InputPort, destArrayIndex)));
         }
 
         /// <summary>
@@ -138,7 +214,7 @@ namespace Unity.DataFlowGraph
             where TSource : NodeDefinition
             where TDestination : NodeDefinition, IMsgHandler<TMsg>
         {
-            Disconnect(new OutputPair(this, sourceHandle, sourcePort.Port), new InputPair(this, destHandle, new InputPortArrayID(destPort.Port)));
+            Disconnect(new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePort.Port)), new InputPair(this, destHandle, new InputPortArrayID(destPort.Port)));
         }
 
         /// <summary>
@@ -151,12 +227,49 @@ namespace Unity.DataFlowGraph
             MessageOutput<TSource, TMsg> sourcePort,
             NodeHandle<TDestination> destHandle,
             PortArray<MessageInput<TDestination, TMsg>> destPortArray,
-            int index
+            int destArrayIndex
         )
             where TSource : NodeDefinition
             where TDestination : NodeDefinition, IMsgHandler<TMsg>
         {
-            Disconnect(new OutputPair(this, sourceHandle, sourcePort.Port), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.Port, index)));
+            Disconnect(new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePort.Port)), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.InputPort, destArrayIndex)));
+        }
+
+        /// <summary>
+        /// Overload of <see cref="Disconnect(NodeHandle, OutputPortID, NodeHandle, InputPortID)"/>
+        /// with a source port array with an index parameter.
+        /// </summary>
+        /// <exception cref="IndexOutOfRangeException">Thrown if the index is out of range with respect to the port array.</exception>
+        public void Disconnect<TMsg, TSource, TDestination>(
+            NodeHandle<TSource> sourceHandle,
+            PortArray<MessageOutput<TSource, TMsg>> sourcePortArray,
+            int sourceArrayIndex,
+            NodeHandle<TDestination> destHandle,
+            MessageInput<TDestination, TMsg> destPort
+        )
+            where TSource : NodeDefinition
+            where TDestination : NodeDefinition, IMsgHandler<TMsg>
+        {
+            Disconnect(new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePortArray.OutputPort, sourceArrayIndex)), new InputPair(this, destHandle, new InputPortArrayID(destPort.Port)));
+        }
+
+        /// <summary>
+        /// Overload of <see cref="Disconnect(NodeHandle, OutputPortID, NodeHandle, InputPortID)"/>
+        /// with a source port array with an index parameter and targeting a destination port array with an index parameter.
+        /// </summary>
+        /// <exception cref="IndexOutOfRangeException">Thrown if the index is out of range with respect to a port array.</exception>
+        public void Disconnect<TMsg, TSource, TDestination>(
+            NodeHandle<TSource> sourceHandle,
+            PortArray<MessageOutput<TSource, TMsg>> sourcePortArray,
+            int sourceArrayIndex,
+            NodeHandle<TDestination> destHandle,
+            PortArray<MessageInput<TDestination, TMsg>> destPortArray,
+            int destArrayIndex
+        )
+            where TSource : NodeDefinition
+            where TDestination : NodeDefinition, IMsgHandler<TMsg>
+        {
+            Disconnect(new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePortArray.OutputPort, sourceArrayIndex)), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.InputPort, destArrayIndex)));
         }
 
         /// <summary>
@@ -172,7 +285,26 @@ namespace Unity.DataFlowGraph
             where TDestination : NodeDefinition
             where TMsg : struct
         {
-            Disconnect(new OutputPair(this, sourceHandle, sourcePort.Port), new InputPair(this, destHandle, new InputPortArrayID(destPort.Port)));
+            Disconnect(new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePort.Port)), new InputPair(this, destHandle, new InputPortArrayID(destPort.Port)));
+        }
+
+        /// <summary>
+        /// Overload of <see cref="Disconnect(NodeHandle, OutputPortID, NodeHandle, InputPortID)"/>
+        /// with a source port array with an index parameter.
+        /// </summary>
+        /// <exception cref="IndexOutOfRangeException">Thrown if the index is out of range with respect to the port array.</exception>
+        public void Disconnect<TMsg, TSource, TDestination>(
+            NodeHandle<TSource> sourceHandle,
+            PortArray<MessageOutput<TSource, TMsg>> sourcePortArray,
+            int sourceArrayIndex,
+            NodeHandle<TDestination> destHandle,
+            DataInput<TDestination, TMsg> destPort
+        )
+            where TSource : NodeDefinition
+            where TDestination : NodeDefinition
+            where TMsg : struct
+        {
+            Disconnect(new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePortArray.OutputPort, sourceArrayIndex)), new InputPair(this, destHandle, new InputPortArrayID(destPort.Port)));
         }
 
         /// <summary>
@@ -185,13 +317,33 @@ namespace Unity.DataFlowGraph
             MessageOutput<TSource, TMsg> sourcePort,
             NodeHandle<TDestination> destHandle,
             PortArray<DataInput<TDestination, TMsg>> destPortArray,
-            int index
+            int destArrayIndex
         )
             where TSource : NodeDefinition
             where TDestination : NodeDefinition
             where TMsg : struct
         {
-            Disconnect(new OutputPair(this, sourceHandle, sourcePort.Port), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.Port, index)));
+            Disconnect(new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePort.Port)), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.InputPort, destArrayIndex)));
+        }
+
+        /// <summary>
+        /// Overload of <see cref="Disconnect(NodeHandle, OutputPortID, NodeHandle, InputPortID)"/>
+        /// with a source port array with an index parameter and targeting a destination port array with an index parameter.
+        /// </summary>
+        /// <exception cref="IndexOutOfRangeException">Thrown if the index is out of range with respect to a port array.</exception>
+        public void Disconnect<TMsg, TSource, TDestination>(
+            NodeHandle<TSource> sourceHandle,
+            PortArray<MessageOutput<TSource, TMsg>> sourcePortArray,
+            int sourceArrayIndex,
+            NodeHandle<TDestination> destHandle,
+            PortArray<DataInput<TDestination, TMsg>> destPortArray,
+            int destArrayIndex
+        )
+            where TSource : NodeDefinition
+            where TDestination : NodeDefinition
+            where TMsg : struct
+        {
+            Disconnect(new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePortArray.OutputPort, sourceArrayIndex)), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.InputPort, destArrayIndex)));
         }
 
         /// <summary>
@@ -208,7 +360,7 @@ namespace Unity.DataFlowGraph
             where TDSLHandler : DSLHandler<TDSL>, new()
             where TDSL : class
         {
-            Disconnect(new OutputPair(this, sourceHandle, sourcePort.Port), new InputPair(this, destHandle, new InputPortArrayID(destPort.Port)));
+            Disconnect(new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePort.Port)), new InputPair(this, destHandle, new InputPortArrayID(destPort.Port)));
         }
 
         /// <summary>
@@ -224,7 +376,7 @@ namespace Unity.DataFlowGraph
             where TDestination : NodeDefinition
             where TType : struct
         {
-            Disconnect(new OutputPair(this, sourceHandle, sourcePort.Port), new InputPair(this, destHandle, new InputPortArrayID(destPort.Port)));
+            Disconnect(new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePort.Port)), new InputPair(this, destHandle, new InputPortArrayID(destPort.Port)));
         }
 
         /// <summary>
@@ -237,13 +389,13 @@ namespace Unity.DataFlowGraph
             DataOutput<TSource, TType> sourcePort,
             NodeHandle<TDestination> destHandle,
             PortArray<DataInput<TDestination, TType>> destPortArray,
-            int index
+            int destArrayIndex
         )
             where TSource : NodeDefinition
             where TDestination : NodeDefinition
             where TType : struct
         {
-            Disconnect(new OutputPair(this, sourceHandle, sourcePort.Port), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.Port, index)));
+            Disconnect(new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePort.Port)), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.InputPort, destArrayIndex)));
         }
 
         /// <summary>
@@ -259,7 +411,7 @@ namespace Unity.DataFlowGraph
             where TDestination : NodeDefinition, new()
             where TType : struct
         {
-            DisconnectAndRetainValue(sourceHandle, sourcePort, destHandle, new InputPortArrayID(destPort.Port));
+            DisconnectAndRetainValue(sourceHandle, new OutputPortArrayID(sourcePort.Port), destHandle, new InputPortArrayID(destPort.Port));
         }
 
         /// <summary>
@@ -272,13 +424,13 @@ namespace Unity.DataFlowGraph
             DataOutput<TSource, TType> sourcePort,
             NodeHandle<TDestination> destHandle,
             PortArray<DataInput<TDestination, TType>> destPortArray,
-            int index
+            int destArrayIndex
         )
             where TSource : NodeDefinition, new()
             where TDestination : NodeDefinition, new()
             where TType : struct
         {
-            DisconnectAndRetainValue(sourceHandle, sourcePort, destHandle, new InputPortArrayID(destPortArray.Port, index));
+            DisconnectAndRetainValue(sourceHandle, new OutputPortArrayID(sourcePort.Port), destHandle, new InputPortArrayID(destPortArray.InputPort, destArrayIndex));
         }
 
         public void Connect<TTask, TDSLHandler, TDSL, TSource, TDestination>(
@@ -398,7 +550,7 @@ namespace Unity.DataFlowGraph
         /// </summary>
         void DisconnectAndRetainValue<TType, TSource, TDestination>(
             NodeHandle<TSource> sourceHandle,
-            DataOutput<TSource, TType> sourcePort,
+            OutputPortArrayID sourcePort,
             NodeHandle<TDestination> destHandle,
             InputPortArrayID destPort
         )
@@ -406,7 +558,7 @@ namespace Unity.DataFlowGraph
             where TDestination : NodeDefinition, new()
             where TType : struct
         {
-            var source = new OutputPair(this, sourceHandle, sourcePort.Port);
+            var source = new OutputPair(this, sourceHandle, sourcePort);
             var dest = new InputPair(this, destHandle, destPort);
 
             var portDef = GetFormalPort(dest);

@@ -4,6 +4,7 @@ using NUnit.Framework;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Jobs;
+using Unity.Jobs.LowLevel.Unsafe;
 using static Unity.DataFlowGraph.Tests.AtomicSafetyManagerTests;
 using static Unity.DataFlowGraph.Tests.GraphValueTests;
 
@@ -393,7 +394,7 @@ namespace Unity.DataFlowGraph.Tests
                 switch (creationMode)
                 {
                     /* Indeterministic: See issue #477
-                     * 
+                     *
                      * case GraphValueResolverCreation.ImmediateAcquireAndReadOnMainThread:
                     {
                         var resolver = set.GetGraphValueResolver(out var valueResolverDependency);
@@ -401,7 +402,7 @@ namespace Unity.DataFlowGraph.Tests
                         Assert.Throws<InvalidOperationException>(
                             () =>
                             {
-                                // The previously scheduled job AtomicSafetyManager:ProtectOutputBuffersFromDataFlowGraph writes to the NativeArray ProtectOutputBuffersFromDataFlowGraph.WritableDataFlowGraphScope. 
+                                // The previously scheduled job AtomicSafetyManager:ProtectOutputBuffersFromDataFlowGraph writes to the NativeArray ProtectOutputBuffersFromDataFlowGraph.WritableDataFlowGraphScope.
                                 // You must call JobHandle.Complete() on the job AtomicSafetyManager:ProtectOutputBuffersFromDataFlowGraph, before you can read from the NativeArray safely.
                                 var portContents = resolver.Resolve(rootValue);
                             }
@@ -477,6 +478,9 @@ namespace Unity.DataFlowGraph.Tests
         [Test]
         public void ForgettingToPassJobHandle_BackIntoNodeSet_ThrowsDeferredException()
         {
+            if (!JobsUtility.JobDebuggerEnabled)
+                Assert.Ignore("JobsDebugger is disabled");
+
             StallJob.Reset();
 
             using (var set = new RenderGraphTests.PotentiallyJobifiedNodeSet(NodeSet.RenderExecutionModel.MaximallyParallel))
@@ -499,7 +503,7 @@ namespace Unity.DataFlowGraph.Tests
                 Assume.That(StallJob.Done, Is.False);
 
                 /*
-                 * System.InvalidOperationException : The previously scheduled job GraphValueResolverTests:StallJob reads from the NativeArray StallJob.Resolver.Values. 
+                 * System.InvalidOperationException : The previously scheduled job GraphValueResolverTests:StallJob reads from the NativeArray StallJob.Resolver.Values.
                  * You must call JobHandle.Complete() on the job GraphValueResolverTests:StallJob, before you can write to the NativeArray safely.
                  */
                 Assert.Throws<InvalidOperationException>(() => set.Update());
@@ -527,6 +531,9 @@ namespace Unity.DataFlowGraph.Tests
         [Test]
         public void ForgettingToPassJobHandle_IntoScheduledGraphResolverJob_ThrowsImmediateException()
         {
+            if (!JobsUtility.JobDebuggerEnabled)
+                Assert.Ignore("JobsDebugger is disabled");
+
             StallingAggregateNode.Reset();
 
             using (var set = new RenderGraphTests.PotentiallyJobifiedNodeSet(NodeSet.RenderExecutionModel.MaximallyParallel))
@@ -545,8 +552,8 @@ namespace Unity.DataFlowGraph.Tests
                 // (Intended usage:)
                 // job.Schedule(valueResolverDependency).Complete()
                 /*
-                 * System.InvalidOperationException : The previously scheduled job AtomicSafetyManager:ProtectOutputBuffersFromDataFlowGraph writes to the NativeArray ProtectOutputBuffersFromDataFlowGraph.WritableDataFlowGraphScope. 
-                 * You are trying to schedule a new job GraphValueResolverTests:NullJob, which reads from the same NativeArray (via StallJob.Resolver.ReadBuffersScope). 
+                 * System.InvalidOperationException : The previously scheduled job AtomicSafetyManager:ProtectOutputBuffersFromDataFlowGraph writes to the NativeArray ProtectOutputBuffersFromDataFlowGraph.WritableDataFlowGraphScope.
+                 * You are trying to schedule a new job GraphValueResolverTests:NullJob, which reads from the same NativeArray (via StallJob.Resolver.ReadBuffersScope).
                  * To guarantee safety, you must include AtomicSafetyManager:ProtectOutputBuffersFromDataFlowGraph as a dependency of the newly scheduled job.
                  */
                 Assert.Throws<InvalidOperationException>(() => job.Schedule().Complete());
@@ -641,7 +648,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 set.Update();
 
-                // But dispose after update. 
+                // But dispose after update.
                 set.ReleaseGraphValue(rootValue);
                 // Render graph only gets this notification next update,
                 // so the graph value should still be readable inside the render graph, just not in the simulation.
@@ -687,7 +694,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 set.Update();
 
-                // But dispose node target after update. 
+                // But dispose node target after update.
                 set.Destroy(root);
                 // Render graph only gets this notification next update,
                 // so the graph value and node should still be readable inside the render graph, just not in the simulation.

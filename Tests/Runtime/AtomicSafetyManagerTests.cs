@@ -4,6 +4,7 @@ using NUnit.Framework;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
+using Unity.Jobs.LowLevel.Unsafe;
 
 namespace Unity.DataFlowGraph.Tests
 {
@@ -213,6 +214,9 @@ namespace Unity.DataFlowGraph.Tests
         [Test]
         public void TestThatMarkHandles_DetectsMissingOutputDependencies()
         {
+            if (!JobsUtility.JobDebuggerEnabled)
+                Assert.Ignore("JobsDebugger is disabled");
+
             JobThatProducesNativeArray.Reset();
 
             var handleContainer = new NativeArray<AtomicSafetyHandleContainer>(1, Allocator.TempJob);
@@ -267,6 +271,9 @@ namespace Unity.DataFlowGraph.Tests
         [Test]
         public void MarkingZeroHandles_StillReturnsDependentJob()
         {
+            if (!JobsUtility.JobDebuggerEnabled)
+                Assert.Ignore("JobsDebugger is disabled");
+
             JobThatProducesNativeArray.Reset();
 
             using (NativeArray<int> array = new NativeArray<int>(1, Allocator.TempJob))
@@ -308,6 +315,9 @@ namespace Unity.DataFlowGraph.Tests
         [Test]
         public void TestThatMarkHandles_DetectsInvalidInputDependencies()
         {
+            if (!JobsUtility.JobDebuggerEnabled)
+                Assert.Ignore("JobsDebugger is disabled");
+
             JobThatProducesNativeArray.Reset();
 
             var handleContainer = new NativeArray<AtomicSafetyHandleContainer>(1, Allocator.TempJob);

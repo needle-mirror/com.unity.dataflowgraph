@@ -1,8 +1,8 @@
 using System;
-using System.Runtime.CompilerServices;
 using NUnit.Framework;
 using Unity.Burst;
 using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
 using static Unity.DataFlowGraph.Tests.ComponentNodeSetTests;
 
 namespace Unity.DataFlowGraph.Tests
@@ -11,14 +11,18 @@ namespace Unity.DataFlowGraph.Tests
 
     public class PortArrayTests
     {
-        public class ArrayIONode : NodeDefinition<ArrayIONode.EmptyData, ArrayIONode.SimPorts, EmptyKernelData, ArrayIONode.KernelDefs, ArrayIONode.Kernel>, IMsgHandler<int>
+        public class ArrayIONode : NodeDefinition<ArrayIONode.NodeData, ArrayIONode.SimPorts, EmptyKernelData, ArrayIONode.KernelDefs, ArrayIONode.Kernel>, IMsgHandler<int>
         {
-            public struct EmptyData : INodeData {}
+            public struct NodeData : INodeData
+            {
+                public (int, int) LastReceivedMsg;
+            }
 
             public struct SimPorts : ISimulationPortDefinition
             {
 #pragma warning disable 649  // Assigned through internal DataFlowGraph reflection
                 public PortArray<MessageInput<ArrayIONode, int>> Inputs;
+                public PortArray<MessageOutput<ArrayIONode, int>> Outputs;
 #pragma warning restore 649
             }
 
@@ -79,10 +83,10 @@ namespace Unity.DataFlowGraph.Tests
                 }
             }
 
-            public static (int, int) s_LastReceivedMsg;
             public void HandleMessage(in MessageContext ctx, in int msg)
             {
-                s_LastReceivedMsg = (ctx.ArrayIndex, msg);
+                GetNodeData(ctx.Handle).LastReceivedMsg = (ctx.ArrayIndex, msg);
+                ctx.EmitMessage(SimulationPorts.Outputs, ctx.ArrayIndex, msg);
             }
         }
 
@@ -256,19 +260,25 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void DefaultConstructed_InputPortArrayID_IsAnArrayPort()
+        public void DefaultConstructed_PortArrayIDs_AreArrayPorts()
         {
-            InputPortArrayID id = default;
+            InputPortArrayID inputPortArrayId = default;
             ushort arrayIndex;
 
-            Assert.True(id.IsArray);
-            Assert.DoesNotThrow(() => arrayIndex = id.ArrayIndex);
+            Assert.True(inputPortArrayId.IsArray);
+            Assert.DoesNotThrow(() => arrayIndex = inputPortArrayId.ArrayIndex);
+
+            OutputPortArrayID outputPortArrayId = default;
+
+            Assert.True(outputPortArrayId.IsArray);
+            Assert.DoesNotThrow(() => arrayIndex = outputPortArrayId.ArrayIndex);
         }
 
         [Test]
-        public void ArrayConstructorFor_InputPortArrayID_WithSentinel_Throws()
+        public void ArrayConstructorFor_PortArrayIDs_WithSentinel_Throw()
         {
             Assert.Throws<InvalidOperationException>(() => new InputPortArrayID(portId: default, InputPortArrayID.NonArraySentinel));
+            Assert.Throws<InvalidOperationException>(() => new OutputPortArrayID(portId: default, OutputPortArrayID.NonArraySentinel));
         }
 
         static UInt16[] s_ArrayConstructorParameters = new ushort[] {
@@ -280,12 +290,17 @@ namespace Unity.DataFlowGraph.Tests
         };
 
         [Test]
-        public void ArrayConstructorFor_InputPortArrayID_IsAnArrayPort([ValueSource("s_ArrayConstructorParameters")] ushort arrayIndex)
+        public void ArrayConstructorFor_PortArrayIDs_AreArrayPorts([ValueSource("s_ArrayConstructorParameters")] ushort arrayIndex)
         {
-            InputPortArrayID id = new InputPortArrayID(portId: default, arrayIndex);
+            InputPortArrayID inputPortArrayId = new InputPortArrayID(portId: default, arrayIndex);
 
-            Assert.True(id.IsArray);
-            Assert.DoesNotThrow(() => arrayIndex = id.ArrayIndex);
+            Assert.True(inputPortArrayId.IsArray);
+            Assert.DoesNotThrow(() => arrayIndex = inputPortArrayId.ArrayIndex);
+
+            OutputPortArrayID outputPortArrayId = new OutputPortArrayID(portId: default, arrayIndex);
+
+            Assert.True(outputPortArrayId.IsArray);
+            Assert.DoesNotThrow(() => arrayIndex = outputPortArrayId.ArrayIndex);
         }
 
         [Test]
@@ -325,10 +340,10 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
+#if DFG_ASSERTIONS
         [Test]
         public unsafe void CannotSizeAPortArray_ToMaxSize()
         {
-#if DFG_ASSERTIONS
             using (var sd = new RenderGraph.SharedData(16))
             {
                 var array = new UntypedPortArray();
@@ -339,15 +354,31 @@ namespace Unity.DataFlowGraph.Tests
 
                 UntypedPortArray.Free(ref array, Allocator.Temp);
             }
+        }
 #endif
 
+        static int[] s_InvalidResizeParameters = new int[] {
+            -UntypedPortArray.MaxSize - 2,
+            -UntypedPortArray.MaxSize - 1,
+            -UntypedPortArray.MaxSize,
+            -UntypedPortArray.MaxSize + 1,
+            -2,
+            -1,
+            UntypedPortArray.MaxSize,
+            UntypedPortArray.MaxSize + 1,
+            UntypedPortArray.MaxSize << 1
+        };
+
+        [Test]
+        public void CannotSizeAPortArray_ToInvalidSize([ValueSource("s_InvalidResizeParameters")] int size)
+        {
             using (var set = new NodeSet())
             {
                 var node = set.Create<ArrayIONode>();
 
-                Assert.Throws<ArgumentException>(
-                    () => set.SetPortArraySize(node, ArrayIONode.KernelPorts.InputInt, UntypedPortArray.MaxSize)
-                );
+                Assert.Throws<ArgumentException>(() => set.SetPortArraySize(node, ArrayIONode.SimulationPorts.Inputs, size));
+                Assert.Throws<ArgumentException>(() => set.SetPortArraySize(node, ArrayIONode.SimulationPorts.Outputs, size));
+                Assert.Throws<ArgumentException>(() => set.SetPortArraySize(node, ArrayIONode.KernelPorts.InputInt, size));
 
                 set.Destroy(node);
             }
@@ -409,7 +440,7 @@ namespace Unity.DataFlowGraph.Tests
 
             Assert.AreEqual(27, original.Size);
 
-            ref var alias = ref Unsafe.AsRef<UntypedPortArray>(Unsafe.AsPointer(ref original));
+            ref var alias = ref Utility.AsRef<UntypedPortArray>(UnsafeUtility.AddressOf(ref original));
 
             UntypedPortArray.Resize(ref alias, 53, blank, Allocator.Temp);
 
@@ -442,7 +473,7 @@ namespace Unity.DataFlowGraph.Tests
             {
 #pragma warning disable 649  // Assigned through internal DataFlowGraph reflection
                 public PortArray<MessageInput<UberNodeWithPortArrayForwarding, int>> ForwardedMsgInputs;
-                public MessageOutput<UberNodeWithPortArrayForwarding, int> ForwardedMsgOutput;
+                public PortArray<MessageOutput<UberNodeWithPortArrayForwarding, int>> ForwardedMsgOutputs;
 #pragma warning restore 649
             }
 
@@ -477,6 +508,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 ctx.ForwardInput(SimulationPorts.ForwardedMsgInputs, data.Child, ArrayIONode.SimulationPorts.Inputs);
                 ctx.ForwardInput(KernelPorts.ForwardedDataInput, data.Child, ArrayIONode.KernelPorts.InputInt);
+                ctx.ForwardOutput(SimulationPorts.ForwardedMsgOutputs, data.Child, ArrayIONode.SimulationPorts.Outputs);
                 ctx.ForwardOutput(KernelPorts.ForwardedDataOutputSum, data.Child, ArrayIONode.KernelPorts.SumInt);
             }
 
@@ -497,14 +529,18 @@ namespace Unity.DataFlowGraph.Tests
             using (var set = new NodeSet())
             {
                 var uber = set.Create<UberNodeWithPortArrayForwarding>();
+                var result = set.Create<PassthroughTest<int>>();
 
                 set.SetPortArraySize(uber, UberNodeWithPortArrayForwarding.SimulationPorts.ForwardedMsgInputs, 5);
+                set.SetPortArraySize(uber, UberNodeWithPortArrayForwarding.SimulationPorts.ForwardedMsgOutputs, 5);
+                set.Connect(uber, UberNodeWithPortArrayForwarding.SimulationPorts.ForwardedMsgOutputs, 2, result, PassthroughTest<int>.SimulationPorts.Input);
 
-                ArrayIONode.s_LastReceivedMsg = (0, 0);
                 set.SendMessage(uber, UberNodeWithPortArrayForwarding.SimulationPorts.ForwardedMsgInputs, 2, 4);
-                Assert.AreEqual((2, 4), ArrayIONode.s_LastReceivedMsg);
+                var uberChild = set.GetNodeData<UberNodeWithPortArrayForwarding.Data>(uber).Child;
+                Assert.AreEqual((2, 4), set.GetNodeData<ArrayIONode.NodeData>(uberChild).LastReceivedMsg);
+                Assert.AreEqual(4, set.GetNodeData<PassthroughTest<int>.NodeData>(result).LastReceivedMsg);
 
-                set.Destroy(uber);
+                set.Destroy(uber, result);
             }
         }
 

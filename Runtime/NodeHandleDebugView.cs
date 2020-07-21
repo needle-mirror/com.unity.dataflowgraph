@@ -181,7 +181,7 @@ namespace Unity.DataFlowGraph
             {
                 var cons = new List<OutputConnection>();
                 foreach (var con in set.GetOutputs(set.Validate(handle)))
-                    if (con.SourceOutputPort == (OutputPortID)port)
+                    if (con.SourceOutputPort.PortID == (OutputPortID)port)
                         cons.Add(new OutputConnection {
                             Node = con.Destination.ToPublicHandle(),
                             Description = set.GetDefinitionInternal(con.Destination).GetVirtualInput(con.Destination, con.DestinationInputPort)

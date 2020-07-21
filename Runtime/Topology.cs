@@ -3,7 +3,7 @@ using Unity.Collections;
 
 namespace Unity.DataFlowGraph
 {
-    using Topology = TopologyAPI<ValidatedHandle, InputPortArrayID, OutputPortID>;
+    using Topology = TopologyAPI<ValidatedHandle, InputPortArrayID, OutputPortArrayID>;
 
     struct FlatTopologyMap : Topology.Database.ITopologyFromVertex, IDisposable
     {
@@ -62,13 +62,13 @@ namespace Unity.DataFlowGraph
         /// </summary>
         /// <remarks>
         /// Multiple connections to a single <see cref="DataInput{TDefinition,TType}"/> on a node are not permitted.
-        /// <see cref="ConnectionType.Feedback"/> is only allowed for data ports. 
+        /// <see cref="ConnectionType.Feedback"/> is only allowed for data ports.
         /// </remarks>
         /// <exception cref="InvalidOperationException">Thrown if the request is invalid.</exception>
         /// <exception cref="ArgumentException">Thrown if the destination input port is already connected.</exception>
         public void Connect(NodeHandle sourceHandle, OutputPortID sourcePort, NodeHandle destHandle, InputPortID destinationPort, ConnectionType dataConnectionType = ConnectionType.Normal)
         {
-            Connect(sourceHandle, sourcePort, destHandle, new InputPortArrayID(destinationPort), dataConnectionType);
+            Connect(sourceHandle, new OutputPortArrayID(sourcePort), destHandle, new InputPortArrayID(destinationPort), dataConnectionType);
         }
 
         /// <summary>
@@ -76,9 +76,29 @@ namespace Unity.DataFlowGraph
         /// targeting a destination port array with an index parameter.
         /// </summary>
         /// <exception cref="IndexOutOfRangeException">Thrown if the index is out of range with respect to the port array.</exception>
-        public void Connect(NodeHandle sourceHandle, OutputPortID sourcePort, NodeHandle destHandle, InputPortID destinationPortArray, int index, ConnectionType dataConnectionType = ConnectionType.Normal)
+        public void Connect(NodeHandle sourceHandle, OutputPortID sourcePort, NodeHandle destHandle, InputPortID destPortArray, int destArrayIndex, ConnectionType dataConnectionType = ConnectionType.Normal)
         {
-            Connect(sourceHandle, sourcePort, destHandle, new InputPortArrayID(destinationPortArray, index), dataConnectionType);
+            Connect(sourceHandle, new OutputPortArrayID(sourcePort), destHandle, new InputPortArrayID(destPortArray, destArrayIndex), dataConnectionType);
+        }
+
+        /// <summary>
+        /// Overload of <see cref="Connect(NodeHandle,OutputPortID,NodeHandle,InputPortID,ConnectionType)"/>
+        /// with a source port array with an index parameter.
+        /// </summary>
+        /// <exception cref="IndexOutOfRangeException">Thrown if the index is out of range with respect to the port array.</exception>
+        public void Connect(NodeHandle sourceHandle, OutputPortID sourcePortArray, int sourceArrayIndex, NodeHandle destHandle, InputPortID destinationPort, ConnectionType dataConnectionType = ConnectionType.Normal)
+        {
+            Connect(sourceHandle, new OutputPortArrayID(sourcePortArray, sourceArrayIndex), destHandle, new InputPortArrayID(destinationPort), dataConnectionType);
+        }
+
+        /// <summary>
+        /// Overload of <see cref="Connect(NodeHandle,OutputPortID,NodeHandle,InputPortID,ConnectionType)"/>
+        /// with a source port array with an index parameter and targeting a destination port array with an index parameter.
+        /// </summary>
+        /// <exception cref="IndexOutOfRangeException">Thrown if the index is out of range with respect to a port array.</exception>
+        public void Connect(NodeHandle sourceHandle, OutputPortID sourcePortArray, int sourceArrayIndex, NodeHandle destHandle, InputPortID destPortArray, int destArrayIndex, ConnectionType dataConnectionType = ConnectionType.Normal)
+        {
+            Connect(sourceHandle, new OutputPortArrayID(sourcePortArray, sourceArrayIndex), destHandle, new InputPortArrayID(destPortArray, destArrayIndex), dataConnectionType);
         }
 
         /// <summary>
@@ -89,7 +109,7 @@ namespace Unity.DataFlowGraph
         /// <exception cref="ArgumentException">Thrown if the connection did not previously exist.</exception>
         public void Disconnect(NodeHandle sourceHandle, OutputPortID sourcePort, NodeHandle destHandle, InputPortID destinationPort)
         {
-            Disconnect(sourceHandle, sourcePort, destHandle, new InputPortArrayID(destinationPort));
+            Disconnect(sourceHandle, new OutputPortArrayID(sourcePort), destHandle, new InputPortArrayID(destinationPort));
         }
 
         /// <summary>
@@ -97,9 +117,29 @@ namespace Unity.DataFlowGraph
         /// targeting a destination port array with an index parameter.
         /// </summary>
         /// <exception cref="IndexOutOfRangeException">Thrown if the index is out of range with respect to the port array.</exception>
-        public void Disconnect(NodeHandle sourceHandle, OutputPortID sourcePort, NodeHandle destHandle, InputPortID destinationPortArray, int index)
+        public void Disconnect(NodeHandle sourceHandle, OutputPortID sourcePort, NodeHandle destHandle, InputPortID destPortArray, int destArrayIndex)
         {
-            Disconnect(sourceHandle, sourcePort, destHandle, new InputPortArrayID(destinationPortArray, index));
+            Disconnect(sourceHandle, new OutputPortArrayID(sourcePort), destHandle, new InputPortArrayID(destPortArray, destArrayIndex));
+        }
+
+        /// <summary>
+        /// Overload of <see cref="Disconnect(NodeHandle,OutputPortID,NodeHandle,InputPortID)"/>
+        /// with a source port array with an index parameter.
+        /// </summary>
+        /// <exception cref="IndexOutOfRangeException">Thrown if the index is out of range with respect to the port array.</exception>
+        public void Disconnect(NodeHandle sourceHandle, OutputPortID sourcePortArray, int sourceArrayIndex, NodeHandle destHandle, InputPortID destPort)
+        {
+            Disconnect(sourceHandle, new OutputPortArrayID(sourcePortArray, sourceArrayIndex), destHandle, new InputPortArrayID(destPort));
+        }
+
+        /// <summary>
+        /// Overload of <see cref="Disconnect(NodeHandle,OutputPortID,NodeHandle,InputPortID)"/>
+        /// with a source port array with an index parameter and targeting a destination port array with an index parameter.
+        /// </summary>
+        /// <exception cref="IndexOutOfRangeException">Thrown if the index is out of range with respect to a port array.</exception>
+        public void Disconnect(NodeHandle sourceHandle, OutputPortID sourcePortArray, int sourceArrayIndex, NodeHandle destHandle, InputPortID destPortArray, int destArrayIndex)
+        {
+            Disconnect(sourceHandle, new OutputPortArrayID(sourcePortArray, sourceArrayIndex), destHandle, new InputPortArrayID(destPortArray, destArrayIndex));
         }
 
         /// <summary>
@@ -113,7 +153,7 @@ namespace Unity.DataFlowGraph
         /// <exception cref="ArgumentException">Thrown if the connection did not previously exist.</exception>
         public void DisconnectAndRetainValue(NodeHandle sourceHandle, OutputPortID sourcePort, NodeHandle destHandle, InputPortID destinationPort)
         {
-            DisconnectAndRetainValue(sourceHandle, sourcePort, destHandle, new InputPortArrayID(destinationPort));
+            DisconnectAndRetainValue(sourceHandle, new OutputPortArrayID(sourcePort), destHandle, new InputPortArrayID(destinationPort));
         }
 
         /// <summary>
@@ -121,14 +161,14 @@ namespace Unity.DataFlowGraph
         /// targeting a port array with an index parameter.
         /// </summary>
         /// <exception cref="IndexOutOfRangeException">Thrown if the index is out of range with respect to the port array.</exception>
-        public void DisconnectAndRetainValue(NodeHandle sourceHandle, OutputPortID sourcePort, NodeHandle destHandle, InputPortID destinationPortArray, int index)
+        public void DisconnectAndRetainValue(NodeHandle sourceHandle, OutputPortID sourcePort, NodeHandle destHandle, InputPortID destPortArray, int index)
         {
-            DisconnectAndRetainValue(sourceHandle, sourcePort, destHandle, new InputPortArrayID(destinationPortArray, index));
+            DisconnectAndRetainValue(sourceHandle, new OutputPortArrayID(sourcePort), destHandle, new InputPortArrayID(destPortArray, index));
         }
 
         internal void DisconnectAll(NodeHandle handle) => UncheckedDisconnectAll(ref GetNodeChecked(handle));
 
-        void Connect(NodeHandle sourceHandle, OutputPortID sourcePort, NodeHandle destHandle, InputPortArrayID destinationPort, ConnectionType dataConnectionType)
+        void Connect(NodeHandle sourceHandle, OutputPortArrayID sourcePort, NodeHandle destHandle, InputPortArrayID destinationPort, ConnectionType dataConnectionType)
         {
             var source = new OutputPair(this, sourceHandle, sourcePort);
             var dest = new InputPair(this, destHandle, destinationPort);
@@ -136,6 +176,11 @@ namespace Unity.DataFlowGraph
             // Connectivity correctness does not imply port existence (e.g. ComponentNodes)
             var sourcePortDef = GetVirtualPort(source);
             var destPortDef = GetVirtualPort(dest);
+
+            if (sourcePortDef.IsPortArray != sourcePort.IsArray)
+                throw new InvalidOperationException(sourcePortDef.IsPortArray
+                    ? "An array index is required when connecting from an array port."
+                    : "An array index can only be given when connecting from an array port.");
 
             if (destPortDef.IsPortArray != destinationPort.IsArray)
                 throw new InvalidOperationException(destPortDef.IsPortArray
@@ -160,13 +205,19 @@ namespace Unity.DataFlowGraph
             Connect((connectionCategory, sourcePortDef.Type, dataConnectionType), source, dest);
         }
 
-        void Disconnect(NodeHandle sourceHandle, OutputPortID sourcePort, NodeHandle destHandle, InputPortArrayID destinationPort)
+        void Disconnect(NodeHandle sourceHandle, OutputPortArrayID sourcePort, NodeHandle destHandle, InputPortArrayID destinationPort)
         {
             var source = new OutputPair(this, sourceHandle, sourcePort);
             var dest = new InputPair(this, destHandle, destinationPort);
 
             // Connectivity correctness does not imply port existence (e.g. ComponentNodes)
+            var sourcePortDef = GetVirtualPort(source);
             var destPortDef = GetVirtualPort(dest);
+
+            if (sourcePortDef.IsPortArray != sourcePort.IsArray)
+                throw new InvalidOperationException(sourcePortDef.IsPortArray
+                    ? "An array index is required when connecting from an array port."
+                    : "An array index can only be given when connecting from an array port.");
 
             if (destPortDef.IsPortArray != destinationPort.IsArray)
                 throw new InvalidOperationException(destPortDef.IsPortArray
@@ -176,7 +227,7 @@ namespace Unity.DataFlowGraph
             Disconnect(source, dest);
         }
 
-        void DisconnectAndRetainValue(NodeHandle sourceHandle, OutputPortID sourcePort, NodeHandle destHandle, InputPortArrayID destinationPort)
+        void DisconnectAndRetainValue(NodeHandle sourceHandle, OutputPortArrayID sourcePort, NodeHandle destHandle, InputPortArrayID destinationPort)
         {
             var source = new OutputPair(this, sourceHandle, sourcePort);
             var dest = new InputPair(this, destHandle, destinationPort);
@@ -195,10 +246,11 @@ namespace Unity.DataFlowGraph
 
         void Disconnect(in OutputPair source, in InputPair dest)
         {
-            ref readonly var connection = ref m_Database.FindConnection(ref m_Topology, source.Handle, source.Port, dest.Handle, dest.Port); 
+            ref readonly var connection = ref m_Database.FindConnection(ref m_Topology, source.Handle, source.Port, dest.Handle, dest.Port);
 
             if (!connection.Valid)
             {
+                CheckPortArrayBounds(source);
                 CheckPortArrayBounds(dest);
 
                 throw new ArgumentException("Connection doesn't exist!");
@@ -224,18 +276,19 @@ namespace Unity.DataFlowGraph
             // so we need to dynamically test and keep track of dependencies.
             if(HostSystem != null)
             {
-                if (source.Port.Storage.IsECSPort && dest.Port.PortID.Storage.IsECSPort)
-                    AddWriter(source.Port.ECSType);
+                if (source.Port.PortID.Storage.IsECSPort && dest.Port.PortID.Storage.IsECSPort)
+                    AddWriter(source.Port.PortID.ECSType);
 
 #if DFG_ASSERTIONS
-                if (source.Port.Storage.IsECSPort && !HasReaderOrWriter(source.Port.ECSType))
-                    throw new AssertionException($"Unregistrered {source.Port.Storage} for source");
+                if (source.Port.PortID.Storage.IsECSPort && !HasReaderOrWriter(source.Port.PortID.ECSType))
+                    throw new AssertionException($"Unregistrered {source.Port.PortID.Storage} for source");
 
                 if (dest.Port.PortID.Storage.IsECSPort && !HasReaderOrWriter(dest.Port.PortID.ECSType))
                     throw new AssertionException($"Unregistrered {dest.Port.PortID.Storage} for dest");
 #endif
             }
 
+            CheckPortArrayBounds(source);
             CheckPortArrayBounds(dest);
 
             if ((semantics.Category & ((uint)PortDescription.Category.Data | PortDescription.MessageToDataConnectionCategory)) != 0)
@@ -260,7 +313,7 @@ namespace Unity.DataFlowGraph
             if (semantics.Category == (uint)PortDescription.Category.DomainSpecific)
             {
                 var handler = GetDSLHandler(semantics.Type);
-                handler.Connect(this, source.Handle.ToPublicHandle(), source.Port, dest.Handle.ToPublicHandle(), dest.Port.PortID);
+                handler.Connect(this, source.Handle.ToPublicHandle(), source.Port.PortID, dest.Handle.ToPublicHandle(), dest.Port.PortID);
             }
 
             if (semantics.ConnType != ConnectionType.Feedback)
@@ -273,7 +326,7 @@ namespace Unity.DataFlowGraph
                 // Create the backwards dependency so that traversal order is correct.
                 m_Database.Connect(
                     ref m_Topology, semantics.Category << (int)PortDescription.CategoryShift.BackConnection,
-                    dest.Handle, default, 
+                    dest.Handle, default,
                     source.Handle, default);
             }
 
@@ -287,11 +340,11 @@ namespace Unity.DataFlowGraph
             {
                 var leftPort = GetDefinitionInternal(connection.Source)
                     .GetPortDescription(connection.Source.ToPublicHandle())
-                    .Outputs[connection.SourceOutputPort.Port];
+                    .Outputs[connection.SourceOutputPort.PortID.Port];
 
                 var handler = m_ConnectionHandlerMap[leftPort.Type];
 
-                handler.Disconnect(this, connection.Source.ToPublicHandle(), connection.SourceOutputPort, connection.Destination.ToPublicHandle(), connection.DestinationInputPort.PortID);
+                handler.Disconnect(this, connection.Source.ToPublicHandle(), connection.SourceOutputPort.PortID, connection.Destination.ToPublicHandle(), connection.DestinationInputPort.PortID);
             }
 
             m_Database.DisconnectAndRelease(ref m_Topology, connection);

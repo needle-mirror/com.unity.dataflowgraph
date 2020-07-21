@@ -88,7 +88,23 @@ namespace Unity.DataFlowGraph
 
                 if (!options.ComputeJobified)
                 {
-                    RecomputeCache(ref context);
+                    RecomputeTopology(ref context);
+
+                    // Build connection table, and finalize.
+                    context.Markers.BuildConnectionCache.Begin();
+                    var error = RebakeFreshGroups(ref context);
+                    context.Markers.BuildConnectionCache.End();
+
+                    if (error != TraversalCache.Error.None)
+                    {
+                        context.Cache.Errors.Enqueue(error);
+                        WipeGroupsAndReset(ref context);
+                    }
+                    else
+                    {
+                        AlignGroups(ref context);
+                    }
+                    
                     context.Cache.Version[0] = versionTracker.Version;
                 }
                 else
@@ -102,17 +118,32 @@ namespace Unity.DataFlowGraph
             }
 
             public static JobHandle ScheduleTopologyComputation<TTopologyFromVertex>(
-                JobHandle inputDependencies,
+                JobHandle deps,
                 VersionTracker versionTracker,
                 in ComputationContext<TTopologyFromVertex> context
             )
                 where TTopologyFromVertex : Database.ITopologyFromVertex
             {
-                ComputationContext<TTopologyFromVertex>.ComputeTopologyJob job;
-                job.Context = context;
-                job.NewVersion = versionTracker.Version;
+                ComputationContext<TTopologyFromVertex>.ComputeTopologyJob topologyJob;
+                topologyJob.Context = context;
+                topologyJob.NewVersion = versionTracker.Version;
 
-                return job.Schedule(inputDependencies);
+                ComputationContext<TTopologyFromVertex>.UpdateGenealogyJob genealogyJob;
+                genealogyJob.Cache = new MutableTopologyCache.ConcurrentIncrementalContext<TTopologyFromVertex>(
+                    context,
+                    context.Database,
+                    context.Topologies
+                );
+                genealogyJob.NewVersion = versionTracker.Version;
+                genealogyJob.BuildCacheMarker = context.Markers.BuildConnectionCache;
+
+                ComputationContext<TTopologyFromVertex>.FinalizeTopologyJob finalJob;
+                finalJob.Context = context;
+                finalJob.NewVersion = versionTracker.Version;
+
+                deps = topologyJob.Schedule(deps);
+                deps = genealogyJob.Schedule(context.Cache.NewGroups, 1, deps);
+                return finalJob.Schedule(deps);
             }
 
             /// <returns>
@@ -134,28 +165,29 @@ namespace Unity.DataFlowGraph
             }
 
             static TraversalCache.Error BuildConnectionCache<TTopologyFromVertex>(
-                ref ComputationContext<TTopologyFromVertex> context,
+                uint combinedMask,
+                ref TTopologyFromVertex topology,
+                ref Database database,
                 ref TraversalCache.Group group,
                 int traversalIndex
             )
                 where TTopologyFromVertex : Database.ITopologyFromVertex
             {
                 var cacheEntry = group.IndexTraversal(traversalIndex);
-                var index = context.Topologies[cacheEntry.Vertex];
+                var index = topology[cacheEntry.Vertex];
 
                 cacheEntry.ParentTableIndex = group.ParentCount;
                 cacheEntry.ChildTableIndex = group.ChildCount;
 
-                uint combinedMask = context.Cache.TraversalMask | context.Cache.AlternateMask;
-
-                for (var it = index.InputHeadConnection; it != InvalidConnection; it = context.Database[it].NextInputConnection)
+ 
+                for (var it = index.InputHeadConnection; it != InvalidConnection; it = database[it].NextInputConnection)
                 {
-                    ref readonly var connection = ref context.Database[it];
+                    ref readonly var connection = ref database[it];
 
                     if ((connection.TraversalFlags & combinedMask) == 0)
                         continue;
 
-                    var parentTopology = context.Topologies[connection.Source];
+                    var parentTopology = topology[connection.Source];
 
                     // TODO: Potential race condition (if groups are computed in parallel), even though it is an error
                     if (parentTopology.GroupID != index.GroupID)
@@ -172,14 +204,14 @@ namespace Unity.DataFlowGraph
 
                 cacheEntry.ParentCount = group.ParentCount - cacheEntry.ParentTableIndex;
 
-                for (var it = index.OutputHeadConnection; it != InvalidConnection; it = context.Database[it].NextOutputConnection)
+                for (var it = index.OutputHeadConnection; it != InvalidConnection; it = database[it].NextOutputConnection)
                 {
-                    ref readonly var connection = ref context.Database[it];
+                    ref readonly var connection = ref database[it];
 
                     if ((connection.TraversalFlags & combinedMask) == 0)
                         continue;
 
-                    var childTopology = context.Topologies[connection.Destination];
+                    var childTopology = topology[connection.Destination];
 
                     // TODO: Potential race condition (if groups are computed in parallel), even though it is an error
                     if (childTopology.GroupID != index.GroupID)
@@ -200,13 +232,13 @@ namespace Unity.DataFlowGraph
                 // Clear temporary state from traversal computation.
                 index.Resolved = false;
                 index.CurrentlyResolving = false;
-                context.Topologies[cacheEntry.Vertex] = index;
+                topology[cacheEntry.Vertex] = index;
 
                 return TraversalCache.Error.None;
             }
 
 
-            static internal unsafe void RecomputeCache<TTopologyFromVertex>(
+            static internal unsafe void RecomputeTopology<TTopologyFromVertex>(
                 ref ComputationContext<TTopologyFromVertex> context
             )
                 where TTopologyFromVertex : Database.ITopologyFromVertex
@@ -233,44 +265,55 @@ namespace Unity.DataFlowGraph
 
                 if (error != TraversalCache.Error.None)
                 {
-                    ResetBecauseOfError(ref context, error);
+                    context.Cache.Errors.Enqueue(error);
+                    WipeGroupsAndReset(ref context);
                     return;
                 }
-
-                // Build connection table.
-                
-                // TODO: Use Auto() when Burst supports it.
-                context.Markers.BuildConnectionCache.Begin();
-                error = RebakeFreshGroups(ref context);
-                context.Markers.BuildConnectionCache.End();
-
-                if (error != TraversalCache.Error.None)
-                {
-                    ResetBecauseOfError(ref context, error);
-                    return;
-                }
-
-                AlignGroups(ref context);
             }
 
-            static unsafe TraversalCache.Error RebakeFreshGroups<TTopologyFromVertex>(
+            internal static unsafe TraversalCache.Error RebakeFreshGroups<TTopologyFromVertex>(
                 ref ComputationContext<TTopologyFromVertex> context
             )
                 where TTopologyFromVertex : Database.ITopologyFromVertex
             {
+                uint combinedMask = context.Cache.TraversalMask | context.Cache.AlternateMask;
+
                 for (int g = 0; g < context.Cache.NewGroups.Length; ++g)
                 {
                     var translated = context.Cache.NewGroups[g];
                     ref var group = ref context.Cache.GetGroup(translated);
 
-                    for (var i = 0; i < group.TraversalCount; i++)
-                    {
-                        var error = BuildConnectionCache(ref context, ref group, i);
+                    var error = RebakeGroup(
+                        combinedMask,
+                        ref context.Topologies,
+                        ref context.Database,
+                        ref group
+                    );
 
-                        if(error != TraversalCache.Error.None)
-                        {
-                            return error;
-                        }
+                    if(error != TraversalCache.Error.None)
+                    {
+                        return error;
+                    }
+                }
+
+                return TraversalCache.Error.None;
+            }
+
+            internal static unsafe TraversalCache.Error RebakeGroup<TTopologyFromVertex>(
+                uint combinedMask,
+                ref TTopologyFromVertex topology,
+                ref Database database,
+                ref TraversalCache.Group group
+            )
+                where TTopologyFromVertex : Database.ITopologyFromVertex
+            {
+                for (var i = 0; i < group.TraversalCount; i++)
+                {
+                    var error = BuildConnectionCache(combinedMask, ref topology, ref database, ref group, i);
+
+                    if(error != TraversalCache.Error.None)
+                    {
+                        return error;
                     }
                 }
 
@@ -346,9 +389,9 @@ namespace Unity.DataFlowGraph
                 }
 
                 int collectedNodes = 0;
-                for (int g = 0; g < context.Cache.Groups.Length; ++g)
+                for (int g = 0; g < context.Cache.GroupCount; ++g)
                 {
-                    collectedNodes += context.Cache.Groups[g].TraversalCount;
+                    collectedNodes += context.Cache.GetGroup(g).TraversalCount;
                 }
 
                 return collectedNodes == context.TotalNodes ? TraversalCache.Error.None : TraversalCache.Error.Cycles;
@@ -451,25 +494,23 @@ namespace Unity.DataFlowGraph
                 return true;
             }
 
-            static unsafe void AlignGroups<TTopologyFromVertex>(
+            internal static unsafe void AlignGroups<TTopologyFromVertex>(
                 ref ComputationContext<TTopologyFromVertex> context
             )
                 where TTopologyFromVertex : Database.ITopologyFromVertex
             {
-                context.Database.ChangedGroups.Resize(context.Cache.Groups.Length, NativeArrayOptions.UninitializedMemory);
+                context.Database.ChangedGroups.Resize(context.Cache.GroupCount, NativeArrayOptions.UninitializedMemory);
 
                 for (int i = 0; i < context.Database.ChangedGroups.Length; ++i)
                     context.Database.ChangedGroups[i] = false;
             }
 
-            static void ResetBecauseOfError<TTopologyFromVertex>(
-                ref ComputationContext<TTopologyFromVertex> context, TraversalCache.Error error
+            internal static void WipeGroupsAndReset<TTopologyFromVertex>(
+                ref ComputationContext<TTopologyFromVertex> context
             )
                 where TTopologyFromVertex : Database.ITopologyFromVertex
             {
                 context.Cache.ClearAllGroups();
-
-                context.Cache.Errors.Add(error);
                 AlignGroups(ref context);
 
                 // Reset all group IDs for simulation.

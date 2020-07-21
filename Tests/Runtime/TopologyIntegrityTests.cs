@@ -5,7 +5,7 @@ using Unity.Jobs;
 
 namespace Unity.DataFlowGraph.Tests
 {
-    using Topology = TopologyAPI<ValidatedHandle, InputPortArrayID, OutputPortID>;
+    using Topology = TopologyAPI<ValidatedHandle, InputPortArrayID, OutputPortArrayID>;
 
     public class TopologyIntegrityTests
     {
@@ -129,7 +129,7 @@ namespace Unity.DataFlowGraph.Tests
                 Assert.AreEqual((uint)PortDescription.Category.Message, madeConnection.TraversalFlags);
                 Assert.AreEqual(untypedB, madeConnection.Destination.ToPublicHandle());
                 Assert.AreEqual(untypedA, madeConnection.Source.ToPublicHandle());
-                Assert.AreEqual(NodeWithAllTypesOfPorts.SimulationPorts.MessageOut.Port, madeConnection.SourceOutputPort);
+                Assert.AreEqual(NodeWithAllTypesOfPorts.SimulationPorts.MessageOut.Port, madeConnection.SourceOutputPort.PortID);
                 Assert.AreEqual(NodeWithAllTypesOfPorts.SimulationPorts.MessageIn.Port, madeConnection.DestinationInputPort.PortID);
                 Assert.AreEqual(foundIndexHandle, madeConnection.HandleToSelf.Index);
 
@@ -161,7 +161,7 @@ namespace Unity.DataFlowGraph.Tests
                 if (meansOfConnection == ConnectionAPI.StronglyTyped)
                     set.Connect(a, NodeWithAllTypesOfPorts.SimulationPorts.DSLOut, b, NodeWithAllTypesOfPorts.SimulationPorts.DSLIn);
                 else
-                    set.Connect(a, set.GetDefinition(a).GetPortDescription(a).Outputs[1], b, set.GetDefinition(b).GetPortDescription(b).Inputs[2]);
+                    set.Connect(a, set.GetDefinition(a).GetPortDescription(a).Outputs[2], b, set.GetDefinition(b).GetPortDescription(b).Inputs[2]);
 
                 Assert.AreEqual(1, set.GetTopologyDatabase().CountEstablishedConnections(), "There isn't exactly one valid edge in a new set with one connection");
 
@@ -187,7 +187,7 @@ namespace Unity.DataFlowGraph.Tests
                 Assert.AreEqual((uint)PortDescription.Category.DomainSpecific, madeConnection.TraversalFlags);
                 Assert.AreEqual(untypedB, madeConnection.Destination.ToPublicHandle());
                 Assert.AreEqual(untypedA, madeConnection.Source.ToPublicHandle());
-                Assert.AreEqual(NodeWithAllTypesOfPorts.SimulationPorts.DSLOut.Port, madeConnection.SourceOutputPort);
+                Assert.AreEqual(NodeWithAllTypesOfPorts.SimulationPorts.DSLOut.Port, madeConnection.SourceOutputPort.PortID);
                 Assert.AreEqual(NodeWithAllTypesOfPorts.SimulationPorts.DSLIn.Port, madeConnection.DestinationInputPort.PortID);
                 Assert.AreEqual(foundIndexHandle, madeConnection.HandleToSelf.Index);
 
@@ -196,7 +196,7 @@ namespace Unity.DataFlowGraph.Tests
                     set.Disconnect(a, NodeWithAllTypesOfPorts.SimulationPorts.DSLOut, b, NodeWithAllTypesOfPorts.SimulationPorts.DSLIn);
                 }
                 else
-                    set.Disconnect(a, set.GetDefinition(a).GetPortDescription(a).Outputs[1], b, set.GetDefinition(b).GetPortDescription(b).Inputs[2]);
+                    set.Disconnect(a, set.GetDefinition(a).GetPortDescription(a).Outputs[2], b, set.GetDefinition(b).GetPortDescription(b).Inputs[2]);
 
                 Assert.AreEqual(0, set.GetTopologyDatabase().CountEstablishedConnections(), "There are valid connections in a new set with zero connections");
 
@@ -221,7 +221,7 @@ namespace Unity.DataFlowGraph.Tests
                 if (meansOfConnection == ConnectionAPI.StronglyTyped)
                     set.Connect(a, NodeWithAllTypesOfPorts.KernelPorts.OutputScalar, b, NodeWithAllTypesOfPorts.KernelPorts.InputScalar);
                 else
-                    set.Connect(a, set.GetDefinition(a).GetPortDescription(a).Outputs[3], b, set.GetDefinition(b).GetPortDescription(b).Inputs[5]);
+                    set.Connect(a, set.GetDefinition(a).GetPortDescription(a).Outputs[4], b, set.GetDefinition(b).GetPortDescription(b).Inputs[5]);
 
                 Assert.AreEqual(1, set.GetTopologyDatabase().CountEstablishedConnections(), "There isn't exactly one valid edge in a new set with one connection");
 
@@ -249,7 +249,7 @@ namespace Unity.DataFlowGraph.Tests
                 Assert.AreEqual(untypedA, madeConnection.Source.ToPublicHandle());
                 // Fails for the same reason as MixedPortDeclarations_AreConsecutivelyNumbered_AndRespectsDeclarationOrder
                 Assert.AreEqual(NodeWithAllTypesOfPorts.KernelPorts.InputScalar.Port, madeConnection.DestinationInputPort.PortID);
-                Assert.AreEqual(NodeWithAllTypesOfPorts.KernelPorts.OutputScalar.Port, madeConnection.SourceOutputPort);
+                Assert.AreEqual(NodeWithAllTypesOfPorts.KernelPorts.OutputScalar.Port, madeConnection.SourceOutputPort.PortID);
                 Assert.AreEqual(foundIndexHandle, madeConnection.HandleToSelf.Index);
 
                 if (meansOfConnection == ConnectionAPI.StronglyTyped)
@@ -257,7 +257,7 @@ namespace Unity.DataFlowGraph.Tests
                     set.Disconnect(a, NodeWithAllTypesOfPorts.KernelPorts.OutputScalar, b, NodeWithAllTypesOfPorts.KernelPorts.InputScalar);
                 }
                 else
-                    set.Disconnect(a, set.GetDefinition(a).GetPortDescription(a).Outputs[3], b, set.GetDefinition(b).GetPortDescription(b).Inputs[5]);
+                    set.Disconnect(a, set.GetDefinition(a).GetPortDescription(a).Outputs[4], b, set.GetDefinition(b).GetPortDescription(b).Inputs[5]);
 
                 Assert.AreEqual(0, set.GetTopologyDatabase().CountEstablishedConnections(), "There are valid connections in a new set with zero connections");
 

@@ -1,24 +1,21 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Runtime.CompilerServices;
 using NUnit.Framework;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Jobs;
-using Unity.Jobs.LowLevel.Unsafe;
-using Unity.Mathematics;
 
 namespace Unity.DataFlowGraph.Tests
 {
     public class BufferAliasingTests
     {
         /*
-         * Make sure Resolve().GetUnsafePtr() == m_Value.Ptr 
-         * 
-         * 
+         * Make sure Resolve().GetUnsafePtr() == m_Value.Ptr
+         *
+         *
          */
 
         public struct Node : INodeData
@@ -81,7 +78,7 @@ namespace Unity.DataFlowGraph.Tests
                     if (InputSumAsScalar.m_Value.Ptr == PortArraySum.m_Value.Ptr)
                         return 6;
 
-                    return 
+                    return
                         CheckOutputNoAlias(c.Resolve(ref InputSumAsAggr).SubBuffer1.ToNative(c), c) * 8 +
                         CheckOutputNoAlias(c.Resolve(ref InputSumAsAggr).SubBuffer2.ToNative(c), c) * 32 +
                         CheckOutputNoAlias(c.Resolve(ref PortArraySum), c) * 128 +
@@ -481,7 +478,7 @@ namespace Unity.DataFlowGraph.Tests
                     );
 
                     CollectionAssert.AreEqual(
-                        Enumerable.Repeat(6908733 * 2, Fixture.BufferSize), 
+                        Enumerable.Repeat(6908733 * 2, Fixture.BufferSize),
                         sub2
                     );
 
@@ -587,17 +584,17 @@ namespace Unity.DataFlowGraph.Tests
                     Debug.Log(string.Join(",", portSum)); */
 
                     CollectionAssert.AreEqual(
-                        Enumerable.Repeat(567, Fixture.BufferSize), 
+                        Enumerable.Repeat(567, Fixture.BufferSize),
                         sub1
                     );
 
                     CollectionAssert.AreEqual(
-                        Enumerable.Repeat(567 * 2, Fixture.BufferSize), 
+                        Enumerable.Repeat(567 * 2, Fixture.BufferSize),
                         sub2
                     );
 
                     CollectionAssert.AreEqual(
-                        Enumerable.Repeat(3159, Fixture.BufferSize), 
+                        Enumerable.Repeat(3159, Fixture.BufferSize),
                         portSum
                     );
 
@@ -705,12 +702,12 @@ namespace Unity.DataFlowGraph.Tests
                     var gold = n == 0 ? 9477 : 836163;
 
                     CollectionAssert.AreEqual(
-                        Enumerable.Repeat(gold, Fixture.BufferSize), 
+                        Enumerable.Repeat(gold, Fixture.BufferSize),
                         sub1
                     );
 
                     CollectionAssert.AreEqual(
-                        Enumerable.Repeat(gold * 2, Fixture.BufferSize), 
+                        Enumerable.Repeat(gold * 2, Fixture.BufferSize),
                         sub2
                     );
 
@@ -748,7 +745,7 @@ namespace Unity.DataFlowGraph.Tests
              *  \    \       /
              *   \     o -> o -> E2
              *     < ----------- /
-             *   
+             *
              */
             const int k_ChainLength = 3;
             const int k_Updates = 5;
@@ -767,7 +764,7 @@ namespace Unity.DataFlowGraph.Tests
 
                     var ce1 = fix.Set.CreateComponentNode(e1);
                     var ce2 = fix.Set.CreateComponentNode(e2);
-                    
+
                     var nodes = new List<NodeHandle<BufferNode>>();
 
                     var start = fix.CreateSpliceNode();
@@ -854,10 +851,10 @@ namespace Unity.DataFlowGraph.Tests
                         var portSum = w.EntityManager.GetBuffer<BufferElement>(e2).AsNativeArray().Reinterpret<long>().ToArray();
 
                         //Debug.Log(string.Join(",", sub1));
-                        //Debug.Log(string.Join(",", portSum)); 
+                        //Debug.Log(string.Join(",", portSum));
 
                         CollectionAssert.AreEqual(
-                            Enumerable.Repeat(gold[n].Item1, Fixture.BufferSize), 
+                            Enumerable.Repeat(gold[n].Item1, Fixture.BufferSize),
                             sub1
                         );
                         CollectionAssert.AreEqual(

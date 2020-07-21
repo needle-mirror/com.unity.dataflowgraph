@@ -134,7 +134,14 @@ namespace Unity.DataFlowGraph.Tests
             }
 
             public Topology.TraversalCache.Error[] GetTopologyErrors()
-                => Cache.Errors.AsArray().ToList().ToArray();
+            {
+                var errors = new List<Topology.TraversalCache.Error>();
+
+                while (Cache.Errors.Count > 0)
+                    errors.Add(Cache.Errors.Dequeue());
+
+                return errors.ToArray();
+            }
 
             public Topology.TraversalCache GetUpdatedCache(int minimumGroupSize = -1)
             {
@@ -1274,7 +1281,11 @@ namespace Unity.DataFlowGraph.Tests
 
                 // Don't fold together groups
                 test.UpdateCache_AndIgnoreErrors(minimumGroupSize: 0);
-                CollectionAssert.AreEqual(test.GetTopologyErrors(), new[] { Topology.TraversalCache.Error.UnrelatedHierarchy });
+
+                CollectionAssert.Contains(
+                    test.GetTopologyErrors(),
+                    Topology.TraversalCache.Error.UnrelatedHierarchy
+                );
             }
         }
 
@@ -1567,7 +1578,7 @@ namespace Unity.DataFlowGraph.Tests
                 test.UpdateCache_AndIgnoreErrors(minimumGroupSize: 0);
 
                 Assert.AreEqual(1, cache.Groups.Length);
-                Assert.AreEqual(Topology.TraversalCache.Error.Cycles, cache.Errors[0]);
+                Assert.AreEqual(Topology.TraversalCache.Error.Cycles, cache.Errors.Dequeue());
                 Assert.AreEqual(1 /* orphan group */ + numGroups - cache.Groups.Length, cache.DeletedGroups.Length);
                 Assert.AreEqual(1, cache.NewGroups.Length);
 

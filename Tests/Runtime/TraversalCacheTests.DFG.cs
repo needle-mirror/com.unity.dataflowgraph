@@ -10,8 +10,8 @@ using UnityEngine.TestTools;
 
 namespace Unity.DataFlowGraph.Tests
 {
-    using Topology = TopologyAPI<ValidatedHandle, InputPortArrayID, OutputPortID>;
-    using Tools = TopologyTools<ValidatedHandle, InputPortArrayID, OutputPortID>;
+    using Topology = TopologyAPI<ValidatedHandle, InputPortArrayID, OutputPortArrayID>;
+    using Tools = TopologyTools<ValidatedHandle, InputPortArrayID, OutputPortArrayID>;
 
     class TraversalCacheTests_DFG
     {
@@ -124,7 +124,7 @@ namespace Unity.DataFlowGraph.Tests
                     new JobHandle(),
                     out context,
                     Set.GetTopologyDatabase(),
-                    MapClone, 
+                    MapClone,
                     Cache,
                     untypedNodes.AsArray(),
                     untypedNodes.Length,
@@ -152,7 +152,7 @@ namespace Unity.DataFlowGraph.Tests
             }
 
         }
-        
+
         [Test]
         public void MultipleIsolatedGraphs_CanStillBeWalked_InOneCompleteOrder([Values] ComputeType jobified)
         {
@@ -296,7 +296,7 @@ namespace Unity.DataFlowGraph.Tests
                                 Assert.AreEqual((NodeHandle)test.Nodes[i], parent.Vertex.ToPublicHandle());
 
                         for (int i = 0; i < 2; ++i)
-                            foreach (var child in node.GetChildrenByPort(i == 0 ? InOutTestNode.SimulationPorts.Output1.Port : InOutTestNode.SimulationPorts.Output2.Port))
+                            foreach (var child in node.GetChildrenByPort(new OutputPortArrayID(i == 0 ? InOutTestNode.SimulationPorts.Output1.Port : InOutTestNode.SimulationPorts.Output2.Port)))
                                 Assert.AreEqual((NodeHandle)test.Nodes[i + 3], child.Vertex.ToPublicHandle());
 
                         centerNodeWasFound = true;
@@ -335,7 +335,7 @@ namespace Unity.DataFlowGraph.Tests
                                 Assert.AreEqual((NodeHandle)test.Nodes[i], parentConnection.Target.Vertex.ToPublicHandle());
 
                         for (int i = 0; i < 2; ++i)
-                            foreach (var childConnection in node.GetChildConnectionsByPort(i == 0 ? InOutTestNode.SimulationPorts.Output1.Port : InOutTestNode.SimulationPorts.Output2.Port))
+                            foreach (var childConnection in node.GetChildConnectionsByPort(new OutputPortArrayID(i == 0 ? InOutTestNode.SimulationPorts.Output1.Port : InOutTestNode.SimulationPorts.Output2.Port)))
                                 Assert.AreEqual((NodeHandle)test.Nodes[i + 3], childConnection.Target.Vertex.ToPublicHandle());
 
                         centerNodeWasFound = true;
@@ -374,15 +374,15 @@ namespace Unity.DataFlowGraph.Tests
                         for (int i = 0; i < 2; ++i)
                             foreach (var parentConnection in node.GetParentConnectionsByPort(new InputPortArrayID(inPorts[i].Port)))
                             {
-                                Assert.AreEqual(InOutTestNode.SimulationPorts.Output1.Port, parentConnection.OutputPort);
+                                Assert.AreEqual(InOutTestNode.SimulationPorts.Output1.Port, parentConnection.OutputPort.PortID);
                                 Assert.AreEqual(inPorts[i].Port, parentConnection.InputPort.PortID);
                             }
 
                         for (int i = 0; i < 2; ++i)
-                            foreach (var childConnection in node.GetChildConnectionsByPort(outPorts[i].Port))
+                            foreach (var childConnection in node.GetChildConnectionsByPort(new OutputPortArrayID(outPorts[i].Port)))
                             {
                                 Assert.AreEqual(InOutTestNode.SimulationPorts.Input1.Port, childConnection.InputPort.PortID);
-                                Assert.AreEqual(outPorts[i].Port, childConnection.OutputPort);
+                                Assert.AreEqual(outPorts[i].Port, childConnection.OutputPort.PortID);
                             }
 
                         centerNodeWasFound = true;
@@ -421,8 +421,8 @@ namespace Unity.DataFlowGraph.Tests
                         Assert.AreEqual(1, node.GetParentsByPort(new InputPortArrayID(InOutTestNode.SimulationPorts.Input2.Port)).Count);
 
                         Assert.AreEqual(2, node.GetChildren().Count);
-                        Assert.AreEqual(1, node.GetChildrenByPort(InOutTestNode.SimulationPorts.Output1.Port).Count);
-                        Assert.AreEqual(1, node.GetChildrenByPort(InOutTestNode.SimulationPorts.Output2.Port).Count);
+                        Assert.AreEqual(1, node.GetChildrenByPort(new OutputPortArrayID(InOutTestNode.SimulationPorts.Output1.Port)).Count);
+                        Assert.AreEqual(1, node.GetChildrenByPort(new OutputPortArrayID(InOutTestNode.SimulationPorts.Output2.Port)).Count);
 
                         centerNodeWasFound = true;
                         break;
@@ -460,8 +460,8 @@ namespace Unity.DataFlowGraph.Tests
                         Assert.AreEqual(1, node.GetParentConnectionsByPort(new InputPortArrayID(InOutTestNode.SimulationPorts.Input2.Port)).Count);
 
                         Assert.AreEqual(2, node.GetChildConnections().Count);
-                        Assert.AreEqual(1, node.GetChildConnectionsByPort(InOutTestNode.SimulationPorts.Output1.Port).Count);
-                        Assert.AreEqual(1, node.GetChildConnectionsByPort(InOutTestNode.SimulationPorts.Output2.Port).Count);
+                        Assert.AreEqual(1, node.GetChildConnectionsByPort(new OutputPortArrayID(InOutTestNode.SimulationPorts.Output1.Port)).Count);
+                        Assert.AreEqual(1, node.GetChildConnectionsByPort(new OutputPortArrayID(InOutTestNode.SimulationPorts.Output2.Port)).Count);
 
                         centerNodeWasFound = true;
                         break;
@@ -747,8 +747,8 @@ namespace Unity.DataFlowGraph.Tests
                         Assert.AreEqual(numParents, node.GetParentsByPort(new InputPortArrayID(OneMessageOneData.SimulationPorts.MsgInput.Port)).Count);
                         Assert.AreEqual(0, node.GetParentsByPort(new InputPortArrayID(OneMessageOneData.KernelPorts.DataInput.Port)).Count);
 
-                        Assert.AreEqual(numChildren, node.GetChildrenByPort(OneMessageOneData.KernelPorts.DataOutput.Port).Count);
-                        Assert.AreEqual(0, node.GetChildrenByPort(OneMessageOneData.SimulationPorts.MsgOutput.Port).Count);
+                        Assert.AreEqual(numChildren, node.GetChildrenByPort(new OutputPortArrayID(OneMessageOneData.KernelPorts.DataOutput.Port)).Count);
+                        Assert.AreEqual(0, node.GetChildrenByPort(new OutputPortArrayID(OneMessageOneData.SimulationPorts.MsgOutput.Port)).Count);
 
                         centerNodeWasFound = true;
                         break;
@@ -848,12 +848,12 @@ namespace Unity.DataFlowGraph.Tests
                 }
 
                 // connect very last node to start, forming a cycle
-                // -> o-o-o-o-o-o-o-o-> 
+                // -> o-o-o-o-o-o-o-o->
                 // |  |
-                // |  o-o-o-o-o-o-o-o-> 
+                // |  o-o-o-o-o-o-o-o->
                 // |  |
-                // |  o-o-o-o-o-o-o-o 
-                // -----------------| 
+                // |  o-o-o-o-o-o-o-o
+                // -----------------|
                 set.Connect(list.Last(), OneMessageOneData.KernelPorts.DataOutput, list.First(), OneMessageOneData.KernelPorts.DataInput);
 
                 set.Update();
@@ -898,7 +898,7 @@ namespace Unity.DataFlowGraph.Tests
                 var cache = set.DataGraph.Cache;
 
                 // GlobalBreadthFirst == LocalDepthFirst currently.
-                /*const string kExpectedMaximallyParallelOrder = 
+                /*const string kExpectedMaximallyParallelOrder =
                     "0, 2, 5, 8, 13, 14, 16, 19, 22, 27, 28, 30, 33, 36, " +
                     "41, 42, 44, 47, 50, 55, 56, 58, 61, 64, 69, 70, 72, 75, " +
                     "78, 83, 84, 86, 89, 92, 97, 98, 100, 103, 106, 111, 112, 114, " +
@@ -982,7 +982,7 @@ namespace Unity.DataFlowGraph.Tests
                  *  A                    (5)
                  *
                  *  with extra feedback connections going from B1 back to A3, and also B4 back to A2.
-                 *  
+                 *
                  */
 
                 var test = new RenderGraphTests.DAGTest(set);

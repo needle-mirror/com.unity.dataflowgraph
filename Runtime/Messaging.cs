@@ -1,9 +1,8 @@
 using System;
-using System.Runtime.CompilerServices;
 
 namespace Unity.DataFlowGraph
 {
-    using Topology = TopologyAPI<ValidatedHandle, InputPortArrayID, OutputPortID>;
+    using Topology = TopologyAPI<ValidatedHandle, InputPortArrayID, OutputPortArrayID>;
 
     /// <summary>
     /// A context provided to a node's <see cref="NodeDefinition.OnMessage"/> implementation which is invoked when a
@@ -37,20 +36,28 @@ namespace Unity.DataFlowGraph
         }
 
         /// <summary>
-        /// Emit a message from yourself on a port. Everything connected to it
-        /// will receive your message.
+        /// Emit a message from yourself on a port. Everything connected to it will receive your message.
         /// </summary>
         public void EmitMessage<T, TNodeDefinition>(MessageOutput<TNodeDefinition, T> port, in T msg)
             where TNodeDefinition : NodeDefinition
         {
-            m_Set.EmitMessage(m_InputPair.Handle, port.Port, msg);
+            m_Set.EmitMessage(m_InputPair.Handle, new OutputPortArrayID(port.Port), msg);
+        }
+
+        /// <summary>
+        /// Emit a message from yourself on a port array. Everything connected to it will receive your message.
+        /// </summary>
+        public void EmitMessage<T, TNodeDefinition>(PortArray<MessageOutput<TNodeDefinition, T>> port, int arrayIndex, in T msg)
+            where TNodeDefinition : NodeDefinition
+        {
+            m_Set.EmitMessage(m_InputPair.Handle, new OutputPortArrayID(port.OutputPort, arrayIndex), msg);
         }
 
         /// <summary>
         /// Set the size of a <see cref="Buffer{T}"/> appearing in this node's <see cref="IGraphKernel{TKernelData,TKernelPortDefinition}"/>.
         /// Pass an instance of the node's <see cref="IGraphKernel{TKernelData,TKernelPortDefinition}"/> as the <paramref name="requestedSize"/>
-        /// parameter with <see cref="Buffer{T}"/> instances within it having been set using <see cref="Buffer{T}.SizeRequest(int)"/>. 
-        /// Any <see cref="Buffer{T}"/> instances within the given struct that have not been set using 
+        /// parameter with <see cref="Buffer{T}"/> instances within it having been set using <see cref="Buffer{T}.SizeRequest(int)"/>.
+        /// Any <see cref="Buffer{T}"/> instances within the given struct that have not been set using
         /// <see cref="Buffer{T}.SizeRequest(int)"/> will be unaffected by the call.
         /// </summary>
         public void SetKernelBufferSize<TGraphKernel>(in TGraphKernel requestedSize)
@@ -101,7 +108,7 @@ namespace Unity.DataFlowGraph
         }
 
         /// <summary>
-        /// Overload of <see cref="SendMessage{TMsg}(Unity.DataFlowGraph.NodeHandle,Unity.DataFlowGraph.InputPortID,TMsg)"/> 
+        /// Overload of <see cref="SendMessage{TMsg}(Unity.DataFlowGraph.NodeHandle,Unity.DataFlowGraph.InputPortID,TMsg)"/>
         /// targeting a port array with an index parameter.
         /// </summary>
         /// <exception cref="IndexOutOfRangeException">Thrown if the index is out of range with respect to the port array.</exception>
@@ -120,7 +127,7 @@ namespace Unity.DataFlowGraph
         }
 
         /// <summary>
-        /// Overload of <see cref="SendMessage{TMsg}(Unity.DataFlowGraph.NodeHandle,Unity.DataFlowGraph.InputPortID,TMsg)"/> 
+        /// Overload of <see cref="SendMessage{TMsg}(Unity.DataFlowGraph.NodeHandle,Unity.DataFlowGraph.InputPortID,TMsg)"/>
         /// targeting a port array with an index parameter.
         /// </summary>
         /// <exception cref="IndexOutOfRangeException">Thrown if the index is out of range with respect to the port array.</exception>
@@ -200,10 +207,10 @@ namespace Unity.DataFlowGraph
             where TDefinition : NodeDefinition
             where TType : struct
         {
-            SetData(handle, new InputPortArrayID(portArray.Port, index), data);
+            SetData(handle, new InputPortArrayID(portArray.InputPort, index), data);
         }
 
-        unsafe internal void EmitMessage<TMsg>(ValidatedHandle handle, OutputPortID port, in TMsg msg)
+        unsafe internal void EmitMessage<TMsg>(ValidatedHandle handle, OutputPortArrayID port, in TMsg msg)
         {
             if (!StillExists(handle))
                 throw new InvalidOperationException("Cannot emit a message from a destroyed node");
@@ -230,7 +237,7 @@ namespace Unity.DataFlowGraph
                     if (connection.TraversalFlags != PortDescription.MessageToDataConnectionCategory)
                         throw new AssertionException("Unexpected connection type");
 #endif
-                    m_Diff.SetData(dest, RenderGraph.AllocateAndCopyData(Unsafe.AsPointer(ref Unsafe.AsRef(msg)), new SimpleType(typeof(TMsg))));
+                    m_Diff.SetData(dest, RenderGraph.AllocateAndCopyData(Utility.AsPointer(msg), new SimpleType(typeof(TMsg))));
                 }
             }
 
@@ -243,11 +250,11 @@ namespace Unity.DataFlowGraph
                     if (forward.IsInput)
                         continue;
 
-                    // Forwarded port list are monotonically increasing by port, so we can break out early	
-                    if (forward.GetOriginPortCounter() > port.Port)
+                    // Forwarded port list are monotonically increasing by port, so we can break out early
+                    if (forward.GetOriginPortCounter() > port.PortID.Port)
                         break;
 
-                    if (port == forward.GetOriginOutputPortID())
+                    if (port.PortID == forward.GetOriginOutputPortID())
                         throw new ArgumentException("Cannot emit a message through a previously forwarded port");
                 }
             }

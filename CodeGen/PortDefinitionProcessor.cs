@@ -103,7 +103,7 @@ namespace Unity.DataFlowGraph.CodeGen
             {
                 var portField = portInfo.PortField;
                 var portFieldRef = FormClassInstantiatedFieldReference(portField);
-                MethodReference portCreateMethod = m_Lib.FindCreateMethodForPortType(portInfo.PortType);
+                MethodReference portCreateMethod = m_Lib.FindCreateMethodForPortType(portInfo.PortType, portInfo.IsInput);
 
                 var genPortCreateMethod = DeriveEnclosedMethodReference(portCreateMethod, (GenericInstanceType)portField.FieldType);
                 // Take the port type (eg. DataInput`2) and add the positional generic arguments (eg. DataInput`2<!0,!1>)

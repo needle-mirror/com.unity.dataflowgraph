@@ -1,7 +1,5 @@
-﻿using System.Runtime.CompilerServices;
-using NUnit.Framework;
+﻿using NUnit.Framework;
 using Unity.Burst;
-using Unity.Jobs.LowLevel.Unsafe;
 
 namespace Unity.DataFlowGraph.Tests
 {
@@ -32,8 +30,8 @@ namespace Unity.DataFlowGraph.Tests
                 RenderContext = new RenderContext()
             };
 
-            ref var burstVersion = ref Unsafe.AsRef<GraphKernel<DummyKernel, DummyData, DummyPorts>.Bursted>(&aliasVersion);
-            ref var managedVersion = ref Unsafe.AsRef<GraphKernel<DummyKernel, DummyData, DummyPorts>.Managed>(&aliasVersion);
+            ref var burstVersion = ref Utility.AsRef<GraphKernel<DummyKernel, DummyData, DummyPorts>.Bursted>(&aliasVersion);
+            ref var managedVersion = ref Utility.AsRef<GraphKernel<DummyKernel, DummyData, DummyPorts>.Managed>(&aliasVersion);
 
             Assert.IsTrue(aliasVersion.NodeData == burstVersion.m_Data);
             Assert.IsTrue(&data == burstVersion.m_Data);
@@ -66,7 +64,7 @@ namespace Unity.DataFlowGraph.Tests
 
         public class BurstedNode : NodeDefinition
             <
-                BurstedNode.Data, 
+                BurstedNode.Data,
                 BurstedNode.SimPorts,
                 BurstedNode.KData,
                 BurstedNode.KernelDefs,

@@ -1,7 +1,6 @@
 ﻿using System;
 using Unity.Collections;
 using System.Diagnostics;
-using System.Runtime.CompilerServices;
 using Unity.Collections.LowLevel.Unsafe;
 
 namespace Unity.DataFlowGraph
@@ -45,7 +44,7 @@ namespace Unity.DataFlowGraph
             where TType : struct
         {
             ThrowIfEmpty();
-            return Unsafe.AsRef<TType>(input.Ptr);
+            return Utility.AsRef<TType>(input.Ptr);
         }
 
         /// <summary>
@@ -118,7 +117,7 @@ namespace Unity.DataFlowGraph
                     if ((uint)i >= Length)
                         throw new IndexOutOfRangeException();
 
-                    return Unsafe.AsRef<TType>(PortArray[(ushort)i].Ptr);
+                    return Utility.AsRef<TType>(PortArray[(ushort)i].Ptr);
                 }
             }
 

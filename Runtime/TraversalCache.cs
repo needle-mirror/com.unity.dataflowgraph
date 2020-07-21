@@ -1,5 +1,5 @@
 ﻿using System;
-using System.Runtime.CompilerServices;
+using System.Threading;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 
@@ -89,7 +89,7 @@ namespace Unity.DataFlowGraph
                 public ref /*TODO: Use readonly in later refactors: readonly*/ Slot IndexTraversal(int index)
                 {
                     if (m_OrderedTraversal.Length > (uint)index)
-                        return ref Unsafe.AsRef<Slot>((byte*)m_OrderedTraversal.Ptr + UnsafeUtility.SizeOf<Slot>() * index);
+                        return ref Utility.AsRef<Slot>((byte*)m_OrderedTraversal.Ptr + UnsafeUtility.SizeOf<Slot>() * index);
 
                     throw new ArgumentOutOfRangeException($"Index {index} is out of range of list length {m_OrderedTraversal.Length}");
                 }
@@ -102,7 +102,7 @@ namespace Unity.DataFlowGraph
                 public ref readonly Connection IndexParent(int index)
                 {
                     if (m_ParentTable.Length > (uint)index)
-                        return ref Unsafe.AsRef<Connection>((byte*)m_ParentTable.Ptr + UnsafeUtility.SizeOf<Connection>() * index);
+                        return ref Utility.AsRef<Connection>((byte*)m_ParentTable.Ptr + UnsafeUtility.SizeOf<Connection>() * index);
 
                     throw new ArgumentOutOfRangeException($"Index {index} is out of range of list length {m_ParentTable.Length}");
                 }
@@ -115,7 +115,7 @@ namespace Unity.DataFlowGraph
                 public ref readonly Connection IndexChild(int index)
                 {
                     if (m_ChildTable.Length > (uint)index)
-                        return ref Unsafe.AsRef<Connection>((byte*)m_ChildTable.Ptr + UnsafeUtility.SizeOf<Connection>() * index);
+                        return ref Utility.AsRef<Connection>((byte*)m_ChildTable.Ptr + UnsafeUtility.SizeOf<Connection>() * index);
 
                     throw new ArgumentOutOfRangeException($"Index {index} is out of range of list length {m_ChildTable.Length}");
                 }
@@ -184,14 +184,86 @@ namespace Unity.DataFlowGraph
                 }
             }
 
+            public struct TopologyErrors : IDisposable
+            {
+                internal unsafe struct ConcurrentWriter
+                {
+                    /// <summary>
+                    /// Precise in terms of job granularity.
+                    /// </summary>
+                    public int Count => Interlocked.Add(ref *(int*)m_ErrorCounter.GetUnsafeReadOnlyPtr(), 0);
+
+                    NativeQueue<Error>.ParallelWriter m_Errors;
+                    [NativeDisableContainerSafetyRestriction] NativeArray<int> m_ErrorCounter;
+
+                    public unsafe void Enqueue(Error error)
+                    {
+                        Interlocked.Increment(ref *(int*)m_ErrorCounter.GetUnsafePtr());
+                        m_Errors.Enqueue(error);
+                    }
+
+                    internal ConcurrentWriter(TopologyErrors errors)
+                    {
+                        m_Errors = errors.m_Errors.AsParallelWriter();
+                        m_ErrorCounter = errors.m_ErrorCounter;
+                    }
+                }
+
+                public int Count => m_ErrorCounter[0];
+
+                [NativeDisableParallelForRestriction]
+                NativeQueue<Error> m_Errors;
+                [NativeDisableParallelForRestriction]
+                NativeArray<int> m_ErrorCounter;
+
+                public TopologyErrors(Allocator allocator)
+                {
+                    m_Errors = new NativeQueue<Error>(allocator);
+                    m_ErrorCounter = new NativeArray<int>(1, allocator);
+                }
+
+                public void Enqueue(Error error)
+                {
+                    m_ErrorCounter[0] = m_ErrorCounter[0] + 1;
+                    m_Errors.Enqueue(error);
+                }
+
+                public Error Dequeue()
+                {
+                    var error = m_Errors.Dequeue();
+                    m_ErrorCounter[0] = m_ErrorCounter[0] - 1;
+                    return error;
+                }
+
+                internal void Clear()
+                {
+                    m_ErrorCounter[0] = 0;
+                    m_Errors.Clear();
+                }
+
+                public void Dispose()
+                {
+                    m_Errors.Dispose();
+                    m_ErrorCounter.Dispose();
+                }
+
+                public ConcurrentWriter AsConcurrentWriter()
+                {
+                    return new ConcurrentWriter(this);
+                }
+            }
+
             [NativeDisableParallelForRestriction, ReadOnly] public NativeList<Group> Groups;
             [NativeDisableParallelForRestriction, ReadOnly] public NativeArray<int> GlobalVersion;
-            [NativeDisableParallelForRestriction, ReadOnly] public NativeList<Error> Errors;
+            [NativeDisableParallelForRestriction, ReadOnly] public NativeList<int> NewGroups;
+            [NativeDisableParallelForRestriction, ReadOnly] public NativeList<int> DeletedGroups;
+            public TopologyErrors Errors;
+
+            [NativeDisableParallelForRestriction, ReadOnly] internal NativeList<int> FreeGroups;
+            internal readonly Allocator Allocator;
 
             readonly uint TraversalMask;
             readonly uint AlternateMask;
-
-            internal readonly Allocator Allocator;
 
             public TraversalCache(int size, uint traversalMask, Allocator allocator = Allocator.Persistent)
                 : this(size, traversalMask, 0, allocator)
@@ -206,22 +278,19 @@ namespace Unity.DataFlowGraph
                 NewGroups = new NativeList<int>(0, allocator);
                 DeletedGroups = new NativeList<int>(0, allocator);
                 // Create the always existing orphan group.
-                Groups.Add(new Group(1, 0, traversalMask, alternateMask, allocator)); 
+                Groups.Add(new Group(1, 0, traversalMask, alternateMask, allocator));
                 GlobalVersion[0] = CacheAPI.VersionTracker.Create().Version;
                 FreeGroups = new NativeList<int>(allocator);
-                Errors = new NativeList<Error>(1, allocator);
+                Errors = new TopologyErrors(allocator);
                 TraversalMask = traversalMask;
                 AlternateMask = alternateMask;
             }
-            
-            [NativeDisableParallelForRestriction, ReadOnly] public NativeList<int> NewGroups;
-            [NativeDisableParallelForRestriction, ReadOnly] public NativeList<int> DeletedGroups;
-            [NativeDisableParallelForRestriction, ReadOnly] internal NativeList<int> FreeGroups;
+
             public int ComputeNumRoots()
             {
                 int count = 0;
 
-                for(int g = 0; g < Groups.Length; ++g)
+                for (int g = 0; g < Groups.Length; ++g)
                 {
                     count += Groups[g].RootCount;
                 }
@@ -246,7 +315,7 @@ namespace Unity.DataFlowGraph
                 if (!GlobalVersion.IsCreated)
                     throw new ObjectDisposedException("TraversalCache not created or disposed");
 
-                for(int g = 0; g < Groups.Length; ++g)
+                for (int g = 0; g < Groups.Length; ++g)
                 {
                     Groups[g].Dispose();
                 }
@@ -281,19 +350,56 @@ namespace Unity.DataFlowGraph
 
         public struct MutableTopologyCache
         {
-            public NativeList<TraversalCache.Group> Groups;
+            public struct ConcurrentIncrementalContext<TTopologyFromVertex>
+                where TTopologyFromVertex : Database.ITopologyFromVertex
+            {
+                [NativeDisableParallelForRestriction] NativeList<TraversalCache.Group> m_Groups;
+                [ReadOnly] NativeList<int> NewGroups;
+                [ReadOnly] public Database Database;
+                [ReadOnly] public NativeArray<int> Version;
+                public TraversalCache.TopologyErrors.ConcurrentWriter Errors;
+
+                [NativeDisableParallelForRestriction]
+                public TTopologyFromVertex Topology;
+
+
+                public readonly uint TraversalMask;
+                public readonly uint AlternateMask;
+
+                public int GroupCount => m_Groups.Length;
+
+                public ConcurrentIncrementalContext(
+                    in ComputationContext<TTopologyFromVertex> context,
+                    in Database database,
+                    in TTopologyFromVertex topology)
+                {
+                    Database = database;
+                    Topology = topology;
+                    m_Groups = context.Cache.m_Groups;
+                    Version = context.Cache.Version;
+                    TraversalMask = context.Cache.TraversalMask;
+                    NewGroups = context.Cache.NewGroups;
+                    AlternateMask = context.Cache.AlternateMask;
+                    Errors = context.Cache.Errors.AsConcurrentWriter();
+                }
+
+                internal unsafe ref TraversalCache.Group GetNewGroup(int index)
+                {
+                    var translatedGroup = NewGroups[index];
+                    return ref m_Groups.ElementAt(translatedGroup);
+                }
+            }
+
             public NativeArray<int> Version;
             public NativeList<int> NewGroups;
             public NativeList<int> DeletedGroups;
-            public NativeList<TraversalCache.Error> Errors;
-
-            internal NativeList<int> FreeGroups;
-
-
+            public TraversalCache.TopologyErrors Errors;
             public readonly uint TraversalMask;
             public readonly uint AlternateMask;
-            readonly Allocator m_Allocator;
+            internal NativeList<int> FreeGroups;
 
+            readonly Allocator m_Allocator;
+            NativeList<TraversalCache.Group> m_Groups;
             /// <summary>
             /// When nodes are orphaned, they move *back* into the orphan group.
             /// This is not detectable through the group changed system (only notifies
@@ -305,9 +411,11 @@ namespace Unity.DataFlowGraph
             /// </summary>
             bool m_OrphanGroupMutated;
 
+            public int GroupCount => m_Groups.Length;
+
             public MutableTopologyCache(in TraversalCache cache)
             {
-                Groups = cache.Groups;
+                m_Groups = cache.Groups;
                 Version = cache.GlobalVersion;
                 TraversalMask = cache.GetMask(TraversalCache.Hierarchy.Traversal);
                 NewGroups = cache.NewGroups;
@@ -324,7 +432,7 @@ namespace Unity.DataFlowGraph
                 NewGroups.Clear();
                 DeletedGroups.Clear();
 
-                for(int i = Database.OrphanGroupID + 1; i < changedGroups.Length; ++i)
+                for (int i = Database.OrphanGroupID + 1; i < changedGroups.Length; ++i)
                 {
                     if (changedGroups[i])
                     {
@@ -346,7 +454,7 @@ namespace Unity.DataFlowGraph
                 NewGroups.Clear();
                 FreeGroups.Clear();
 
-                for (int i = Database.OrphanGroupID + 1; i < Groups.Length; ++i)
+                for (int i = Database.OrphanGroupID + 1; i < m_Groups.Length; ++i)
                 {
                     DeletedGroups.Add(i);
                     ref var g = ref GetGroup(i);
@@ -357,31 +465,29 @@ namespace Unity.DataFlowGraph
                 var orphanage = GetOrphanGroupForAccumulation();
                 orphanage.Clear();
 
-                Groups.Resize(1, NativeArrayOptions.ClearMemory);
-                Groups[0] = orphanage;
+                m_Groups.Resize(1, NativeArrayOptions.ClearMemory);
+                m_Groups[0] = orphanage;
             }
 
             internal unsafe ref TraversalCache.Group GetGroup(int index)
             {
-                return ref Unsafe.AsRef<TraversalCache.Group>(
-                    (byte*)Groups.GetUnsafePtr() + UnsafeUtility.SizeOf<TraversalCache.Group>() * index
-                );
+                return ref m_Groups.ElementAt(index);
             }
 
             unsafe internal ref TraversalCache.Group AllocateGroup(int capacity)
             {
                 int groupIndex = -1;
-                if(FreeGroups.Length > 0)
+                if (FreeGroups.Length > 0)
                 {
                     groupIndex = FreeGroups[FreeGroups.Length - 1];
                     FreeGroups.ResizeUninitialized(FreeGroups.Length - 1);
                 }
                 else
                 {
-                    var group = new TraversalCache.Group(capacity, Groups.Length, TraversalMask, AlternateMask, m_Allocator);
-                    Groups.Add(group);
+                    var group = new TraversalCache.Group(capacity, m_Groups.Length, TraversalMask, AlternateMask, m_Allocator);
+                    m_Groups.Add(group);
 
-                    groupIndex = Groups.Length - 1;
+                    groupIndex = m_Groups.Length - 1;
                 }
 
                 NewGroups.Add(groupIndex);

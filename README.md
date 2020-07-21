@@ -1,6 +1,6 @@
 # Instructions
 Using this package is quite simple:
-- Start a fresh new Unity project in 2019.3 or later
+- Start a fresh new Unity project in 2019.4 or later
 - Open the [Package Manager](https://docs.unity3d.com/Packages/com.unity.package-manager-ui@latest/index.html) window.
 - Click the "**+**" drop-down menu in the upper left corner.
 - Choose "Add package from git URL...".

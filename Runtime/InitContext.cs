@@ -1,6 +1,6 @@
 ﻿using System;
-using System.Runtime.CompilerServices;
 using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
 
 namespace Unity.DataFlowGraph
 {
@@ -47,7 +47,7 @@ namespace Unity.DataFlowGraph
             where TForwardedDefinition : NodeDefinition, IMsgHandler<TMsg>
         {
             CommonChecks<TDefinition>(replacedNode, (InputPortID)origin);
-            GetForwardingBuffer().Add(ForwardedPort.Unchecked.Input(origin.Port, replacedNode, replacement.Port));
+            GetForwardingBuffer().Add(ForwardedPort.Unchecked.Input(origin.InputPort, replacedNode, replacement.InputPort));
         }
 
         /// <summary>
@@ -71,7 +71,7 @@ namespace Unity.DataFlowGraph
             where TType : struct
         {
             CommonChecks<TDefinition>(replacedNode, (InputPortID)origin);
-            GetForwardingBuffer().Add(ForwardedPort.Unchecked.Input(origin.Port, replacedNode, replacement.Port));
+            GetForwardingBuffer().Add(ForwardedPort.Unchecked.Input(origin.InputPort, replacedNode, replacement.InputPort));
         }
 
         /// <summary>
@@ -100,6 +100,17 @@ namespace Unity.DataFlowGraph
         {
             CommonChecks<TDefinition>(replacedNode, (OutputPortID)origin);
             GetForwardingBuffer().Add(ForwardedPort.Unchecked.Output(origin.Port, replacedNode, replacement.Port));
+        }
+
+        /// <summary>
+        /// See <see cref="ForwardOutput{TDefinition,TForwardedDefinition,TMsg}(MessageOutput{TDefinition,TMsg}, NodeHandle{TForwardedDefinition}, MessageOutput{TForwardedDefinition,TMsg})"/>.
+        /// </summary>
+        public void ForwardOutput<TDefinition, TForwardedDefinition, TMsg>(PortArray<MessageOutput<TDefinition, TMsg>> origin, NodeHandle<TForwardedDefinition> replacedNode, PortArray<MessageOutput<TForwardedDefinition, TMsg>> replacement)
+            where TDefinition : NodeDefinition, new()
+            where TForwardedDefinition : NodeDefinition
+        {
+            CommonChecks<TDefinition>(replacedNode, (OutputPortID)origin);
+            GetForwardingBuffer().Add(ForwardedPort.Unchecked.Output(origin.OutputPort, replacedNode, replacement.OutputPort));
         }
 
         /// <summary>
@@ -134,8 +145,8 @@ namespace Unity.DataFlowGraph
         /// <summary>
         /// Set the size of a <see cref="Buffer{T}"/> appearing in this node's <see cref="IGraphKernel{TKernelData,TKernelPortDefinition}"/>.
         /// Pass an instance of the node's <see cref="IGraphKernel{TKernelData,TKernelPortDefinition}"/> as the <paramref name="requestedSize"/>
-        /// parameter with <see cref="Buffer{T}"/> instances within it having been set using <see cref="Buffer{T}.SizeRequest(int)"/>. 
-        /// Any <see cref="Buffer{T}"/> instances within the given struct that have not been set using 
+        /// parameter with <see cref="Buffer{T}"/> instances within it having been set using <see cref="Buffer{T}.SizeRequest(int)"/>.
+        /// Any <see cref="Buffer{T}"/> instances within the given struct that have not been set using
         /// <see cref="Buffer{T}.SizeRequest(int)"/> will be unaffected by the call.
         /// </summary>
         public void SetKernelBufferSize<TGraphKernel>(in TGraphKernel requestedSize)
@@ -194,13 +205,13 @@ namespace Unity.DataFlowGraph
         {
             m_Handle = handle;
             TypeIndex = typeIndex;
-            m_ForwardedConnectionsMemory = Unsafe.AsPointer(ref stackList);
+            m_ForwardedConnectionsMemory = UnsafeUtility.AddressOf(ref stackList);
             m_Set = set;
         }
 
         unsafe ref BlitList<ForwardedPort.Unchecked> GetForwardingBuffer()
         {
-            ref BlitList<ForwardedPort.Unchecked> buffer = ref Unsafe.AsRef<BlitList<ForwardedPort.Unchecked>>(m_ForwardedConnectionsMemory);
+            ref BlitList<ForwardedPort.Unchecked> buffer = ref Utility.AsRef<BlitList<ForwardedPort.Unchecked>>(m_ForwardedConnectionsMemory);
 
             if (!buffer.IsCreated)
                 buffer = new BlitList<ForwardedPort.Unchecked>(0, Allocator.Temp);

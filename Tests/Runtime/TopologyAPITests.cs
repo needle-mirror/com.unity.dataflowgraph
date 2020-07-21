@@ -200,7 +200,7 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        void ConnectingOutOfArrayPortIndicesRange_ThrowsException<TNodeDefinition>(InputPortID inputs, OutputPortID output)
+        void ConnectingOutOfRange_InputArrayPortIndices_ThrowsException<TNodeDefinition>(InputPortID inputs, OutputPortID output)
             where TNodeDefinition : NodeDefinition, new()
         {
             using (var set = new NodeSet())
@@ -211,7 +211,6 @@ namespace Unity.DataFlowGraph.Tests
 
                 Assert.Throws<IndexOutOfRangeException>(() => set.Connect(a, output, b, inputs, 0));
 
-                set.SetPortArraySize(a, inputs, 1);
                 set.SetPortArraySize(b, inputs, 1);
 
                 set.Connect(a, output, b, inputs, 0);
@@ -222,16 +221,39 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
+        void ConnectingOutOfRange_OutputArrayPortIndices_ThrowsException<TNodeDefinition>(OutputPortID outputs, InputPortID input)
+            where TNodeDefinition : NodeDefinition, new()
+        {
+            using (var set = new NodeSet())
+            {
+                NodeHandle<TNodeDefinition>
+                    a = set.Create<TNodeDefinition>(),
+                    b = set.Create<TNodeDefinition>();
+
+                Assert.Throws<IndexOutOfRangeException>(() => set.Connect(a, outputs, 0, b, input));
+
+                set.SetPortArraySize(a, outputs, 1);
+
+                set.Connect(a, outputs, 0, b, input);
+
+                Assert.Throws<IndexOutOfRangeException>(() => set.Connect(a, outputs, 1, b, input));
+
+                set.Destroy(a, b);
+            }
+        }
+
         [Test]
         public void ConnectingOutOfArrayPortIndicesRange_ThrowsException()
         {
-            ConnectingOutOfArrayPortIndicesRange_ThrowsException<NodeWithAllTypesOfPorts>(
+            ConnectingOutOfRange_InputArrayPortIndices_ThrowsException<NodeWithAllTypesOfPorts>(
                 (InputPortID)NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayIn, (OutputPortID)NodeWithAllTypesOfPorts.SimulationPorts.MessageOut);
-            ConnectingOutOfArrayPortIndicesRange_ThrowsException<NodeWithAllTypesOfPorts>(
+            ConnectingOutOfRange_OutputArrayPortIndices_ThrowsException<NodeWithAllTypesOfPorts>(
+                (OutputPortID)NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayOut, (InputPortID)NodeWithAllTypesOfPorts.SimulationPorts.MessageIn);
+            ConnectingOutOfRange_InputArrayPortIndices_ThrowsException<NodeWithAllTypesOfPorts>(
                 (InputPortID)NodeWithAllTypesOfPorts.KernelPorts.InputArrayScalar, (OutputPortID)NodeWithAllTypesOfPorts.KernelPorts.OutputScalar);
         }
 
-        void DisconnectingOutOfArrayPortIndicesRange_ThrowsException<TNodeDefinition>(InputPortID inputs, OutputPortID output)
+        void DisconnectingOutOfRange_InputArrayPortIndices_ThrowsException<TNodeDefinition>(InputPortID inputs, OutputPortID output)
             where TNodeDefinition : NodeDefinition, new()
         {
             using (var set = new NodeSet())
@@ -242,7 +264,6 @@ namespace Unity.DataFlowGraph.Tests
 
                 Assert.Throws<IndexOutOfRangeException>(() => set.Connect(a, output, b, inputs, 0));
 
-                set.SetPortArraySize(a, inputs, 1);
                 set.SetPortArraySize(b, inputs, 1);
 
                 set.Connect(a, output, b, inputs, 0);
@@ -259,16 +280,45 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
+        void DisconnectingOutOfRange_OutputArrayPortIndices_ThrowsException<TNodeDefinition>(OutputPortID outputs, InputPortID input)
+            where TNodeDefinition : NodeDefinition, new()
+        {
+            using (var set = new NodeSet())
+            {
+                NodeHandle<TNodeDefinition>
+                    a = set.Create<TNodeDefinition>(),
+                    b = set.Create<TNodeDefinition>();
+
+                Assert.Throws<IndexOutOfRangeException>(() => set.Connect(a, outputs, 0, b, input));
+
+                set.SetPortArraySize(a, outputs, 1);
+
+                set.Connect(a, outputs, 0, b, input);
+
+                Assert.Throws<IndexOutOfRangeException>(() => set.Disconnect(a, outputs, 1, b, input));
+
+                set.Disconnect(a, outputs, 0, b, input);
+
+                set.SetPortArraySize(a, outputs, 0);
+
+                Assert.Throws<IndexOutOfRangeException>(() => set.Connect(a, outputs, 0, b, input));
+
+                set.Destroy(a, b);
+            }
+        }
+
         [Test]
         public void DisconnectingOutOfArrayPortIndicesRange_ThrowsException()
         {
-            DisconnectingOutOfArrayPortIndicesRange_ThrowsException<NodeWithAllTypesOfPorts>(
+            DisconnectingOutOfRange_InputArrayPortIndices_ThrowsException<NodeWithAllTypesOfPorts>(
                 (InputPortID)NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayIn, (OutputPortID)NodeWithAllTypesOfPorts.SimulationPorts.MessageOut);
-            DisconnectingOutOfArrayPortIndicesRange_ThrowsException<NodeWithAllTypesOfPorts>(
+            DisconnectingOutOfRange_OutputArrayPortIndices_ThrowsException<NodeWithAllTypesOfPorts>(
+                (OutputPortID)NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayOut, (InputPortID)NodeWithAllTypesOfPorts.SimulationPorts.MessageIn);
+            DisconnectingOutOfRange_InputArrayPortIndices_ThrowsException<NodeWithAllTypesOfPorts>(
                 (InputPortID)NodeWithAllTypesOfPorts.KernelPorts.InputArrayScalar, (OutputPortID)NodeWithAllTypesOfPorts.KernelPorts.OutputScalar);
         }
 
-        public void ReducingConnectedArrayPort_ThrowsException<TNodeDefinition>(InputPortID inputs, OutputPortID output)
+        public void ReducingConnectedInputArrayPort_ThrowsException<TNodeDefinition>(InputPortID inputs, OutputPortID output)
             where TNodeDefinition : NodeDefinition, new()
         {
             using (var set = new NodeSet())
@@ -293,12 +343,39 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
+        public void ReducingConnectedOutputArrayPort_ThrowsException<TNodeDefinition>(OutputPortID outputs, InputPortID input)
+            where TNodeDefinition : NodeDefinition, new()
+        {
+            using (var set = new NodeSet())
+            {
+                NodeHandle<TNodeDefinition>
+                    a = set.Create<TNodeDefinition>(),
+                    b = set.Create<TNodeDefinition>();
+
+                set.SetPortArraySize(a, outputs, 1);
+                set.SetPortArraySize(b, outputs, 1);
+
+                set.Connect(a, outputs, 0, b, input);
+
+                Assert.Throws<InvalidOperationException>(() => set.SetPortArraySize(a, outputs, 0));
+                set.SetPortArraySize(b, outputs, 0);
+
+                set.Disconnect(a, outputs, 0, b, input);
+
+                set.SetPortArraySize(a, outputs, 0);
+
+                set.Destroy(a, b);
+            }
+        }
+
         [Test]
         public void ReducingConnectedArrayPort_ThrowsException()
         {
-            ReducingConnectedArrayPort_ThrowsException<NodeWithAllTypesOfPorts>(
+            ReducingConnectedInputArrayPort_ThrowsException<NodeWithAllTypesOfPorts>(
                 (InputPortID)NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayIn, (OutputPortID)NodeWithAllTypesOfPorts.SimulationPorts.MessageOut);
-            ReducingConnectedArrayPort_ThrowsException<NodeWithAllTypesOfPorts>(
+            ReducingConnectedOutputArrayPort_ThrowsException<NodeWithAllTypesOfPorts>(
+                (OutputPortID)NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayOut, (InputPortID)NodeWithAllTypesOfPorts.SimulationPorts.MessageIn);
+            ReducingConnectedInputArrayPort_ThrowsException<NodeWithAllTypesOfPorts>(
                 (InputPortID)NodeWithAllTypesOfPorts.KernelPorts.InputArrayScalar, (OutputPortID)NodeWithAllTypesOfPorts.KernelPorts.OutputScalar);
         }
     }

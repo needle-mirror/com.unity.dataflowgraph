@@ -6,7 +6,6 @@ using Unity.Burst;
 using Unity.Jobs;
 using UnityEngine;
 using UnityEngine.TestTools;
-using System.Runtime.CompilerServices;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs.LowLevel.Unsafe;
 
@@ -286,7 +285,7 @@ namespace Unity.DataFlowGraph.Tests
         {
             public ForceBurstSyncCompilation(bool enable)
             {
-                #if UNITY_EDITOR && UNITY_2019_3_OR_NEWER
+                #if UNITY_EDITOR
                 m_WasSyncCompile = Menu.GetChecked("Jobs/Burst/Synchronous Compilation");
                 Menu.SetChecked("Jobs/Burst/Synchronous Compilation", enable);
                 #endif
@@ -294,7 +293,7 @@ namespace Unity.DataFlowGraph.Tests
 
             public void Dispose()
             {
-                #if UNITY_EDITOR && UNITY_2019_3_OR_NEWER
+                #if UNITY_EDITOR
                 Menu.SetChecked("Jobs/Burst/Synchronous Compilation", m_WasSyncCompile);
                 #endif
                 s_FirstDomainCompilation = false;
@@ -304,7 +303,7 @@ namespace Unity.DataFlowGraph.Tests
 
             static bool s_FirstDomainCompilation = true;
 
-            #if UNITY_EDITOR && UNITY_2019_3_OR_NEWER
+            #if UNITY_EDITOR
             bool m_WasSyncCompile;
             #endif
         }
@@ -320,20 +319,16 @@ namespace Unity.DataFlowGraph.Tests
                 set.RendererModel = meansOfComputation;
 
 #if UNITY_EDITOR
-                // Failure is only logged as an Error when run in Editor. Burst FunctionPointers do not work in non-Editor at all 
+                // Failure is only logged as an Error when run in Editor. Burst FunctionPointers do not work in non-Editor at all
                 // so those failures are currently logged as a Warning.
 
-#if UNITY_2019_3_OR_NEWER
-
-                // Only the first time a job is compiled in the current domain will a error be produced asynchronously 
+                // Only the first time a job is compiled in the current domain will an error be produced asynchronously
                 // through Burst. This means the error will be printed twice (once by us, once from Burst from somewhere).
                 // Only happens on scheduling jobs, not compiling function pointers.
                 if (forceBurstSyncCompile.IsFirstDomainCompilation)
                     LogAssert.Expect(LogType.Error, new Regex("Accessing the type"));
 
                 LogAssert.Expect(LogType.Error, new Regex("Accessing the type"));
-#endif
-
                 LogAssert.Expect(LogType.Error, new Regex("Could not Burst compile"));
 #endif
 
@@ -353,7 +348,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 var knodes = set.DataGraph.GetInternalData();
                 ref var inode = ref knodes[node.VHandle.Index];
-                var ports = Unsafe.AsRef<InvalidForBurstKernelNodeWithIO.KernelDefs>(inode.Instance.Ports);
+                var ports = Utility.AsRef<InvalidForBurstKernelNodeWithIO.KernelDefs>(inode.Instance.Ports);
                 Assert.AreEqual(ports.Output1.m_Value, 11);
                 Assert.AreEqual(ports.Output2.m_Value, 12);
 
@@ -553,5 +548,4 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
     }
-
 }

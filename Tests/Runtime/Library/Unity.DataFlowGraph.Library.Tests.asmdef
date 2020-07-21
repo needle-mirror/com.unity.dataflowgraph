@@ -3,7 +3,6 @@
     "references": [
         "Unity.Entities",
         "Unity.DataFlowGraph",
-        "Unity.DataFlowGraph.Library",
         "Unity.Mathematics"
     ],
     "optionalUnityReferences": [

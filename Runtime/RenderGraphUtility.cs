@@ -6,7 +6,7 @@ using Unity.Jobs.LowLevel.Unsafe;
 
 namespace Unity.DataFlowGraph
 {
-    using Topology = TopologyAPI<ValidatedHandle, InputPortArrayID, OutputPortID>;
+    using Topology = TopologyAPI<ValidatedHandle, InputPortArrayID, OutputPortArrayID>;
 
     partial class RenderGraph
     {

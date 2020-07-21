@@ -37,12 +37,13 @@ namespace Unity.DataFlowGraph.Tests
             public void HandleMessage(in MessageContext ctx, in int msg) { }
         }
 
-        public class NodeWithMessageArrayInput : NodeDefinition<Node, NodeWithMessageArrayInput.SimPorts>, IMsgHandler<int>
+        public class NodeWithMessageArrays : NodeDefinition<Node, NodeWithMessageArrays.SimPorts>, IMsgHandler<int>
         {
             public struct SimPorts : ISimulationPortDefinition
             {
 #pragma warning disable 649  // Assigned through internal DataFlowGraph reflection
-                public PortArray<MessageInput<NodeWithMessageArrayInput, int>> Input;
+                public PortArray<MessageInput<NodeWithMessageArrays, int>> Input;
+                public PortArray<MessageOutput<NodeWithMessageArrays, int>> Output;
 #pragma warning restore 649
             }
 
@@ -84,15 +85,16 @@ namespace Unity.DataFlowGraph.Tests
             public struct SimPorts : ISimulationPortDefinition
             {
 #pragma warning disable 649  // Assigned through internal DataFlowGraph reflection
-                public MessageOutput<NodeWithManyOutputs, int> I0, I1, I2;
-                public DSLOutput<NodeWithManyOutputs, DSL, TestDSL> D3, D4, D5;
+                public MessageOutput<NodeWithManyOutputs, int> M0, M1, M2;
+                public PortArray<MessageOutput<NodeWithManyOutputs, int>> MArray3;
+                public DSLOutput<NodeWithManyOutputs, DSL, TestDSL> D4, D5, D6;
 #pragma warning restore 649
             }
 
             public struct KernelDefs : IKernelPortDefinition
             {
 #pragma warning disable 649  // Assigned through internal DataFlowGraph reflection
-                public DataOutput<NodeWithManyOutputs, int> K6, K7, K8;
+                public DataOutput<NodeWithManyOutputs, int> K7, K8, K9;
 #pragma warning restore 649
             }
 
@@ -119,8 +121,6 @@ namespace Unity.DataFlowGraph.Tests
                 public DSLInput<NodeWithMixedInputs, DSL, TestDSL> D1;
 #pragma warning restore 649
             }
-
-
         }
 
         class NodeWithOneDSLIO : NodeDefinition<Node, NodeWithOneDSLIO.SimPorts>, TestDSL
@@ -327,21 +327,21 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void NodeWithMessageArrayInput_IsCorrectlyInsertedInto_PortDescription()
+        public void NodeWithMessageArrays_IsCorrectlyInsertedInto_PortDescription()
         {
             using (var set = new NodeSet())
             {
-                var node = set.Create<NodeWithMessageArrayInput>();
+                var node = set.Create<NodeWithMessageArrays>();
                 var func = set.GetDefinition(node);
 
                 Assert.AreEqual(1, func.GetPortDescription(node).Inputs.Count);
-                Assert.AreEqual(0, func.GetPortDescription(node).Outputs.Count);
+                Assert.AreEqual(1, func.GetPortDescription(node).Outputs.Count);
 
                 Assert.IsTrue(func.GetPortDescription(node).Inputs.All(p => p.Category == PortDescription.Category.Message));
                 Assert.IsTrue(func.GetPortDescription(node).Outputs.All(p => p.Category == PortDescription.Category.Message));
 
-                Assert.AreEqual(func.GetPortDescription(node).Inputs.Count, 1);
                 Assert.IsTrue(func.GetPortDescription(node).Inputs[0].IsPortArray);
+                Assert.IsTrue(func.GetPortDescription(node).Outputs[0].IsPortArray);
 
                 set.Destroy(node);
             }
@@ -555,29 +555,30 @@ namespace Unity.DataFlowGraph.Tests
                 Assert.AreEqual(0, inputNodePorts.Outputs.Count);
 
                 Assert.AreEqual(0, outputNodePorts.Inputs.Count);
-                Assert.AreEqual(9, outputNodePorts.Outputs.Count);
+                Assert.AreEqual(10, outputNodePorts.Outputs.Count);
 
                 Assert.AreEqual(NodeWithManyInputs.SimulationPorts.I0.Port, (InputPortID)inputNodePorts.Inputs[0]);
                 Assert.AreEqual(NodeWithManyInputs.SimulationPorts.I1.Port, (InputPortID)inputNodePorts.Inputs[1]);
                 Assert.AreEqual(NodeWithManyInputs.SimulationPorts.I2.Port, (InputPortID)inputNodePorts.Inputs[2]);
-                Assert.AreEqual(NodeWithManyInputs.SimulationPorts.IArray3.Port, (InputPortID)inputNodePorts.Inputs[3]);
+                Assert.AreEqual(NodeWithManyInputs.SimulationPorts.IArray3.InputPort, (InputPortID)inputNodePorts.Inputs[3]);
                 Assert.AreEqual(NodeWithManyInputs.SimulationPorts.D4.Port, (InputPortID)inputNodePorts.Inputs[4]);
                 Assert.AreEqual(NodeWithManyInputs.SimulationPorts.D5.Port, (InputPortID)inputNodePorts.Inputs[5]);
                 Assert.AreEqual(NodeWithManyInputs.SimulationPorts.D6.Port, (InputPortID)inputNodePorts.Inputs[6]);
                 Assert.AreEqual(NodeWithManyInputs.KernelPorts.K7.Port, (InputPortID)inputNodePorts.Inputs[7]);
                 Assert.AreEqual(NodeWithManyInputs.KernelPorts.K8.Port, (InputPortID)inputNodePorts.Inputs[8]);
                 Assert.AreEqual(NodeWithManyInputs.KernelPorts.K9.Port, (InputPortID)inputNodePorts.Inputs[9]);
-                Assert.AreEqual(NodeWithManyInputs.KernelPorts.KArray10.Port, (InputPortID)inputNodePorts.Inputs[10]);
+                Assert.AreEqual(NodeWithManyInputs.KernelPorts.KArray10.InputPort, (InputPortID)inputNodePorts.Inputs[10]);
 
-                Assert.AreEqual(NodeWithManyOutputs.SimulationPorts.I0.Port, (OutputPortID)outputNodePorts.Outputs[0]);
-                Assert.AreEqual(NodeWithManyOutputs.SimulationPorts.I1.Port, (OutputPortID)outputNodePorts.Outputs[1]);
-                Assert.AreEqual(NodeWithManyOutputs.SimulationPorts.I2.Port, (OutputPortID)outputNodePorts.Outputs[2]);
-                Assert.AreEqual(NodeWithManyOutputs.SimulationPorts.D3.Port, (OutputPortID)outputNodePorts.Outputs[3]);
+                Assert.AreEqual(NodeWithManyOutputs.SimulationPorts.M0.Port, (OutputPortID)outputNodePorts.Outputs[0]);
+                Assert.AreEqual(NodeWithManyOutputs.SimulationPorts.M1.Port, (OutputPortID)outputNodePorts.Outputs[1]);
+                Assert.AreEqual(NodeWithManyOutputs.SimulationPorts.M2.Port, (OutputPortID)outputNodePorts.Outputs[2]);
+                Assert.AreEqual(NodeWithManyOutputs.SimulationPorts.MArray3.OutputPort, (OutputPortID)outputNodePorts.Outputs[3]);
                 Assert.AreEqual(NodeWithManyOutputs.SimulationPorts.D4.Port, (OutputPortID)outputNodePorts.Outputs[4]);
                 Assert.AreEqual(NodeWithManyOutputs.SimulationPorts.D5.Port, (OutputPortID)outputNodePorts.Outputs[5]);
-                Assert.AreEqual(NodeWithManyOutputs.KernelPorts.K6.Port, (OutputPortID)outputNodePorts.Outputs[6]);
+                Assert.AreEqual(NodeWithManyOutputs.SimulationPorts.D6.Port, (OutputPortID)outputNodePorts.Outputs[6]);
                 Assert.AreEqual(NodeWithManyOutputs.KernelPorts.K7.Port, (OutputPortID)outputNodePorts.Outputs[7]);
                 Assert.AreEqual(NodeWithManyOutputs.KernelPorts.K8.Port, (OutputPortID)outputNodePorts.Outputs[8]);
+                Assert.AreEqual(NodeWithManyOutputs.KernelPorts.K9.Port, (OutputPortID)outputNodePorts.Outputs[9]);
 
                 set.Destroy(inputNode, outputNode);
             }
@@ -607,7 +608,25 @@ namespace Unity.DataFlowGraph.Tests
                 Assert.IsFalse(inputNodePorts.Inputs[9].IsPortArray);
                 Assert.IsTrue(inputNodePorts.Inputs[10].IsPortArray);
 
-                set.Destroy(inputNode);
+                var outputNode = set.Create<NodeWithManyOutputs>();
+                var outputFunc = set.GetDefinition(outputNode);
+                var outputNodePorts = outputFunc.GetPortDescription(outputNode);
+
+                Assert.AreEqual(0, outputNodePorts.Inputs.Count);
+                Assert.AreEqual(10, outputNodePorts.Outputs.Count);
+
+                Assert.IsFalse(outputNodePorts.Outputs[0].IsPortArray);
+                Assert.IsFalse(outputNodePorts.Outputs[1].IsPortArray);
+                Assert.IsFalse(outputNodePorts.Outputs[2].IsPortArray);
+                Assert.IsTrue(outputNodePorts.Outputs[3].IsPortArray);
+                Assert.IsFalse(outputNodePorts.Outputs[4].IsPortArray);
+                Assert.IsFalse(outputNodePorts.Outputs[5].IsPortArray);
+                Assert.IsFalse(outputNodePorts.Outputs[6].IsPortArray);
+                Assert.IsFalse(outputNodePorts.Outputs[7].IsPortArray);
+                Assert.IsFalse(outputNodePorts.Outputs[8].IsPortArray);
+                Assert.IsFalse(outputNodePorts.Outputs[9].IsPortArray);
+
+                set.Destroy(inputNode, outputNode);
             }
         }
 
@@ -621,6 +640,22 @@ namespace Unity.DataFlowGraph.Tests
                 int portIDCount = ports.I0.Port.Port + ports.D0.Port.Port + ports.I1.Port.Port + ports.D1.Port.Port;
 
                 Assert.GreaterOrEqual(portIDCount, 6); // minimum required sum for four unique values
+
+                set.Destroy(node);
+            }
+        }
+
+        [Test]
+        public void ExplicitlyCasting_WrongPortType_FromPortArray_Throws()
+        {
+            using (var set = new NodeSet())
+            {
+                var node = set.Create<NodeWithMessageArrays>();
+
+                OutputPortID outputPortId;
+                Assert.Throws<InvalidOperationException>(() => outputPortId = (OutputPortID)NodeWithMessageArrays.SimulationPorts.Input);
+                InputPortID inputPortId;
+                Assert.Throws<InvalidOperationException>(() => inputPortId = (InputPortID)NodeWithMessageArrays.SimulationPorts.Output);
 
                 set.Destroy(node);
             }
@@ -695,7 +730,7 @@ namespace Unity.DataFlowGraph.Tests
                 var func = set.GetDefinition(node);
 
                 Assert.AreEqual(7, func.GetPortDescription(node).Inputs.Count);
-                Assert.AreEqual(4, func.GetPortDescription(node).Outputs.Count);
+                Assert.AreEqual(5, func.GetPortDescription(node).Outputs.Count);
 
                 set.Destroy(node);
             }
@@ -811,6 +846,7 @@ namespace Unity.DataFlowGraph.Tests
                 Assert.AreNotEqual(NodeWithAllTypesOfPorts.SimulationPorts.MessageIn, new MessageInput<NodeWithAllTypesOfPorts, int>());
                 Assert.AreNotEqual(NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayIn, new PortArray<MessageInput<NodeWithAllTypesOfPorts, int>>());
                 Assert.AreNotEqual(NodeWithAllTypesOfPorts.SimulationPorts.MessageOut, new MessageOutput<NodeWithAllTypesOfPorts, int>());
+                Assert.AreNotEqual(NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayOut, new PortArray<MessageOutput<NodeWithAllTypesOfPorts, int>>());
 
                 Assert.AreNotEqual(NodeWithAllTypesOfPorts.KernelPorts.InputScalar, new DataInput<NodeWithAllTypesOfPorts, int>());
                 Assert.AreNotEqual(NodeWithAllTypesOfPorts.KernelPorts.InputArrayScalar, new PortArray<DataInput<NodeWithAllTypesOfPorts, int>>());
@@ -836,7 +872,7 @@ namespace Unity.DataFlowGraph.Tests
                 Assert.AreEqual(NodeWithAllTypesOfPorts.SimulationPorts.MessageIn.Port, (InputPortID)NodeWithAllTypesOfPorts.SimulationPorts.MessageIn);
                 Assert.AreEqual((InputPortID)desc.Inputs[0], (InputPortID)NodeWithAllTypesOfPorts.SimulationPorts.MessageIn);
 
-                Assert.AreEqual(NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayIn.Port, (InputPortID)NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayIn);
+                Assert.AreEqual(NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayIn.InputPort, (InputPortID)NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayIn);
                 Assert.AreEqual((InputPortID)desc.Inputs[1], (InputPortID)NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayIn);
 
                 Assert.AreEqual(NodeWithAllTypesOfPorts.SimulationPorts.DSLIn.Port, (InputPortID)NodeWithAllTypesOfPorts.SimulationPorts.DSLIn);
@@ -845,13 +881,13 @@ namespace Unity.DataFlowGraph.Tests
                 Assert.AreEqual(NodeWithAllTypesOfPorts.KernelPorts.InputBuffer.Port, (InputPortID)NodeWithAllTypesOfPorts.KernelPorts.InputBuffer);
                 Assert.AreEqual((InputPortID)desc.Inputs[3], (InputPortID)NodeWithAllTypesOfPorts.KernelPorts.InputBuffer);
 
-                Assert.AreEqual(NodeWithAllTypesOfPorts.KernelPorts.InputArrayBuffer.Port, (InputPortID)NodeWithAllTypesOfPorts.KernelPorts.InputArrayBuffer);
+                Assert.AreEqual(NodeWithAllTypesOfPorts.KernelPorts.InputArrayBuffer.InputPort, (InputPortID)NodeWithAllTypesOfPorts.KernelPorts.InputArrayBuffer);
                 Assert.AreEqual((InputPortID)desc.Inputs[4], (InputPortID)NodeWithAllTypesOfPorts.KernelPorts.InputArrayBuffer);
 
                 Assert.AreEqual(NodeWithAllTypesOfPorts.KernelPorts.InputScalar.Port, (InputPortID)NodeWithAllTypesOfPorts.KernelPorts.InputScalar);
                 Assert.AreEqual((InputPortID)desc.Inputs[5], (InputPortID)NodeWithAllTypesOfPorts.KernelPorts.InputScalar);
 
-                Assert.AreEqual(NodeWithAllTypesOfPorts.KernelPorts.InputArrayScalar.Port, (InputPortID)NodeWithAllTypesOfPorts.KernelPorts.InputArrayScalar);
+                Assert.AreEqual(NodeWithAllTypesOfPorts.KernelPorts.InputArrayScalar.InputPort, (InputPortID)NodeWithAllTypesOfPorts.KernelPorts.InputArrayScalar);
                 Assert.AreEqual((InputPortID)desc.Inputs[6], (InputPortID)NodeWithAllTypesOfPorts.KernelPorts.InputArrayScalar);
 
                 set.Destroy(node);
@@ -870,14 +906,17 @@ namespace Unity.DataFlowGraph.Tests
                 Assert.AreEqual(NodeWithAllTypesOfPorts.SimulationPorts.MessageOut.Port, (OutputPortID)NodeWithAllTypesOfPorts.SimulationPorts.MessageOut);
                 Assert.AreEqual((OutputPortID)desc.Outputs[0], (OutputPortID)NodeWithAllTypesOfPorts.SimulationPorts.MessageOut);
 
+                Assert.AreEqual(NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayOut.OutputPort, (OutputPortID)NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayOut);
+                Assert.AreEqual((OutputPortID)desc.Outputs[1], (OutputPortID)NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayOut);
+
                 Assert.AreEqual(NodeWithAllTypesOfPorts.SimulationPorts.DSLOut.Port, (OutputPortID)NodeWithAllTypesOfPorts.SimulationPorts.DSLOut);
-                Assert.AreEqual((OutputPortID)desc.Outputs[1], (OutputPortID)NodeWithAllTypesOfPorts.SimulationPorts.DSLOut);
+                Assert.AreEqual((OutputPortID)desc.Outputs[2], (OutputPortID)NodeWithAllTypesOfPorts.SimulationPorts.DSLOut);
 
                 Assert.AreEqual(NodeWithAllTypesOfPorts.KernelPorts.OutputBuffer.Port, (OutputPortID)NodeWithAllTypesOfPorts.KernelPorts.OutputBuffer);
-                Assert.AreEqual((OutputPortID)desc.Outputs[2], (OutputPortID)NodeWithAllTypesOfPorts.KernelPorts.OutputBuffer);
+                Assert.AreEqual((OutputPortID)desc.Outputs[3], (OutputPortID)NodeWithAllTypesOfPorts.KernelPorts.OutputBuffer);
 
                 Assert.AreEqual(NodeWithAllTypesOfPorts.KernelPorts.OutputScalar.Port, (OutputPortID)NodeWithAllTypesOfPorts.KernelPorts.OutputScalar);
-                Assert.AreEqual((OutputPortID)desc.Outputs[3], (OutputPortID)NodeWithAllTypesOfPorts.KernelPorts.OutputScalar);
+                Assert.AreEqual((OutputPortID)desc.Outputs[4], (OutputPortID)NodeWithAllTypesOfPorts.KernelPorts.OutputScalar);
 
                 set.Destroy(node);
             }

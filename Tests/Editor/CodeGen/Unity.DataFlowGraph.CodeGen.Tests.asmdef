@@ -19,7 +19,6 @@
         "Mono.Cecil.dll",
         "Mono.Cecil.Rocks.dll",
         "Mono.Cecil.Pdb.dll",
-        "nunit.framework.dll",
-        "System.Runtime.CompilerServices.Unsafe.dll"
+        "nunit.framework.dll"
     ]
 }

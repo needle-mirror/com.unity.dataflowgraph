@@ -6,7 +6,7 @@ using Unity.Entities;
 
 namespace Unity.DataFlowGraph
 {
-    using Topology = TopologyAPI<ValidatedHandle, InputPortArrayID, OutputPortID>;
+    using Topology = TopologyAPI<ValidatedHandle, InputPortArrayID, OutputPortArrayID>;
 
 
     /// <summary>
@@ -155,7 +155,7 @@ namespace Unity.DataFlowGraph
                         .TraitsHandle
                         .Resolve()
                         .DataPorts
-                        .FindOutputDataPort(c.OutputPort);
+                        .FindOutputDataPort(c.OutputPort.PortID);
                     
                     inputs.Add(new InputToECS(port.Resolve(parentKernel.Instance.Ports), connectionType, port.ElementOrType.Size));
                 }

@@ -173,9 +173,9 @@ namespace Unity.DataFlowGraph.CodeGen
             return TraitsDefinitions[(int)kind];
         }
 
-        public MethodReference FindCreateMethodForPortType(TypeReference portType)
+        public MethodReference FindCreateMethodForPortType(TypeReference portType, bool forInput)
         {
-            return PortCreateMethods.First(p => p.DeclaringType.RefersToSame(portType));
+            return PortCreateMethods.First(p => p.DeclaringType.RefersToSame(portType) && p.Parameters[0].ParameterType.RefersToSame(forInput ? InputPortIDType : OutputPortIDType));
         }
 
         public override void ParseSymbols(Diag diag)
@@ -250,6 +250,7 @@ namespace Unity.DataFlowGraph.CodeGen
             AddCreateMethod(typeof(DSLInput<,,>), nameof(DSLInput<DummyNode, DummyDSL, object>.Create), InputPortIDType);
             AddCreateMethod(typeof(DSLOutput<,,>), nameof(DSLOutput<DummyNode, DummyDSL, object>.Create), OutputPortIDType);
             AddCreateMethod(typeof(PortArray<>), nameof(PortArray<MessageInput<DummyNode, object>>.Create), InputPortIDType);
+            AddCreateMethod(typeof(PortArray<>), nameof(PortArray<MessageOutput<DummyNode, object>>.Create), OutputPortIDType);
         }
 
         public override void AnalyseConsistency(Diag diag)

@@ -2,7 +2,7 @@
 
 namespace Unity.DataFlowGraph
 {
-    using Topology = TopologyAPI<ValidatedHandle, InputPortArrayID, OutputPortID>;
+    using Topology = TopologyAPI<ValidatedHandle, InputPortArrayID, OutputPortArrayID>;
 
     readonly struct InputPair
     {
@@ -61,7 +61,7 @@ namespace Unity.DataFlowGraph
     readonly struct OutputPair
     {
         public readonly ValidatedHandle Handle;
-        public readonly OutputPortID Port;
+        public readonly OutputPortArrayID Port;
 
         /// <remarks>
         /// Does not do node validation or port forwarding resolution as an existing connection should have had both done
@@ -73,9 +73,9 @@ namespace Unity.DataFlowGraph
             Port = connection.SourceOutputPort;
         }
 
-        public OutputPair(NodeSet set, NodeHandle sourceHandle, OutputPortID sourcePort)
+        public OutputPair(NodeSet set, NodeHandle sourceHandle, OutputPortArrayID sourcePort)
         {
-            if (sourcePort == default)
+            if (sourcePort.PortID == default)
                 throw new ArgumentException("Invalid output port");
 
             Handle = set.Validate(sourceHandle);
@@ -91,17 +91,19 @@ namespace Unity.DataFlowGraph
                 var port = forwarding.GetOriginOutputPortID();
 
                 // Forwarded port list are monotonically increasing by port, so we can break out early
-                if (forwarding.GetOriginPortCounter() > sourcePort.Port)
+                if (forwarding.GetOriginPortCounter() > sourcePort.PortID.Port)
                     break;
 
-                if (port != sourcePort)
+                if (port != sourcePort.PortID)
                     continue;
 
                 if (!set.StillExists(forwarding.Replacement))
                     throw new InvalidOperationException("Replacement node for previously registered forward doesn't exist anymore");
 
                 Handle = forwarding.Replacement;
-                Port = forwarding.GetReplacedOutputPortID();
+                Port = sourcePort.IsArray
+                     ? new OutputPortArrayID(forwarding.GetReplacedOutputPortID(), sourcePort.ArrayIndex)
+                     : new OutputPortArrayID(forwarding.GetReplacedOutputPortID());
 
                 return;
             }

@@ -183,6 +183,18 @@ namespace Unity.DataFlowGraph.Tests
 
                 Assert.AreEqual(set.GetArraySizesTable()[internalData.PortArraySizesHead].Next, ArraySizeEntryHandle.Invalid);
 
+                set.SetPortArraySize(node, NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayIn, 0);
+                internalData = set.GetNodeChecked(node);
+
+                Assert.AreEqual(internalData.PortArraySizesHead, ArraySizeEntryHandle.Invalid);
+
+                set.SetPortArraySize(node, NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayOut, 1);
+                internalData = set.GetNodeChecked(node);
+
+                Assert.AreNotEqual(internalData.PortArraySizesHead, ArraySizeEntryHandle.Invalid);
+
+                Assert.AreEqual(set.GetArraySizesTable()[internalData.PortArraySizesHead].Next, ArraySizeEntryHandle.Invalid);
+
                 set.Destroy(node);
             }
         }

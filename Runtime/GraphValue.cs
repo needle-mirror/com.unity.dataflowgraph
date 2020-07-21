@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Diagnostics;
-using System.Runtime.CompilerServices;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
@@ -13,8 +12,8 @@ namespace Unity.DataFlowGraph
     /// </summary>
     /// <seealso cref="NodeSet.CreateGraphValue{T, TDefinition}(NodeHandle{TDefinition}, DataOutput{TDefinition, T})"/>
     /// <remarks>
-    /// Note that a graph value never represents a copy of the value, it is simply a reference. Using 
-    /// <see cref="GraphValueResolver"/> you can directly read memory from inside the rendering without 
+    /// Note that a graph value never represents a copy of the value, it is simply a reference. Using
+    /// <see cref="GraphValueResolver"/> you can directly read memory from inside the rendering without
     /// any copies.
     /// </remarks>
     [DebuggerDisplay("{Handle, nq}")]
@@ -50,7 +49,7 @@ namespace Unity.DataFlowGraph
             if (FutureMemory == null)
                 return new T();
 
-            return Unsafe.AsRef<T>(FutureMemory);
+            return Utility.AsRef<T>(FutureMemory);
         }
 
         internal void Clear()
@@ -64,9 +63,9 @@ namespace Unity.DataFlowGraph
 
     /// <summary>
     /// A graph value resolver can resolve the state of an output port pointed to by a <see cref="GraphValue{T}"/>.
-    /// It can be burst compiled, used concurrently on a job or on the main thread, so long as the dependencies are 
+    /// It can be burst compiled, used concurrently on a job or on the main thread, so long as the dependencies are
     /// resolved.
-    /// 
+    ///
     /// API on this object is a subset of what is available on <see cref="RenderContext"/>
     /// </summary>
     /// <see cref="NodeSet.GetGraphValueResolver(out JobHandle)"/>
@@ -117,7 +116,7 @@ namespace Unity.DataFlowGraph
 
             unsafe
             {
-                return Unsafe.AsRef<T>(value.FutureMemory);
+                return Utility.AsRef<T>(value.FutureMemory);
             }
         }
 
@@ -162,7 +161,7 @@ namespace Unity.DataFlowGraph
         /// Graph values can exist in two states:
         /// 1) just created
         /// 2) post one render, after which they get initialized with job fences and memory references.
-        /// 
+        ///
         /// To safely read data back from them, GraphValueResolver will only accept graph values
         /// that was created before the last current render.
         /// </summary>
@@ -171,7 +170,7 @@ namespace Unity.DataFlowGraph
         BlitList<JobHandle> m_ReaderFences = new BlitList<JobHandle>(0, Allocator.Persistent);
 
         /// <summary>
-        /// Creates a tap point at a specific output location in the graph. Using graph values you can read back state and 
+        /// Creates a tap point at a specific output location in the graph. Using graph values you can read back state and
         /// results from graph kernels, either from the main thread using <see cref="GetValueBlocking{T}(GraphValue{T})"/>
         /// or asynchronously using <see cref="GraphValueResolver"/>.
         /// </summary>
@@ -187,7 +186,7 @@ namespace Unity.DataFlowGraph
             where TDefinition : NodeDefinition
             where T : struct
         {
-            var source = new OutputPair(this, node, output.Port);
+            var source = new OutputPair(this, node, new OutputPortArrayID(output.Port));
 
             // To ensure the port actually exists.
             GetFormalPort(source);
@@ -199,7 +198,7 @@ namespace Unity.DataFlowGraph
         }
 
         /// <summary>
-        /// Creates a graph value from an untyped node and source. 
+        /// Creates a graph value from an untyped node and source.
         /// See documentation for <see cref="CreateGraphValue{T, TDefinition}(NodeHandle{TDefinition}, DataOutput{TDefinition, T})"/>.
         /// </summary>
         /// <exception cref="ArgumentException">Thrown if the target node is invalid or disposed</exception>
@@ -208,7 +207,7 @@ namespace Unity.DataFlowGraph
         public GraphValue<T> CreateGraphValue<T>(NodeHandle handle, OutputPortID output)
             where T : struct
         {
-            var source = new OutputPair(this, handle, output);
+            var source = new OutputPair(this, handle, new OutputPortArrayID(output));
 
             var sourcePortDef = GetFormalPort(source);
 
@@ -225,7 +224,7 @@ namespace Unity.DataFlowGraph
         }
 
         /// <summary>
-        /// Releases a graph value previously created with <see cref="CreateGraphValue{T,TDefinition}"/>. 
+        /// Releases a graph value previously created with <see cref="CreateGraphValue{T,TDefinition}"/>.
         /// </summary>
         /// <exception cref="ObjectDisposedException">Thrown if the graph value is invalid or disposed</exception>
         public void ReleaseGraphValue<T>(GraphValue<T> graphValue)
@@ -268,7 +267,7 @@ namespace Unity.DataFlowGraph
         }
 
         /// <summary>
-        /// Injects external dependencies into this node set, so the next <see cref="Update()"/> 
+        /// Injects external dependencies into this node set, so the next <see cref="Update()"/>
         /// synchronizes against consumers of any data from this node set.
         /// </summary>
         /// <seealso cref="GetGraphValueResolver(out JobHandle)"/>
@@ -281,22 +280,22 @@ namespace Unity.DataFlowGraph
 
         /// <summary>
         /// Returns a <see cref="GraphValueResolver"/> that can be used to asynchronously
-        /// read back graph state and buffers in a job. Put the resolver on a job ("consumer"), 
+        /// read back graph state and buffers in a job. Put the resolver on a job ("consumer"),
         /// and schedule it against the parameter <paramref name="resultDependency"/>.
-        /// 
+        ///
         /// Any job handles referencing the resolver must to be submitted back to the node
         /// set through <see cref="InjectDependencyFromConsumer(JobHandle)"/>.
-        /// 
+        ///
         /// </summary>
         /// <param name="resultDependency">
         /// Contains an aggregation of dependencies from the last <see cref="Update()"/>
         /// for any created graph values.
         /// </param>
         /// <remarks>
-        /// The returned resolver is only valid until the next <see cref="Update()"/> is 
+        /// The returned resolver is only valid until the next <see cref="Update()"/> is
         /// issued, so call this function after every <see cref="Update()"/>.
-        /// 
-        /// The resolver does not need to be cleaned up from the user's side. 
+        ///
+        /// The resolver does not need to be cleaned up from the user's side.
         /// </remarks>
         public GraphValueResolver GetGraphValueResolver(out JobHandle resultDependency)
         {

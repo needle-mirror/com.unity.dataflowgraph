@@ -1,5 +1,4 @@
 using System;
-using System.Runtime.CompilerServices;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 
@@ -70,7 +69,7 @@ namespace Unity.DataFlowGraph
                 // TODO: Would be lovely if we could ref-return here, but this is incompatible with ComponentDataFromEntity
                 TopologyIndex this[TVertex vertex] { get; set; }
             }
-            
+
             internal const int OrphanGroupID = 0;
 
             /// <summary>
@@ -105,7 +104,7 @@ namespace Unity.DataFlowGraph
                 get
                 {
                     if (m_Conns.Length > (uint) handle.Index)
-                        return ref Unsafe.AsRef<Connection>((byte*)m_Conns.Ptr + m_SizeOf * handle.Index);
+                        return ref Utility.AsRef<Connection>((byte*)m_Conns.Ptr + m_SizeOf * handle.Index);
 
                     throw new IndexOutOfRangeException("ConnectionHandle was out of range");
                 }
@@ -131,7 +130,7 @@ namespace Unity.DataFlowGraph
                 if (m_Conns.Ptr == null)
                     throw new NullReferenceException();
 #endif
-                return ref Unsafe.AsRef<Connection>((byte*)m_Conns.Ptr + m_SizeOf * index);
+                return ref Utility.AsRef<Connection>((byte*)m_Conns.Ptr + m_SizeOf * index);
             }
 
             UnsafeList m_Conns;
@@ -163,7 +162,7 @@ namespace Unity.DataFlowGraph
 
             public bool DidChange(int groupID) => ChangedGroups[groupID];
 
-            // TODO: Kind of hackish, this can be derived from the graph diff. But then it's not a general purpose 
+            // TODO: Kind of hackish, this can be derived from the graph diff. But then it's not a general purpose
             // solution (can't use the incremental system without our graph diff).
             public void VertexDeleted<TTopologyFromVertex>(ref TTopologyFromVertex topologyResolver, TVertex vertex)
                 where TTopologyFromVertex : ITopologyFromVertex
@@ -171,7 +170,7 @@ namespace Unity.DataFlowGraph
                 ChangedGroups[topologyResolver[vertex].GroupID] = true;
             }
 
-            // TODO: Kind of hackish, this can be derived from the graph diff. But then it's not a general purpose 
+            // TODO: Kind of hackish, this can be derived from the graph diff. But then it's not a general purpose
             // solution (can't use the incremental system without our graph diff).
             public void VertexCreated<TTopologyFromVertex>(ref TTopologyFromVertex topologyResolver, TVertex vertex)
                 where TTopologyFromVertex : ITopologyFromVertex
@@ -251,10 +250,10 @@ namespace Unity.DataFlowGraph
             /// <returns>
             /// Returns the amount of disconnections done.
             /// </returns>
-            /// <exception cref="ArgumentException">Thrown if there's an invalid linked connection. 
+            /// <exception cref="ArgumentException">Thrown if there's an invalid linked connection.
             /// This can happen when using <see cref="DisconnectAndRelease{TTopologyFromVertex}(ref TTopologyFromVertex, in Connection)"/>
             /// </exception>
-            /// <exception cref="InvalidOperationException">Thrown if the <see cref="Database"/> has been corrupted. 
+            /// <exception cref="InvalidOperationException">Thrown if the <see cref="Database"/> has been corrupted.
             /// This can happen when using <see cref="DisconnectAndRelease{TTopologyFromVertex}(ref TTopologyFromVertex, in Connection)"/>
             /// </exception>
             public int DisconnectAll<TTopologyFromVertex>(ref TTopologyFromVertex topologyResolver, TVertex vertex)
@@ -318,11 +317,11 @@ namespace Unity.DataFlowGraph
             /// </summary>
             /// <remarks>
             /// This does not check whether the connection is valid, so you can potentially corrupt the database.
-            /// Use <see cref="Disconnect{TTopologyFromVertex}(ref TTopologyFromVertex, TVertex, TOutputPort, TVertex, TInputPort)"/> 
+            /// Use <see cref="Disconnect{TTopologyFromVertex}(ref TTopologyFromVertex, TVertex, TOutputPort, TVertex, TInputPort)"/>
             /// for a safe but slower alternative.
             /// </remarks>
             /// <exception cref="InvalidOperationException">
-            /// Thrown if the <see cref="Database"/> has been corrupted. 
+            /// Thrown if the <see cref="Database"/> has been corrupted.
             /// See Remarks section.
             /// </exception>
             public void DisconnectAndRelease<TTopologyFromVertex>(
@@ -397,10 +396,10 @@ namespace Unity.DataFlowGraph
                         "Internal list structure invalid; connection handle not found in any heads");
 
                 // TODO: disjoint?
-                // Notifying about dest topology is not needed, since they were 
+                // Notifying about dest topology is not needed, since they were
                 // connected they are by definition a part of the same group (may not hold in the future)
                 ChangedGroups[sourceTopology.GroupID] = true;
-                
+
                 // everything good
                 ReleaseConnection(connection.HandleToSelf);
             }

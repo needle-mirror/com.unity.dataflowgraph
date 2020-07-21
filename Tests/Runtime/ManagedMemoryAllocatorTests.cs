@@ -1,7 +1,6 @@
 using System;
 using System.Collections;
 using System.Linq;
-using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using System.Threading;
 using NUnit.Framework;
@@ -94,7 +93,7 @@ namespace Unity.DataFlowGraph.Tests
         unsafe class NSizedItemAllocator : IManagedMemoryPoolAllocator
         {
             public const int k_MaxSize = 10;
-            
+
             struct Size1 { fixed byte _[1]; }
             struct Size2 { fixed byte _[2]; }
             struct Size3 { fixed byte _[3]; }
@@ -255,11 +254,11 @@ namespace Unity.DataFlowGraph.Tests
             {
                 void* mem = allocator.Alloc();
 
-                ref var alias = ref Unsafe.AsRef<SimpleStruct>(mem);
+                ref var alias = ref Utility.AsRef<SimpleStruct>(mem);
                 alias.FValue = value;
                 alias.IValue = value;
 
-                ref var secondAlias = ref Unsafe.AsRef<SimpleStruct>(mem);
+                ref var secondAlias = ref Utility.AsRef<SimpleStruct>(mem);
 
                 Assert.AreEqual((int)secondAlias.FValue, value);
                 Assert.AreEqual(secondAlias.IValue, value);
@@ -317,7 +316,7 @@ namespace Unity.DataFlowGraph.Tests
             {
                 unsafe
                 {
-                    return ref Unsafe.AsRef<ManagedStruct>(m_Allocation);
+                    return ref Utility.AsRef<ManagedStruct>(m_Allocation);
                 }
             }
 

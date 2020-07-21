@@ -15,7 +15,5 @@
     "excludePlatforms": [],
     "allowUnsafeCode": true,
     "overrideReferences": false,
-    "precompiledReferences": [
-        "System.Runtime.CompilerServices.Unsafe.dll"
-    ]
+    "precompiledReferences": []
 }

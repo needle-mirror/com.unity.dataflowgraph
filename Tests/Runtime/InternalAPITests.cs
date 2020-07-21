@@ -2,7 +2,6 @@ using System;
 using System.Reflection;
 using NUnit.Framework;
 using Unity.Collections.LowLevel.Unsafe;
-using System.Runtime.CompilerServices;
 
 namespace Unity.DataFlowGraph.Tests
 {
@@ -29,7 +28,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 foreach (var output in ports.Outputs)
                 {
-                    var desc = def.GetFormalOutput(set.Validate(handle), output);
+                    var desc = def.GetFormalOutput(set.Validate(handle), new OutputPortArrayID(output));
 
                     Assert.AreEqual(desc, output);
                 }
@@ -69,7 +68,7 @@ namespace Unity.DataFlowGraph.Tests
         {
             var d = new BufferDescription((void*)0x13, 12, default);
 
-            ref var buffer = ref Unsafe.AsRef<Buffer<byte>>(&d);
+            ref var buffer = ref Utility.AsRef<Buffer<byte>>(&d);
 
             Assert.True(d.Ptr == buffer.Ptr);
             Assert.AreEqual(d.Size, buffer.Size);

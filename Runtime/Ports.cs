@@ -1,7 +1,6 @@
 ﻿using System;
 using Unity.Collections;
 using System.Collections.Generic;
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Unity.Collections.LowLevel.Unsafe;
 using System.Diagnostics;
@@ -54,7 +53,7 @@ namespace Unity.DataFlowGraph
                 return (ushort)m_TypeOrPort;
             }
         }
-        
+
         public int ECSTypeIndex
         {
             get {
@@ -122,7 +121,7 @@ namespace Unity.DataFlowGraph
             return $"Input {Storage}";
         }
     }
-    
+
     [DebuggerDisplay("{ToString(), nq}")]
     readonly struct InputPortArrayID : IEquatable<InputPortArrayID>
     {
@@ -203,6 +202,52 @@ namespace Unity.DataFlowGraph
         }
     }
 
+    [DebuggerDisplay("{ToString(), nq}")]
+    readonly struct OutputPortArrayID : IEquatable<OutputPortArrayID>
+    {
+        public const UInt16 NonArraySentinel = UInt16.MaxValue;
+        public readonly OutputPortID PortID;
+        readonly ushort m_ArrayIndex;
+
+        public static bool operator ==(OutputPortArrayID left, OutputPortArrayID right)
+        {
+            return left.PortID == right.PortID && left.m_ArrayIndex == right.m_ArrayIndex;
+        }
+
+        public static bool operator !=(OutputPortArrayID left, OutputPortArrayID right)
+        {
+            return left.PortID != right.PortID || left.m_ArrayIndex != right.m_ArrayIndex;
+        }
+
+        public bool Equals(OutputPortArrayID other) => this == other;
+
+        internal OutputPortArrayID(OutputPortID portId, int arrayIndex)
+        {
+            if ((uint)arrayIndex >= NonArraySentinel)
+                throw new InvalidOperationException("Invalid array index.");
+            PortID = portId;
+            m_ArrayIndex = (ushort)arrayIndex;
+        }
+
+        internal OutputPortArrayID(OutputPortID portId)
+        {
+            PortID = portId;
+            m_ArrayIndex = NonArraySentinel;
+        }
+
+        internal ushort ArrayIndex => m_ArrayIndex;
+
+        internal bool IsArray => m_ArrayIndex != NonArraySentinel;
+
+        public override string ToString()
+        {
+            if (IsArray)
+                return $"Array[{ArrayIndex}]{PortID}";
+
+            return PortID.ToString();
+        }
+    }
+
     /// <summary>
     /// Declaration of a specific message input connection port for a given node type.
     ///
@@ -216,7 +261,7 @@ namespace Unity.DataFlowGraph
     /// <typeparam name="TDefinition">
     /// The <see cref="NodeDefinition{TNodeData,TSimulationPortDefinition}"/> to which this port is associated.
     /// </typeparam>
-    public struct MessageInput<TDefinition, TMsg> : IIndexableInputPort
+    public struct MessageInput<TDefinition, TMsg> : IIndexablePort
         where TDefinition : NodeDefinition, IMsgHandler<TMsg>
     {
         internal InputPortID Port;
@@ -251,10 +296,20 @@ namespace Unity.DataFlowGraph
     /// <typeparam name="TDefinition">
     /// The <see cref="NodeDefinition{TNodeData,TSimulationPortDefinition}"/> to which this port is associated.
     /// </typeparam>
-    public struct MessageOutput<TDefinition, TMsg>
+    public struct MessageOutput<TDefinition, TMsg> : IIndexablePort
         where TDefinition : NodeDefinition
     {
         internal OutputPortID Port;
+
+        public static bool operator ==(OutputPortID left, MessageOutput<TDefinition, TMsg> right)
+        {
+            return left == right.Port;
+        }
+
+        public static bool operator !=(OutputPortID left, MessageOutput<TDefinition, TMsg> right)
+        {
+            return left != right.Port;
+        }
 
         public static explicit operator OutputPortID(MessageOutput<TDefinition, TMsg> output)
         {
@@ -382,30 +437,59 @@ namespace Unity.DataFlowGraph
     /// The <see cref="NodeDefinition{TNodeData,TSimulationportDefinition,TKernelData,TKernelPortDefinition,TKernel}"/> to which this port is associated.
     /// </typeparam>
     [DebuggerDisplay("{Value}")]
-    public readonly unsafe struct DataInput<TDefinition, TType> : IIndexableInputPort
+    public readonly unsafe struct DataInput<TDefinition, TType> : IIndexablePort
         where TDefinition : NodeDefinition
         where TType : struct
     {
         internal readonly void* Ptr;
         internal readonly InputPortID Port;
 
+
+        /// <summary>
+        /// Converts the <paramref name="input"/> to an untyped <see cref="InputPortID"/>.
+        /// </summary>
+        /// <remarks>
+        /// Has an undefined return value when invoked inside an
+        /// <see cref="IGraphKernel{TKernelData, TKernelPortDefinition}.Execute(RenderContext, TKernelData, ref TKernelPortDefinition)"/>
+        /// </remarks>
         public static explicit operator InputPortID(DataInput<TDefinition, TType> input)
         {
             return input.Port;
         }
 
-        internal DataInput(void* ptr, InputPortID port)
+        /// <summary>
+        /// Creates a DataInput that must only be used as a pointer to another
+        /// <see cref="DataOutput{TDefinition, TType}"/> or <see cref="InternalComponentNode.OutputFromECS"/>.
+        /// <seealso cref="RenderContext.Resolve{TNodeDefinition, T}(in DataInput{TNodeDefinition, T})"/>
+        /// </summary>
+        internal DataInput(void* ptr)
         {
             Ptr = ptr;
+            Port = default;
+        }
+
+        /// <summary>
+        /// Creates a DataInput that must only be used as a <see cref="InputPortID"/>
+        /// <seealso cref="Port"/>
+        /// <seealso cref="DataInput(InputPortID)"/>
+        /// </summary>
+        internal DataInput(InputPortID port)
+        {
+            Ptr = null;
             Port = port;
         }
 
+        /// <summary>
+        /// Creates a DataInput that must only be used as a <see cref="InputPortID"/>
+        /// <seealso cref="Port"/>
+        /// <seealso cref="DataInput(InputPortID)"/>
+        /// </summary>
         internal static DataInput<TDefinition, TType> Create(InputPortID port)
         {
-            return new DataInput<TDefinition, TType>(null, port);
+            return new DataInput<TDefinition, TType>(port);
         }
 
-        TType Value => Ptr != null ? Unsafe.AsRef<TType>(Ptr) : default;
+        TType Value => Ptr != null ? Utility.AsRef<TType>(Ptr) : default;
     }
 
     /// <summary>
@@ -725,6 +809,7 @@ namespace Unity.DataFlowGraph
             Type m_Type;
             internal ushort m_Port;
             internal List<(int Offset, SimpleType ItemType)> m_BufferInfos;
+            internal bool m_IsPortArray;
             string m_Name;
 
             /// <summary>
@@ -752,6 +837,11 @@ namespace Unity.DataFlowGraph
             internal bool HasBuffers => m_BufferInfos?.Count > 0;
 
             /// <summary>
+            /// True if the port is a <see cref="PortArray{TInputPort}"/>.
+            /// </summary>
+            public bool IsPortArray => m_IsPortArray;
+
+            /// <summary>
             /// List of offsets of all <see cref="Buffer{T}"/> instances within the port relative to the beginning of
             /// the <see cref="DataInput{TDefinition,TType}"/>
             /// </summary>
@@ -765,10 +855,11 @@ namespace Unity.DataFlowGraph
                 ret.m_Port = port;
                 ret.m_Name = name;
                 ret.m_BufferInfos = bufferInfos;
+                ret.m_IsPortArray = false;
                 return ret;
             }
 
-            internal static OutputPort Message(Type type, ushort port, string name)
+            internal static OutputPort Message(Type type, ushort port, bool isPortArray, string name)
             {
                 OutputPort ret;
                 ret.m_Category = Category.Message;
@@ -776,6 +867,7 @@ namespace Unity.DataFlowGraph
                 ret.m_Port = port;
                 ret.m_Name = name;
                 ret.m_BufferInfos = null;
+                ret.m_IsPortArray = isPortArray;
                 return ret;
             }
 
@@ -787,6 +879,7 @@ namespace Unity.DataFlowGraph
                 ret.m_Port = port;
                 ret.m_Name = name;
                 ret.m_BufferInfos = null;
+                ret.m_IsPortArray = false;
                 return ret;
             }
 
