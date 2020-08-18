@@ -62,7 +62,7 @@ namespace Unity.DataFlowGraph.Tests
 
             public void OnCreate(ComponentSystemBase system)
             {
-                m_Query = RenderGraph.NodeSetAttachmentQuery(system);
+                m_Query = RenderGraph.CreateNodeSetAttachmentQuery(system);
             }
 
             public void OnDestroy(ComponentSystemBase system, NodeSet set)
@@ -425,6 +425,113 @@ namespace Unity.DataFlowGraph.Tests
                 {
                     f.System.Update();
                 }
+            }
+        }
+
+        [Test]
+        public void ComponentNodeIOPatching_CorrectlyHandles_IncrementalTopologyUpdates(
+            [Values] FixtureSystemType systemType)
+        {
+            const int k_Loops = 15;
+
+            const int k_ChangeBoth = 0;
+            const int k_ChangeInput = 1;
+            const int k_ChangeOutput = 2;
+
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
+            {
+                // form two islands, and check input / output connectivity
+                // remains correctly patched in both cases when either updates.
+                var inputEntity = f.EM.CreateEntity(typeof(SimpleData));
+                var outputEntity = f.EM.CreateEntity(typeof(SimpleData));
+
+                var inputEntityNode = f.Set.CreateComponentNode(inputEntity);
+                var outputEntityNode = f.Set.CreateComponentNode(outputEntity);
+
+                var dfgInput = f.Set.Create<NodeWithParametricPortType<SimpleData>>();
+                var dfgOutput = f.Set.Create<NodeWithParametricPortType<SimpleData>>();
+
+                f.Set.Connect(outputEntityNode, ComponentNode.Output<SimpleData>(), dfgInput, NodeWithParametricPortType<SimpleData>.KernelPorts.Input);
+                f.Set.Connect(dfgOutput, NodeWithParametricPortType<SimpleData>.KernelPorts.Output, inputEntityNode, ComponentNode.Input<SimpleData>());
+
+                for (int i = 0; i < k_Loops; ++i)
+                {
+                    var mode = i % 3;
+                    switch (mode)
+                    {
+                        case k_ChangeBoth:
+                        {
+                            f.Set.Disconnect(outputEntityNode, ComponentNode.Output<SimpleData>(), dfgInput, NodeWithParametricPortType<SimpleData>.KernelPorts.Input);
+                            f.Set.Disconnect(dfgOutput, NodeWithParametricPortType<SimpleData>.KernelPorts.Output, inputEntityNode, ComponentNode.Input<SimpleData>());
+                            f.Set.Connect(outputEntityNode, ComponentNode.Output<SimpleData>(), dfgInput, NodeWithParametricPortType<SimpleData>.KernelPorts.Input);
+                            f.Set.Connect(dfgOutput, NodeWithParametricPortType<SimpleData>.KernelPorts.Output, inputEntityNode, ComponentNode.Input<SimpleData>());
+                            break;
+                        }
+                        case k_ChangeOutput:
+                        {
+                            f.Set.Disconnect(outputEntityNode, ComponentNode.Output<SimpleData>(), dfgInput, NodeWithParametricPortType<SimpleData>.KernelPorts.Input);
+                            f.Set.Connect(outputEntityNode, ComponentNode.Output<SimpleData>(), dfgInput, NodeWithParametricPortType<SimpleData>.KernelPorts.Input);
+                            break;
+                        }
+                        case k_ChangeInput:
+                        {
+                            f.Set.Disconnect(dfgOutput, NodeWithParametricPortType<SimpleData>.KernelPorts.Output, inputEntityNode, ComponentNode.Input<SimpleData>());
+                            f.Set.Connect(dfgOutput, NodeWithParametricPortType<SimpleData>.KernelPorts.Output, inputEntityNode, ComponentNode.Input<SimpleData>());
+                            break;
+                        }
+                    }
+
+                    f.System.Update();
+                    var rg = f.Set.DataGraph;
+
+                    rg.SyncAnyRendering();
+                    var map = f.Set.GetTopologyMap();
+                    var nodes = rg.GetInternalData();
+                    var cache = rg.Cache;
+
+                    var inputIndex = map[f.Set.Validate(inputEntityNode)];
+                    var outputIndex = map[f.Set.Validate(outputEntityNode)];
+
+                    // islands coalesced together?
+                    Assume.That(inputIndex.GroupID != outputIndex.GroupID);
+
+                    // check only the islands we want to change changed
+                    if (mode == k_ChangeInput || mode == k_ChangeBoth)
+                        CollectionAssert.Contains(cache.NewGroups.ToArray(), inputIndex.GroupID);
+
+                    if (mode == k_ChangeOutput || mode == k_ChangeBoth)
+                        CollectionAssert.Contains(cache.NewGroups.ToArray(), outputIndex.GroupID);
+
+                    if (mode == k_ChangeInput)
+                        CollectionAssert.DoesNotContain(cache.NewGroups.ToArray(), outputIndex.GroupID);
+
+                    if (mode == k_ChangeOutput)
+                        CollectionAssert.DoesNotContain(cache.NewGroups.ToArray(), inputIndex.GroupID);
+
+                    var inputEntityData = InternalComponentNode.GetGraphKernel(nodes[inputEntityNode.VHandle.Index].Instance.Kernel);
+                    var outputEntityData = InternalComponentNode.GetGraphKernel(nodes[outputEntityNode.VHandle.Index].Instance.Kernel);
+
+                    ref var dfgInputPorts = ref Utility.AsRef<NodeWithParametricPortType<SimpleData>.KernelDefs>(nodes[dfgInput.VHandle.Index].Instance.Ports);
+                    ref var dfgOutputPorts = ref Utility.AsRef<NodeWithParametricPortType<SimpleData>.KernelDefs>(nodes[dfgOutput.VHandle.Index].Instance.Ports);
+
+                    // check patches point to the correct places
+                    Assert.AreEqual(1, inputEntityData.Inputs.Count);
+                    Assert.AreEqual(0, inputEntityData.Outputs.Count);
+
+                    Assert.AreEqual(0, outputEntityData.Inputs.Count);
+                    Assert.AreEqual(1, outputEntityData.Outputs.Count);
+
+                    var inputToEcs = inputEntityData.Inputs[0].Resolve(f.EM.GetCheckedEntityDataAccess()->EntityComponentStore);
+                    var output = outputEntityData.Outputs[0];
+
+                    fixed (SimpleData* outputPortLocation = &dfgOutputPorts.Output.m_Value)
+                        Assert.True(inputToEcs == outputPortLocation);
+
+                    fixed (void** inputPortLocation = &dfgInputPorts.Input.Ptr)
+                        Assert.True(output.DFGPatch == inputPortLocation);
+                }
+
+                f.Set.Destroy(inputEntityNode, outputEntityNode, dfgInput, dfgOutput);
             }
         }
     }

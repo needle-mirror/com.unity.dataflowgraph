@@ -117,7 +117,7 @@ namespace Unity.DataFlowGraph
             }
         }
 
-        public static EntityQuery NodeSetAttachmentQuery(ComponentSystemBase system)
+        public static EntityQuery CreateNodeSetAttachmentQuery(ComponentSystemBase system)
         {
             return system.GetEntityQuery(ComponentType.ReadOnly<NodeSetAttachment>());
         }

@@ -99,6 +99,9 @@ namespace Unity.DataFlowGraph
         public int NodeSetID;
         [ReadOnly] public BufferTypeHandle<NodeSetAttachment> NodeSetAttachmentType;
         [ReadOnly] public EntityTypeHandle EntityType;
+        public FlatTopologyMap Map;
+        [ReadOnly] public NativeList<bool> Filter;
+
         public void Execute(ArchetypeChunk chunk, int chunkIndex, int firstEntityIndex)
         {
             BufferAccessor<NodeSetAttachment> buffers = chunk.GetBufferAccessor(NodeSetAttachmentType);
@@ -111,6 +114,11 @@ namespace Unity.DataFlowGraph
                     var attachment = attachmentBuffer[b];
 
                     if (NodeSetID != attachment.NodeSetID)
+                        continue;
+
+                    var group = Map[attachment.Node].GroupID;
+
+                    if (!Filter[group])
                         continue;
 
                     ref var graphBuffers = ref InternalComponentNode.GetGraphKernel(KernelNodes[attachment.Node.VHandle.Index].Instance.Kernel);

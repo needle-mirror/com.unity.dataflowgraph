@@ -111,7 +111,7 @@ namespace Unity.DataFlowGraph
             {
                 ref var traits = ref TraitsHandle.Resolve();
 
-                if(traits.Storage.IsComponentNode)
+                if (traits.Storage.IsComponentNode)
                 {
                     InternalComponentNode.GetGraphKernel(Instance.Kernel).Dispose();
                 }
@@ -171,6 +171,19 @@ namespace Unity.DataFlowGraph
         AtomicSafetyManager.BufferProtectionScope m_BufferScope;
         EntityQuery m_NodeSetAttachmentQuery;
 
+        EntityQuery AttachmentQuery
+        {
+            get
+            {
+                // FIXME: In lieu of a proper ECS mechanism for ordering system creation, we initialize our query lazily to
+                // give a chance for the HostSystem to be properly created through OnCreate().
+                if (m_NodeSetAttachmentQuery == default)
+                    m_NodeSetAttachmentQuery = CreateNodeSetAttachmentQuery(m_Set.HostSystem);
+
+                return m_NodeSetAttachmentQuery;
+            }
+        }
+
         public RenderGraph(NodeSet set)
         {
             m_Set = set;
@@ -226,6 +239,8 @@ namespace Unity.DataFlowGraph
                     m_Set.TopologyVersion,
                     AlgorithmFromModel(executionModel)
                 );
+
+                parallelTopology = PreTopologyECSPreparation(parallelTopology, topologyContext);
 
                 parallelKernelBlit = CopyDirtyRenderData(internalDependencies, ref ownedGraphDiff);
 
@@ -416,6 +431,33 @@ namespace Unity.DataFlowGraph
             return Topology.CacheAPI.ScheduleTopologyComputation(dependency, m_Set.TopologyVersion, context);
         }
 
+        unsafe JobHandle PreTopologyECSPreparation(JobHandle deps, in Topology.ComputationContext<FlatTopologyMap> context)
+        {
+            var world = m_Set.HostSystem?.World;
+
+            // No need to schedule ComponentNode related jobs if there are no nodes in existence since they would be a
+            // no-op. This is also a workaround to a problem with entity queries during ECS shutdown.
+            bool performComponentNodeJobs = m_NumExistingNodes > 0 && world != null;
+
+            if (m_Set.TopologyVersion == m_PreviousVersion || !performComponentNodeJobs)
+                return deps;
+
+            ClearLocalECSInputsAndOutputsJob clearJob;
+#pragma warning disable 618 // 'EntityManager.EntityComponentStore' is obsolete: 'This is slow. Use The EntityDataAccess directly in new code.'
+            clearJob.EntityStore = world.EntityManager.EntityComponentStore;
+#pragma warning restore 618
+            clearJob.KernelNodes = m_Nodes;
+            clearJob.NodeSetID = m_Set.NodeSetID;
+            clearJob.NodeSetAttachmentType = m_Set.HostSystem.GetBufferTypeHandle<NodeSetAttachment>(true);
+            clearJob.EntityType = m_Set.HostSystem.GetEntityTypeHandle();
+            clearJob.Filter = context.Database.ChangedGroups;
+            clearJob.Map = context.Topologies;
+
+            deps = clearJob.Schedule(AttachmentQuery, deps);
+
+            return deps;
+        }
+
         unsafe JobHandle ComputeValueChunkAndPatchPorts(JobHandle deps)
         {
             var world = m_Set.HostSystem?.World;
@@ -426,26 +468,6 @@ namespace Unity.DataFlowGraph
 
             if (m_Set.TopologyVersion != m_PreviousVersion)
             {
-                // Schedule additional ECS jobs.
-                if(performComponentNodeJobs)
-                {
-                    ClearLocalECSInputsAndOutputsJob clearJob;
-#pragma warning disable 618 // 'EntityManager.EntityComponentStore' is obsolete: 'This is slow. Use The EntityDataAccess directly in new code.'
-                    clearJob.EntityStore = world.EntityManager.EntityComponentStore;
-#pragma warning restore 618
-                    clearJob.KernelNodes = m_Nodes;
-                    clearJob.NodeSetID = m_Set.NodeSetID;
-                    clearJob.NodeSetAttachmentType = m_Set.HostSystem.GetBufferTypeHandle<NodeSetAttachment>(true);
-                    clearJob.EntityType = m_Set.HostSystem.GetEntityTypeHandle();
-
-                    // FIXME: In lieu of a proper ECS mechanism for ordering system creation, we initialize our query lazily to
-                    // give a chance for the HostSystem to be properly created through OnCreate().
-                    if (m_NodeSetAttachmentQuery == default)
-                        m_NodeSetAttachmentQuery = NodeSetAttachmentQuery(m_Set.HostSystem);
-
-                    deps = clearJob.Schedule(m_NodeSetAttachmentQuery, deps);
-                }
-
                 ComputeValueChunkAndPatchPortsJob job;
                 job.Cache = Cache;
                 job.Nodes = m_Nodes;
@@ -467,7 +489,7 @@ namespace Unity.DataFlowGraph
                 ecsPatchJob.NodeSetAttachmentType = m_Set.HostSystem.GetBufferTypeHandle<NodeSetAttachment>();
                 ecsPatchJob.EntityType = m_Set.HostSystem.GetEntityTypeHandle();
 
-                deps = ecsPatchJob.Schedule(m_NodeSetAttachmentQuery, deps);
+                deps = ecsPatchJob.Schedule(AttachmentQuery, deps);
             }
 
             return deps;
