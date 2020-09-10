@@ -23,29 +23,28 @@ namespace Unity.DataFlowGraph.Tour
          * which will be visible publicly. The initialization of that node uses the provided initialization context to 
          * forward any of its ports to child node ports. 
          * 
-         * Port forwarding is supported for both inputs and outputs, and applies recursively and transitively. The runtime resolves the 
-         * forwarding once during node creation, after that, any connections made to a forwarded port will
+         * Port forwarding is supported for both inputs and outputs, and applies recursively and transitively. The runtime 
+         * resolves the forwarding once during node creation, after that, any connections made to a forwarded port will
          * result in a direct connection between the source and destination skipping over the parent node.
          * 
          * Let's use the weak system now for a couple of simple tasks we already covered, like connections.
          */
 
-        public class ChildNode
-            : NodeDefinition<ChildNode.InstanceData, ChildNode.SimPorts>
-            , IMsgHandler<float>
+        public class ChildNode : SimulationNodeDefinition<ChildNode.SimPorts>
         {
-            public struct InstanceData : INodeData { }
-
             public struct SimPorts : ISimulationPortDefinition
             {
                 public MessageInput<ChildNode, float> Input;
                 public MessageOutput<ChildNode, float> Output;
             }
 
-            public void HandleMessage(in MessageContext ctx, in float msg)
+            struct NodeHandler : INodeData, IMsgHandler<float>
             {
-                Debug.Log($"Child: Got a message {msg}");
-                ctx.EmitMessage(SimulationPorts.Output, msg * 2);
+                public void HandleMessage(in MessageContext ctx, in float msg)
+                {
+                    Debug.Log($"Child: Got a message {msg}");
+                    ctx.EmitMessage(SimulationPorts.Output, msg * 2);
+                }
             }
         }
 
@@ -53,18 +52,8 @@ namespace Unity.DataFlowGraph.Tour
          * Here we will create a parent "shell" over an internal node.
          * This parent node also takes responsibility for creating and maintain ownership over the child node.
          */
-        public class ParentNode 
-            : NodeDefinition<ParentNode.InstanceData, ParentNode.SimPorts>
-            , IMsgHandler<float>
+        public class ParentNode : SimulationNodeDefinition<ParentNode.SimPorts>
         {
-            public struct InstanceData : INodeData
-            {
-                /*
-                 * Here's the first thing to notice. The parent stores a handle to the child.
-                 */
-                public NodeHandle<ChildNode> Child;
-            }
-
             public struct SimPorts : ISimulationPortDefinition
             {
                 public MessageInput<ParentNode, float> SecretlyForwardedInput;
@@ -72,42 +61,49 @@ namespace Unity.DataFlowGraph.Tour
                 public MessageOutput<ParentNode, float> SecretlyForwardedOutput;
             }
 
-            public void HandleMessage(in MessageContext ctx, in float msg)
-            {
-                Debug.Log($"Parent: Got a message {msg}");
-            }
-
-            protected override void Init(InitContext ctx)
+            struct InstanceData : INodeData, IInit, IDestroy, IMsgHandler<float>
             {
                 /*
-                 * During initialization for this node we create a child node and remember it.
+                 * Here's the first thing to notice. The parent stores a handle to the child.
                  */
-                ref var nodeData = ref GetNodeData(ctx.Handle);
-                nodeData.Child = Set.Create<ChildNode>();
+                public NodeHandle<ChildNode> Child;
 
-                /*
-                 * Here's the interesting part where we essentially tell the node set that our ports should map directly
-                 * to the child node's ports. This is essentially how we can emplace a subgraph partially inside another
-                 * node. This is sometimes also referred to as "internal edges".
-                 * 
-                 * When someone sends a message to the SecretlyForwardedInput, it will go directly to the child's
-                 * Input message port.
-                 * Similarly, if someone is connected to SecretlyForwardedOutput, they're actually connected directly
-                 * to the child output, and will receive above mentioned message.
-                 * 
-                 * You can of course forward data ports, and port arrays as well. In the latter case, the entire port 
-                 * array will be forwarded.
-                 */
-                ctx.ForwardInput(SimulationPorts.SecretlyForwardedInput, nodeData.Child, ChildNode.SimulationPorts.Input);
-                ctx.ForwardOutput(SimulationPorts.SecretlyForwardedOutput, nodeData.Child, ChildNode.SimulationPorts.Output);
-            }
+                public void HandleMessage(in MessageContext ctx, in float msg)
+                {
+                    Debug.Log($"Parent: Got a message {msg}");
+                }
 
-            protected override void Destroy(DestroyContext ctx)
-            {
-                /*
-                 * And remember, since we created the child node, we need to clean up after ourselves!
-                 */
-                Set.Destroy(GetNodeData(ctx.Handle).Child);
+                public void Init(InitContext ctx)
+                {
+                    /*
+                     * During initialization for this node we create a child node and remember it.
+                     */
+                    Child = ctx.Set.Create<ChildNode>();
+
+                    /*
+                     * Here's the interesting part where we essentially tell the node set that our ports should map directly
+                     * to the child node's ports. This is essentially how we can emplace a subgraph partially inside another
+                     * node. This is sometimes also referred to as "internal edges".
+                     * 
+                     * When someone sends a message to the SecretlyForwardedInput, it will go directly to the child's
+                     * Input message port.
+                     * Similarly, if someone is connected to SecretlyForwardedOutput, they're actually connected directly
+                     * to the child output, and will receive above mentioned message.
+                     * 
+                     * You can of course forward data ports, and port arrays as well. In the latter case, the entire port 
+                     * array will be forwarded.
+                     */
+                    ctx.ForwardInput(SimulationPorts.SecretlyForwardedInput, Child, ChildNode.SimulationPorts.Input);
+                    ctx.ForwardOutput(SimulationPorts.SecretlyForwardedOutput, Child, ChildNode.SimulationPorts.Output);
+                }
+
+                public void Destroy(DestroyContext ctx)
+                {
+                    /*
+                     * And remember, since we created the child node, we need to clean up after ourselves!
+                     */
+                    ctx.Set.Destroy(Child);
+                }
             }
         }
 

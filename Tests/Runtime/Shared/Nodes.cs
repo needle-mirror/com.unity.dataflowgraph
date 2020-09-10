@@ -6,16 +6,11 @@ namespace Unity.DataFlowGraph.Tests
 {
     public interface TestDSL { }
 
-    public struct EmptyPorts : ISimulationPortDefinition { }
-
-    public struct EmptyKernelData : IKernelData { }
-
     public class DSL : DSLHandler<TestDSL>
     {
         protected override void Connect(ConnectionInfo left, ConnectionInfo right) { }
         protected override void Disconnect(ConnectionInfo left, ConnectionInfo right) { }
     }
-    public struct EmptyData : INodeData { }
 
     public struct ECSInt : IComponentData
     {
@@ -24,10 +19,19 @@ namespace Unity.DataFlowGraph.Tests
         public static implicit operator ECSInt(int val) => new ECSInt { Value = val };
     }
 
+    public class EmptyNode : SimulationNodeDefinition<EmptyNode.EmptyPorts>
+    {
+        public struct EmptyPorts : ISimulationPortDefinition { }
+    }
+
+    public class EmptyNode2 : SimulationNodeDefinition<EmptyNode2.EmptyPorts>
+    {
+        public struct EmptyPorts : ISimulationPortDefinition { }
+    }
+
     public class NodeWithAllTypesOfPorts
-        : NodeDefinition<EmptyData, NodeWithAllTypesOfPorts.SimPorts, EmptyKernelData, NodeWithAllTypesOfPorts.KernelDefs, NodeWithAllTypesOfPorts.Kernel>
-            , TestDSL
-            , IMsgHandler<int>
+        : SimulationKernelNodeDefinition<NodeWithAllTypesOfPorts.SimPorts, NodeWithAllTypesOfPorts.KernelDefs>
+        , TestDSL
     {
         public struct SimPorts : ISimulationPortDefinition
         {
@@ -49,17 +53,22 @@ namespace Unity.DataFlowGraph.Tests
             public DataOutput<NodeWithAllTypesOfPorts, int> OutputScalar;
         }
 
+        struct Node : INodeData, IMsgHandler<int>
+        {
+            public void HandleMessage(in MessageContext ctx, in int msg) { }
+        }
+
+        struct EmptyKernelData : IKernelData { }
+
         [BurstCompile(CompileSynchronously = true)]
-        public struct Kernel : IGraphKernel<EmptyKernelData, KernelDefs>
+        struct Kernel : IGraphKernel<EmptyKernelData, KernelDefs>
         {
             public void Execute(RenderContext context, EmptyKernelData data, ref KernelDefs ports) { }
         }
-        public void HandleMessage(in MessageContext ctx, in int msg) { }
     }
 
     public class NodeWithParametricPortType<T>
-        : NodeDefinition<EmptyData, NodeWithParametricPortType<T>.SimPorts, EmptyKernelData, NodeWithParametricPortType<T>.KernelDefs, NodeWithParametricPortType<T>.Kernel>
-        , IMsgHandler<T>
+        : SimulationKernelNodeDefinition<NodeWithParametricPortType<T>.SimPorts, NodeWithParametricPortType<T>.KernelDefs>
             where T : struct
     {
         public static int IL2CPP_ClassInitializer = 0;
@@ -77,17 +86,22 @@ namespace Unity.DataFlowGraph.Tests
             public DataOutput<NodeWithParametricPortType<T>, T> Output;
         }
 
+        struct Node : INodeData, IMsgHandler<T>
+        {
+            public void HandleMessage(in MessageContext ctx, in T msg) { }
+        }
+
+        struct EmptyKernelData : IKernelData { }
+
         // disabled due to AOT Burst seeing this kernel, but being unable to compile it (parametric node)
         // [BurstCompile(CompileSynchronously = true)]
-        public struct Kernel : IGraphKernel<EmptyKernelData, KernelDefs>
+        struct Kernel : IGraphKernel<EmptyKernelData, KernelDefs>
         {
             public void Execute(RenderContext ctx, EmptyKernelData data, ref KernelDefs ports) { }
         }
-
-        public void HandleMessage(in MessageContext ctx, in T msg) { }
     }
 
-    public class KernelAdderNode : NodeDefinition<EmptyData, EmptyKernelData, KernelAdderNode.KernelDefs, KernelAdderNode.Kernel>
+    public class KernelAdderNode : KernelNodeDefinition<KernelAdderNode.KernelDefs>
     {
         public struct KernelDefs : IKernelPortDefinition
         {
@@ -95,8 +109,10 @@ namespace Unity.DataFlowGraph.Tests
             public DataOutput<KernelAdderNode, int> Output;
         }
 
+        struct EmptyKernelData : IKernelData { }
+
         [BurstCompile(CompileSynchronously = true)]
-        public struct Kernel : IGraphKernel<EmptyKernelData, KernelDefs>
+        struct Kernel : IGraphKernel<EmptyKernelData, KernelDefs>
         {
             public void Execute(RenderContext ctx, EmptyKernelData data, ref KernelDefs ports)
             {
@@ -105,7 +121,7 @@ namespace Unity.DataFlowGraph.Tests
         }
     }
 
-    public class KernelSumNode : NodeDefinition<EmptyData, EmptyKernelData, KernelSumNode.KernelDefs, KernelSumNode.Kernel>
+    public class KernelSumNode : KernelNodeDefinition<KernelSumNode.KernelDefs>
     {
         public struct KernelDefs : IKernelPortDefinition
         {
@@ -113,8 +129,10 @@ namespace Unity.DataFlowGraph.Tests
             public DataOutput<KernelSumNode, ECSInt> Output;
         }
 
+        struct EmptyKernelData : IKernelData { }
+
         [BurstCompile(CompileSynchronously = true)]
-        public struct Kernel : IGraphKernel<EmptyKernelData, KernelDefs>
+        struct Kernel : IGraphKernel<EmptyKernelData, KernelDefs>
         {
             public void Execute(RenderContext ctx, EmptyKernelData data, ref KernelDefs ports)
             {
@@ -128,20 +146,9 @@ namespace Unity.DataFlowGraph.Tests
     }
 
     public class PassthroughTest<T>
-        : NodeDefinition<
-            PassthroughTest<T>.NodeData,
-            PassthroughTest<T>.SimPorts,
-            EmptyKernelData,
-            PassthroughTest<T>.KernelDefs,
-            PassthroughTest<T>.Kernel>
-        , IMsgHandler<T>
+        : SimulationKernelNodeDefinition<PassthroughTest<T>.SimPorts, PassthroughTest<T>.KernelDefs>
             where T : struct
     {
-        public struct NodeData : INodeData
-        {
-            public T LastReceivedMsg;
-        }
-
         public struct KernelDefs : IKernelPortDefinition
         {
             public DataInput<PassthroughTest<T>, T> Input;
@@ -154,14 +161,21 @@ namespace Unity.DataFlowGraph.Tests
             public MessageOutput<PassthroughTest<T>, T> Output;
         }
 
-        public void HandleMessage(in MessageContext ctx, in T msg)
+        public struct NodeData : INodeData, IMsgHandler<T>
         {
-            Assert.That(ctx.Port == SimulationPorts.Input);
-            GetNodeData(ctx.Handle).LastReceivedMsg = msg;
-            ctx.EmitMessage(SimulationPorts.Output, msg);
+            public T LastReceivedMsg;
+
+            public void HandleMessage(in MessageContext ctx, in T msg)
+            {
+                Assert.That(ctx.Port == SimulationPorts.Input);
+                LastReceivedMsg = msg;
+                ctx.EmitMessage(SimulationPorts.Output, msg);
+            }
         }
 
-        public struct Kernel : IGraphKernel<EmptyKernelData, KernelDefs>
+        struct EmptyKernelData : IKernelData { }
+
+        struct Kernel : IGraphKernel<EmptyKernelData, KernelDefs>
         {
             public void Execute(RenderContext ctx, EmptyKernelData data, ref KernelDefs ports)
             {
@@ -170,91 +184,124 @@ namespace Unity.DataFlowGraph.Tests
         }
     }
 
-    public abstract class DelegateMessageIONodeBase<TDerivedDefinition, TNodeData>
-        : NodeDefinition<DelegateMessageIONodeBase<TDerivedDefinition, TNodeData>.NodeData, DelegateMessageIONodeBase<TDerivedDefinition, TNodeData>.SimPorts>
-        , IMsgHandler<Message>
-            where TDerivedDefinition : DelegateMessageIONodeBase<TDerivedDefinition, TNodeData>, new()
-            where TNodeData : struct, INodeData
+    public class DelegateMessageIONode : SimulationNodeDefinition<DelegateMessageIONode.SimPorts>
     {
+        public struct SimPorts : ISimulationPortDefinition
+        {
+            public MessageInput<DelegateMessageIONode, Message> Input;
+            public MessageOutput<DelegateMessageIONode, Message> Output;
+        }
+
         public delegate void InitHandler(InitContext ctx);
         public delegate void MessageHandler(in MessageContext ctx, in Message msg);
         public delegate void UpdateHandler(in UpdateContext ctx);
-        public delegate void DestroyHandler(NodeHandle handle);
+        public delegate void DestroyHandler(DestroyContext ctx);
 
-        [Managed]
-        public struct NodeData : INodeData
+        struct Handlers
         {
-            public TNodeData CustomNodeData;
-            public MessageHandler m_MessageHandler;
-            public UpdateHandler m_UpdateHandler;
-            public DestroyHandler m_DestroyHandler;
+            public InitHandler Init;
+            public MessageHandler Message;
+            public UpdateHandler Update;
+            public DestroyHandler Destroy;
         }
 
-        public static NodeHandle<TDerivedDefinition> Create(NodeSet set, InitHandler initHandler, MessageHandler messageHandler, UpdateHandler updateHandler, DestroyHandler destroyHandler)
+        static Handlers s_Handlers;
+
+        [Managed]
+        struct NodeData : INodeData, IInit, IDestroy, IUpdate, IMsgHandler<Message>
         {
-            Assert.IsNull(s_InitHandler);
-            s_InitHandler = initHandler;
-            NodeHandle<TDerivedDefinition> node;
+            Handlers m_Handlers;
+
+            public void Init(InitContext ctx)
+            {
+                m_Handlers = s_Handlers;
+
+                if (m_Handlers.Update != null)
+                    ctx.RegisterForUpdate();
+
+                s_Handlers = default;
+                m_Handlers.Init?.Invoke(ctx);
+            }
+
+            public void HandleMessage(in MessageContext ctx, in Message msg) => m_Handlers.Message?.Invoke(ctx, msg);
+            public void Update(in UpdateContext ctx) => m_Handlers.Update(ctx);
+            public void Destroy(DestroyContext ctx) => m_Handlers.Destroy?.Invoke(ctx);
+        }
+
+        public static NodeHandle<DelegateMessageIONode> Create(NodeSet set, InitHandler initHandler, MessageHandler messageHandler, UpdateHandler updateHandler, DestroyHandler destroyHandler)
+        {
+            Assert.AreEqual(new Handlers(), s_Handlers);
+            s_Handlers = new Handlers {Init = initHandler, Message = messageHandler, Update = updateHandler, Destroy = destroyHandler};
             try
             {
-                node = set.Create<TDerivedDefinition>();
+                return set.Create<DelegateMessageIONode>();
             }
             finally
             {
-                s_InitHandler = null;
+                s_Handlers = default;
             }
-
-            if (set.Exists(node))
-            {
-                ref var nodeData = ref set.GetDefinition<TDerivedDefinition>().GetNodeData(node);
-                nodeData.m_MessageHandler = messageHandler;
-                nodeData.m_UpdateHandler = updateHandler;
-                nodeData.m_DestroyHandler = destroyHandler;
-            }
-
-            return node;
         }
+    }
 
+    public class DelegateMessageIONode<TNodeData> : SimulationNodeDefinition<DelegateMessageIONode<TNodeData>.SimPorts>
+        where TNodeData : struct
+    {
         public struct SimPorts : ISimulationPortDefinition
         {
-            public MessageInput<TDerivedDefinition, Message> Input;
-            public MessageOutput<TDerivedDefinition, Message> Output;
+            public MessageInput<DelegateMessageIONode<TNodeData>, Message> Input;
+            public MessageOutput<DelegateMessageIONode<TNodeData>, Message> Output;
         }
 
-        protected override void Init(InitContext ctx)
+        public delegate void InitHandler(InitContext ctx, ref TNodeData data);
+        public delegate void MessageHandler(in MessageContext ctx, in Message msg, ref TNodeData data);
+        public delegate void UpdateHandler(in UpdateContext ctx, ref TNodeData data);
+        public delegate void DestroyHandler(DestroyContext ctx, ref TNodeData data);
+
+        struct Handlers
         {
-            var initHandler = s_InitHandler;
-            s_InitHandler = null;
-            initHandler?.Invoke(ctx);
+            public InitHandler Init;
+            public MessageHandler Message;
+            public UpdateHandler Update;
+            public DestroyHandler Destroy;
         }
 
-        public void HandleMessage(in MessageContext ctx, in Message msg)
+        static Handlers s_Handlers;
+
+        [Managed]
+        public struct NodeData : INodeData, IInit, IDestroy, IUpdate, IMsgHandler<Message>
         {
-            Assert.That(ctx.Port == SimulationPorts.Input);
-            GetNodeData(ctx.Handle).m_MessageHandler?.Invoke(ctx, msg);
+            public TNodeData CustomNodeData;
+            Handlers m_Handlers;
+
+            public void Init(InitContext ctx)
+            {
+                m_Handlers = s_Handlers;
+
+                if (m_Handlers.Update != null)
+                    ctx.RegisterForUpdate();
+
+                s_Handlers = default;
+                m_Handlers.Init?.Invoke(ctx, ref CustomNodeData);
+            }
+
+            public void HandleMessage(in MessageContext ctx, in Message msg) => m_Handlers.Message?.Invoke(ctx, msg, ref CustomNodeData);
+            public void Update(in UpdateContext ctx) => m_Handlers.Update(ctx, ref CustomNodeData);
+            public void Destroy(DestroyContext ctx) => m_Handlers.Destroy?.Invoke(ctx, ref CustomNodeData);
         }
 
-        protected override void OnUpdate(in UpdateContext ctx)
+        public static NodeHandle<DelegateMessageIONode<TNodeData>> Create(NodeSet set, InitHandler initHandler, MessageHandler messageHandler, UpdateHandler updateHandler, DestroyHandler destroyHandler)
         {
-            GetNodeData(ctx.Handle).m_UpdateHandler?.Invoke(ctx);
+            Assert.AreEqual(new Handlers(), s_Handlers);
+            s_Handlers = new Handlers {Init = initHandler, Message = messageHandler, Update = updateHandler, Destroy = destroyHandler};
+            try
+            {
+                return set.Create<DelegateMessageIONode<TNodeData>>();
+            }
+            finally
+            {
+                s_Handlers = default;
+            }
         }
-
-        protected override void Destroy(DestroyContext ctx)
-        {
-            GetNodeData(ctx.Handle).m_DestroyHandler?.Invoke(ctx.Handle);
-        }
-
-        static InitHandler s_InitHandler;
-    }
-
-    public class DelegateMessageIONode : DelegateMessageIONodeBase<DelegateMessageIONode, DelegateMessageIONode.EmptyData>
-    {
-        public struct EmptyData : INodeData {}
-    }
-
-    public class DelegateMessageIONode<TNodeData> : DelegateMessageIONodeBase<DelegateMessageIONode<TNodeData>, TNodeData>
-        where TNodeData : struct, INodeData
-    {
     }
 
     public static class DelegateMessageIONode_NodeSet_Ex
@@ -277,32 +324,34 @@ namespace Unity.DataFlowGraph.Tests
 
         public static NodeHandle<DelegateMessageIONode<TNodeData>> Create<TDelegateMessageIONode, TNodeData>(this NodeSet set, DelegateMessageIONode<TNodeData>.InitHandler initHandler, DelegateMessageIONode<TNodeData>.MessageHandler messageHandler = null, DelegateMessageIONode<TNodeData>.UpdateHandler updateHandler = null, DelegateMessageIONode<TNodeData>.DestroyHandler destroyHandler = null)
             where TDelegateMessageIONode : DelegateMessageIONode<TNodeData>
-            where TNodeData : struct, INodeData
+            where TNodeData : struct
                 => DelegateMessageIONode<TNodeData>.Create(set, initHandler, messageHandler, updateHandler, destroyHandler);
 
         public static NodeHandle<DelegateMessageIONode<TNodeData>> Create<TDelegateMessageIONode, TNodeData>(this NodeSet set, DelegateMessageIONode<TNodeData>.MessageHandler messageHandler, DelegateMessageIONode<TNodeData>.UpdateHandler updateHandler = null, DelegateMessageIONode<TNodeData>.DestroyHandler destroyHandler = null)
             where TDelegateMessageIONode : DelegateMessageIONode<TNodeData>
-            where TNodeData : struct, INodeData
+            where TNodeData : struct
                 => DelegateMessageIONode<TNodeData>.Create(set, null, messageHandler, updateHandler, destroyHandler);
 
         public static NodeHandle<DelegateMessageIONode<TNodeData>> Create<TDelegateMessageIONode, TNodeData>(this NodeSet set, DelegateMessageIONode<TNodeData>.UpdateHandler updateHandler, DelegateMessageIONode<TNodeData>.DestroyHandler destroyHandler = null)
             where TDelegateMessageIONode : DelegateMessageIONode<TNodeData>
-            where TNodeData : struct, INodeData
+            where TNodeData : struct
                 => DelegateMessageIONode<TNodeData>.Create(set, null, null, updateHandler, destroyHandler);
 
         public static NodeHandle<DelegateMessageIONode<TNodeData>> Create<TDelegateMessageIONode, TNodeData>(this NodeSet set, DelegateMessageIONode<TNodeData>.DestroyHandler destroyHandler)
             where TDelegateMessageIONode : DelegateMessageIONode<TNodeData>
-            where TNodeData : struct, INodeData
+            where TNodeData : struct
                 => DelegateMessageIONode<TNodeData>.Create(set, null, null, null, destroyHandler);
     }
 
     public abstract class ExternalKernelNode<TFinalNodeDefinition, TInput, TOutput, TKernel>
-        : NodeDefinition<EmptyKernelData, ExternalKernelNode<TFinalNodeDefinition, TInput, TOutput, TKernel>.KernelDefs, TKernel>
+        : KernelNodeDefinition<ExternalKernelNode<TFinalNodeDefinition, TInput, TOutput, TKernel>.KernelDefs>
         where TFinalNodeDefinition : NodeDefinition
         where TInput : struct
         where TOutput : struct
-        where TKernel : struct, IGraphKernel<EmptyKernelData, ExternalKernelNode<TFinalNodeDefinition, TInput, TOutput, TKernel>.KernelDefs>
+        where TKernel : struct, IGraphKernel<ExternalKernelNode<TFinalNodeDefinition, TInput, TOutput, TKernel>.EmptyKernelData, ExternalKernelNode<TFinalNodeDefinition, TInput, TOutput, TKernel>.KernelDefs>
     {
+        public struct EmptyKernelData : IKernelData { }
+
         public struct KernelDefs : IKernelPortDefinition
         {
             public DataInput<TFinalNodeDefinition, TInput> Input;

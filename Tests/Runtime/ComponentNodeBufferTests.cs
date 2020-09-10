@@ -12,7 +12,7 @@ namespace Unity.DataFlowGraph.Tests
 
     class ComponentNodeBufferTests
     {
-        class BufferNode : NodeDefinition<InstanceData, KernelData, BufferNode.KernelDefs, BufferNode.GraphKernel>
+        class BufferNode : KernelNodeDefinition<BufferNode.KernelDefs>
         {
             public struct KernelDefs : IKernelPortDefinition
             {
@@ -25,7 +25,9 @@ namespace Unity.DataFlowGraph.Tests
                 public DataOutput<BufferNode, Buffer<SimpleBuffer>> Output;
             }
 
-            public struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
+            struct KernelData : IKernelData { }
+
+            struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
             {
                 public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
                 {
@@ -175,7 +177,7 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        public class CountInputSizeNode : NodeDefinition<InstanceData, KernelData, CountInputSizeNode.KernelDefs, CountInputSizeNode.GraphKernel>
+        public class CountInputSizeNode : KernelNodeDefinition<CountInputSizeNode.KernelDefs>
         {
             public struct KernelDefs : IKernelPortDefinition
             {
@@ -183,7 +185,9 @@ namespace Unity.DataFlowGraph.Tests
                 public DataOutput<CountInputSizeNode, int> Indices;
             }
 
-            public struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
+            struct KernelData : IKernelData { }
+
+            struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
             {
                 public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
                 {
@@ -344,16 +348,16 @@ namespace Unity.DataFlowGraph.Tests
                 else
                 {
                     f.Set.Connect(
-                        entityNodeSource, 
-                        (OutputPortID)ComponentNode.Output<SimpleBuffer>(), 
-                        dfgNode, 
+                        entityNodeSource,
+                        (OutputPortID)ComponentNode.Output<SimpleBuffer>(),
+                        dfgNode,
                         (InputPortID)BufferNode.KernelPorts.Input
                     );
 
                     f.Set.Connect(
-                        dfgNode, 
-                        (OutputPortID)BufferNode.KernelPorts.Output, 
-                        entityNodeDest, 
+                        dfgNode,
+                        (OutputPortID)BufferNode.KernelPorts.Output,
+                        entityNodeDest,
                         (InputPortID)ComponentNode.Input<SimpleBuffer>()
                     );
                 }
@@ -415,16 +419,16 @@ namespace Unity.DataFlowGraph.Tests
                 if(strongNess == ConnectionMode.Strong)
                 {
                     f.Set.Connect(
-                        entityNodeSource, 
-                        ComponentNode.Output<SimpleBuffer>(), 
-                        entityNodeDest, 
+                        entityNodeSource,
+                        ComponentNode.Output<SimpleBuffer>(),
+                        entityNodeDest,
                         ComponentNode.Input<SimpleBuffer>()
                     );
                 }
                 else
                 {
                     f.Set.Connect(
-                        entityNodeSource, 
+                        entityNodeSource,
                         (OutputPortID)ComponentNode.Output<SimpleBuffer>(),
                         entityNodeDest,
                         (InputPortID)ComponentNode.Input<SimpleBuffer>()
@@ -486,17 +490,17 @@ namespace Unity.DataFlowGraph.Tests
                 f.Set.SetData(dfgNode, BufferNode.KernelPorts.Offset, k_Offset);
 
                 f.Set.Connect(
-                    entityNode, 
-                    ComponentNode.Output<SimpleBuffer>(), 
-                    dfgNode, 
-                    BufferNode.KernelPorts.Input, 
+                    entityNode,
+                    ComponentNode.Output<SimpleBuffer>(),
+                    dfgNode,
+                    BufferNode.KernelPorts.Input,
                     !feedbackAfterProcessing ? NodeSet.ConnectionType.Feedback : NodeSet.ConnectionType.Normal
                 );
 
                 f.Set.Connect(
-                    dfgNode, 
-                    BufferNode.KernelPorts.Output, 
-                    entityNode, 
+                    dfgNode,
+                    BufferNode.KernelPorts.Output,
+                    entityNode,
                     ComponentNode.Input<SimpleBuffer>(),
                     feedbackAfterProcessing ? NodeSet.ConnectionType.Feedback : NodeSet.ConnectionType.Normal
                 );

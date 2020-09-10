@@ -27,32 +27,27 @@ namespace Unity.DataFlowGraph.Tour
          * Concretely in this example, we'll cover the steps needed to have a graph kernel that will be run inside the
          * rendering pass.
          */
-        class MyNode : NodeDefinition
-            <
+        class MyNode :
             /*
-             * Now we're deriving from a combined simulation / rendering node definition base,
-             * so that this node can participate in the rendering.
+             * Now we're deriving from a rendering node definition base so that this node can participate in the rendering.
              */
-            MyNode.InstanceData, 
-            MyNode.KernelData, 
-            MyNode.KernelDefs, 
-            MyNode.GraphKernel
-            >
+            KernelNodeDefinition<MyNode.KernelDefs>
         {
-            public struct InstanceData : INodeData { }
-
-            /*
-             * The "Kernel Data" is constant parameters to your graph kernel, like uniforms in shaders.
-             * We will look at this later. 
-             */
-            public struct KernelData : IKernelData {}
-
             /*
              * Kernel port definitions are like simulation port definitions, but they are separated and literally
              * functions as the I/O blackboard while executing a graph kernel.
              * We'll have a look at that soon enough, for now our graph kernel doesn't need any I/O.
              */
             public struct KernelDefs : IKernelPortDefinition {}
+
+            /*
+             * The "Kernel Data" is constant parameters to your graph kernel, like uniforms in shaders.
+             * We will look at this later.
+             * 
+             * Note that the presence of this IKernelData nested struct is automatically detected for you, therefore you
+             * can keep it declared private.
+             */
+            struct KernelData : IKernelData {}
 
             /*
              * So finally, here's our graph kernel. You'll notice that it is specialized on the previous two structures as well.
@@ -63,8 +58,10 @@ namespace Unity.DataFlowGraph.Tour
              * 
              * For greater runtime performance, you can tag your graph kernel with the [BurstCompile] attribute, otherwise it defaults
              * to running inside Mono / IL2CPP.
+             *
+             * As with the IKernelData above, this IGraphKernel<> nested struct is automatically detected for you.
              */
-            public struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
+            struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
             {
                 /*
                  * The parameters to the Execute() function are, beyond what we covered so far, the rendering context.

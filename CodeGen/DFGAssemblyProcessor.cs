@@ -20,7 +20,7 @@ namespace Unity.DataFlowGraph.CodeGen
         (MethodReference Original, MethodReference Replacement)[] PortInitUtilityGetInitializedPortDefMethods;
 
         /// <summary>
-        /// <see cref="Utility.AsRef"/> and <see cref="Utility.AsPointer"/> methods.
+        /// <see cref="Utility.AsRef"/>, <see cref="Utility.As"/> and <see cref="Utility.AsPointer"/> methods.
         /// </summary>
         MethodReference[] UtilityAsRefMethods;
 
@@ -45,7 +45,7 @@ namespace Unity.DataFlowGraph.CodeGen
             // Gather our local implementations of the Unsafe.AsRef<T>() and Unsafe.AsPointer<T>() methods
             var utilityType = GetImportedReference(typeof(Utility));
             UtilityAsRefMethods = utilityType.Resolve().Methods.Where(
-                m => m.Name == nameof(Utility.AsRef) || m.Name == nameof(Utility.AsPointer) && m.Parameters.Count == 1 && m.GenericParameters.Count == 1).ToArray();
+                m => (m.Name == nameof(Utility.AsRef) || m.Name == nameof(Utility.As) || m.Name == nameof(Utility.AsPointer)) && m.Parameters.Count == 1).ToArray();
         }
 
         public override void AnalyseConsistency(Diag diag)
@@ -53,14 +53,16 @@ namespace Unity.DataFlowGraph.CodeGen
             if (PortInitUtilityGetInitializedPortDefMethods.Any(m => m.Original == null || m.Replacement == null))
                 diag.DFG_IE_01(this, GetType().GetField(nameof(PortInitUtilityGetInitializedPortDefMethods), BindingFlags.Instance | BindingFlags.NonPublic));
 
-            if (UtilityAsRefMethods.Length != 3)
+            if (UtilityAsRefMethods.Length != 4)
                 diag.DFG_IE_01(this, GetType().GetField(nameof(UtilityAsRefMethods), BindingFlags.Instance | BindingFlags.NonPublic));
         }
 
         public override void PostProcess(Diag diag, out bool mutated)
         {
-            // Make it possible for derived node definitions to override .BaseTraits
+            // Make it possible for derived node definitions to override .BaseTraits, .SimulationStorageTraits, and .KernelStorageTraits
             m_Library.Get_BaseTraitsDefinition.Resolve().Attributes = DFGLibrary.MethodProtectedInternalVirtualFlags | Mono.Cecil.MethodAttributes.SpecialName;
+            m_Library.Get_SimulationStorageTraits.Resolve().Attributes = DFGLibrary.MethodProtectedInternalVirtualFlags | Mono.Cecil.MethodAttributes.SpecialName;
+            m_Library.Get_KernelStorageTraits.Resolve().Attributes = DFGLibrary.MethodProtectedInternalVirtualFlags | Mono.Cecil.MethodAttributes.SpecialName;
 
             foreach (var kind in (DFGLibrary.NodeTraitsKind[])Enum.GetValues(typeof(DFGLibrary.NodeTraitsKind)))
                 m_Library.TraitsKindToType(kind).Resolve().IsPublic = true;
@@ -68,12 +70,22 @@ namespace Unity.DataFlowGraph.CodeGen
             foreach (var portCreateMethod in m_Library.PortCreateMethods)
                 portCreateMethod.Resolve().IsPublic = true;
 
+            m_Library.KernelStorageDefinitionType.Resolve().IsPublic = true;
+            m_Library.KernelStorageDefinitionCreateMethod.Resolve().IsPublic = true;
+            m_Library.SimulationStorageDefinitionType.Resolve().IsPublic = true;
+            m_Library.SimulationStorageDefinitionCreateMethod.Resolve().IsPublic = true;
+            m_Library.SimulationStorageDefinitionNoPortsCreateMethod.Resolve().IsPublic = true;
+            m_Library.SimulationStorageDefinitionNoDataCreateMethod.Resolve().IsPublic = true;
+
             m_Library.InputPortIDConstructor.Resolve().IsPublic = true;
             m_Library.OutputPortIDConstructor.Resolve().IsPublic = true;
 
             m_Library.PortStorageType.Resolve().IsPublic = true;
 
             m_Library.IPortDefinitionInitializerType.Resolve().IsPublic = true;
+
+            m_Library.VirtualTableField.Resolve().Attributes = Mono.Cecil.FieldAttributes.FamORAssem;
+            m_Library.VirtualTableField.FieldType.Resolve().Attributes = Mono.Cecil.TypeAttributes.NestedFamORAssem;
 
             // Swap the bodies of PortInitUtility.GetInitializedPortDef for PortInitUtility.GetInitializedPortDefImp.
             for (var i = 0; i < 2; ++i)

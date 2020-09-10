@@ -25,8 +25,8 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        [TestCase(NodeSet.RenderExecutionModel.Synchronous), TestCase(NodeSet.RenderExecutionModel.MaximallyParallel), TestCase(NodeSet.RenderExecutionModel.Islands)]
-        public void CanUseGraphValueResolver_ToResolveValues_InAJob(NodeSet.RenderExecutionModel computeType)
+        [Test]
+        public void CanUseGraphValueResolver_ToResolveValues_InAJob([Values] NodeSet.RenderExecutionModel computeType, [Values] KernelUpdateMode updateMode)
         {
             using (var results = new NativeArray<float>(1, Allocator.Persistent))
             using (var set = new RenderGraphTests.PotentiallyJobifiedNodeSet(computeType))
@@ -37,7 +37,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 for (int i = 0; i < 100; ++i)
                 {
-                    set.SendMessage(root, RenderPipe.SimulationPorts.Input, i);
+                    set.SendMessage(root, RenderPipe.SimulationPorts.Input, new FloatButWithMode { Value = i, Mode = updateMode });
 
                     set.Update();
 
@@ -652,7 +652,7 @@ namespace Unity.DataFlowGraph.Tests
                 set.ReleaseGraphValue(rootValue);
                 // Render graph only gets this notification next update,
                 // so the graph value should still be readable inside the render graph, just not in the simulation.
-                Assert.Throws<ObjectDisposedException>(() => set.GetValueBlocking(rootValue));
+                Assert.Throws<ArgumentException>(() => set.GetValueBlocking(rootValue));
 
                 CheckGraphValueValidity job;
 

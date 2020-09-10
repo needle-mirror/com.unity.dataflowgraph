@@ -8,10 +8,6 @@ namespace Unity.DataFlowGraph.Tests
 {
     class DSLIntegrationTests
     {
-        public struct Node : INodeData
-        {
-        }
-
         public interface TestDSL { }
 
         class DSL : DSLHandler<TestDSL>
@@ -47,7 +43,7 @@ namespace Unity.DataFlowGraph.Tests
         struct Data : IKernelData { }
 
         class NodeWithDSL
-            : NodeDefinition<Node, NodeWithDSL.SimPorts>, TestDSL
+            : SimulationNodeDefinition<NodeWithDSL.SimPorts>, TestDSL
         {
             public struct SimPorts : ISimulationPortDefinition
             {
@@ -256,7 +252,7 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         class NodeWithInterleavedDSLPorts
-            : NodeDefinition<Node, NodeWithInterleavedDSLPorts.SimPorts>, TestDSL
+            : SimulationNodeDefinition<NodeWithInterleavedDSLPorts.SimPorts>, TestDSL
         {
             public struct SimPorts : ISimulationPortDefinition
             {
@@ -269,10 +265,9 @@ namespace Unity.DataFlowGraph.Tests
                 public DSLOutput<NodeWithInterleavedDSLPorts, IndexConnectedDSL, TestDSL>  DSL1Out1;  // DSL1 Output Index 0
                 public DSLOutput<NodeWithInterleavedDSLPorts, IndexConnectedDSL2, TestDSL> DSL2Out1;  // DSL2 Output Index 0
                 public DSLOutput<NodeWithInterleavedDSLPorts, IndexConnectedDSL, TestDSL>  DSL1Out2;  // DSL1 Output Index 1
-                public DSLOutput<NodeWithInterleavedDSLPorts, IndexConnectedDSL2, TestDSL> DSL2Out2;  // DSL2 Output Index 1 
+                public DSLOutput<NodeWithInterleavedDSLPorts, IndexConnectedDSL2, TestDSL> DSL2Out2;  // DSL2 Output Index 1
 #pragma warning restore 649
             }
-
         }
 
         [Test]
@@ -305,7 +300,7 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         class NodeWithInterleavedDSLAndMessagePorts
-            : NodeDefinition<Node, NodeWithInterleavedDSLAndMessagePorts.SimPorts>, TestDSL, IMsgHandler<float>
+            : SimulationNodeDefinition<NodeWithInterleavedDSLAndMessagePorts.SimPorts>, TestDSL
         {
             public struct SimPorts : ISimulationPortDefinition
             {
@@ -320,8 +315,10 @@ namespace Unity.DataFlowGraph.Tests
 #pragma warning restore 649
             }
 
-            public void HandleMessage(in MessageContext ctx, in float msg)
-            { }
+            struct Node : INodeData, IMsgHandler<float>
+            {
+                public void HandleMessage(in MessageContext ctx, in float msg) { }
+            }
         }
 
         [Test]

@@ -43,22 +43,21 @@ namespace Unity.DataFlowGraph.Tour
          * 
          * Let's use the weak system now for a couple of simple tasks we already covered.
          */
-        public class MyNode 
-            : NodeDefinition<MyNode.InstanceData, MyNode.SimPorts>
-            , IMsgHandler<float>
+        public class MyNode : SimulationNodeDefinition<MyNode.SimPorts>
         {
-            public struct InstanceData : INodeData {}
-
             public struct SimPorts : ISimulationPortDefinition
             {
                 public MessageInput<MyNode, float> Input;
                 public MessageOutput<MyNode, float> Output;
             }
 
-            public void HandleMessage(in MessageContext ctx, in float msg)
+            struct NodeHandlers : INodeData, IMsgHandler<float>
             {
-                Debug.Log($"Got a message {msg}");
-                ctx.EmitMessage(SimulationPorts.Output, msg + 2);
+                public void HandleMessage(in MessageContext ctx, in float msg)
+                {
+                    Debug.Log($"Got a message {msg}");
+                    ctx.EmitMessage(SimulationPorts.Output, msg + 2);
+                }
             }
         }
 

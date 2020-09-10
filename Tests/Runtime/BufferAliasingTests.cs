@@ -18,16 +18,6 @@ namespace Unity.DataFlowGraph.Tests
          *
          */
 
-        public struct Node : INodeData
-        {
-            public int Contents;
-        }
-
-        public unsafe struct Data : IKernelData
-        {
-            public long* AliasResult;
-        }
-
         public struct BufferElement : IBufferElementData
         {
             public long Contents;
@@ -47,7 +37,7 @@ namespace Unity.DataFlowGraph.Tests
         }
 
 
-        public unsafe class BufferNode : NodeDefinition<Node, Data, BufferNode.KernelDefs, BufferNode.Kernel>
+        public unsafe class BufferNode : KernelNodeDefinition<BufferNode.KernelDefs>
         {
             public struct KernelDefs : IKernelPortDefinition
             {
@@ -125,8 +115,13 @@ namespace Unity.DataFlowGraph.Tests
                 }
             }
 
+            public struct Data : IKernelData
+            {
+                public long* AliasResult;
+            }
+
             [BurstCompile(CompileSynchronously = true)]
-            public struct Kernel : IGraphKernel<Data, KernelDefs>
+            struct Kernel : IGraphKernel<Data, KernelDefs>
             {
                 public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
                 {
@@ -176,7 +171,7 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        public unsafe class SpliceNode : NodeDefinition<Node, Data, SpliceNode.KernelDefs, SpliceNode.Kernel>
+        public unsafe class SpliceNode : KernelNodeDefinition<SpliceNode.KernelDefs>
         {
             public struct KernelDefs : IKernelPortDefinition
             {
@@ -186,8 +181,13 @@ namespace Unity.DataFlowGraph.Tests
                 public DataOutput<SpliceNode, Buffer<BufferElement>> ScalarSum;
             }
 
+            public struct Data : IKernelData
+            {
+                public long* AliasResult;
+            }
+
             [BurstCompile(CompileSynchronously = true)]
-            public struct Kernel : IGraphKernel<Data, KernelDefs>
+            struct Kernel : IGraphKernel<Data, KernelDefs>
             {
                 public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
                 {
@@ -222,21 +222,21 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        public unsafe class StartPoint : NodeDefinition<Node, StartPoint.KernelData, StartPoint.KernelDefs, StartPoint.Kernel>
+        public class StartPoint : KernelNodeDefinition<StartPoint.KernelDefs>
         {
-            public struct KernelData : IKernelData
-            {
-                public long AggregateFill, ScalarFill;
-            }
-
             public struct KernelDefs : IKernelPortDefinition
             {
                 public DataOutput<StartPoint, Aggregate> AggregateOutput;
                 public DataOutput<StartPoint, Buffer<BufferElement>> ScalarOutput;
             }
 
+            public struct KernelData : IKernelData
+            {
+                public long AggregateFill, ScalarFill;
+            }
+
             [BurstCompile(CompileSynchronously = true)]
-            public struct Kernel : IGraphKernel<KernelData, KernelDefs>
+            struct Kernel : IGraphKernel<KernelData, KernelDefs>
             {
                 public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
                 {
@@ -359,7 +359,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 Set.SetPortArraySize(node, BufferNode.KernelPorts.InputArray, BufferSize);
 
-                Set.GetKernelData<Data>(node).AliasResult = m_AliasResults.CreateLong();
+                Set.GetKernelData<BufferNode.Data>(node).AliasResult = m_AliasResults.CreateLong();
 
                 return node;
             }
@@ -375,7 +375,7 @@ namespace Unity.DataFlowGraph.Tests
                 Set.SetBufferSize(node, SpliceNode.KernelPorts.AggrSum, ag);
                 Set.SetBufferSize(node, SpliceNode.KernelPorts.ScalarSum, Buffer<BufferElement>.SizeRequest(BufferSize));
 
-                Set.GetKernelData<Data>(node).AliasResult = m_AliasResults.CreateLong();
+                Set.GetKernelData<SpliceNode.Data>(node).AliasResult = m_AliasResults.CreateLong();
 
                 return node;
             }
@@ -400,7 +400,7 @@ namespace Unity.DataFlowGraph.Tests
             public long GetAliasResult(NodeHandle<BufferNode> n)
             {
                 Set.DataGraph.SyncAnyRendering();
-                return *Set.GetKernelData<Data>(n).AliasResult;
+                return *Set.GetKernelData<BufferNode.Data>(n).AliasResult;
             }
 
         }
@@ -877,7 +877,6 @@ namespace Unity.DataFlowGraph.Tests
                     nodes.ForEach(n => fix.Set.Destroy(n));
                 }
             }
-
         }
     }
 }

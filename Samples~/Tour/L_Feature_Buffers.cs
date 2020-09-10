@@ -16,12 +16,7 @@ namespace Unity.DataFlowGraph.Tour
          * So concretely, here we will connect two nodes together using a buffer and see what APIs are needed along the
          * way.
          */
-
-        public struct InstanceData : INodeData { }
-
-        public struct KernelData : IKernelData { }
-
-        public class MyWriter : NodeDefinition<InstanceData, KernelData, MyWriter.KernelDefs, MyWriter.GraphKernel>
+        public class MyWriter : KernelNodeDefinition<MyWriter.KernelDefs>
         {
             public struct KernelDefs : IKernelPortDefinition
             {
@@ -31,8 +26,10 @@ namespace Unity.DataFlowGraph.Tour
                 public DataOutput<MyWriter, Buffer<float>> OutputBuffer;
             }
 
+            struct KernelData : IKernelData { }
+
             [BurstCompile]
-            public struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
+            struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
             {
                 public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
                 {
@@ -53,14 +50,16 @@ namespace Unity.DataFlowGraph.Tour
             }
         }
 
-        public class MyReader : NodeDefinition<InstanceData, KernelData, MyReader.KernelDefs, MyReader.GraphKernel>
+        public class MyReader : KernelNodeDefinition<MyReader.KernelDefs>
         {
             public struct KernelDefs : IKernelPortDefinition
             {
                 public DataInput<MyReader, Buffer<float>> InputBuffer;
             }
 
-            public struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
+            struct KernelData : IKernelData { }
+
+            struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
             {
                 public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
                 {

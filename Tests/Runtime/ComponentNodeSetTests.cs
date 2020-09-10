@@ -43,10 +43,7 @@ namespace Unity.DataFlowGraph.Tests
         {
         }
 
-        public struct InstanceData : INodeData { }
-        public struct KernelData : IKernelData { }
-
-        internal class SimpleNode_WithECSTypes_OnInputs : NodeDefinition<InstanceData, KernelData, SimpleNode_WithECSTypes_OnInputs.KernelDefs, SimpleNode_WithECSTypes_OnInputs.GraphKernel>
+        internal class SimpleNode_WithECSTypes_OnInputs : KernelNodeDefinition<SimpleNode_WithECSTypes_OnInputs.KernelDefs>
         {
 
             public struct KernelDefs : IKernelPortDefinition
@@ -57,26 +54,30 @@ namespace Unity.DataFlowGraph.Tests
 
             }
 
-            public struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
+            struct KernelData : IKernelData { }
+
+            struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
             {
                 public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports) { }
             }
         }
 
-        internal class SimpleNode_WithECSTypes_InPortArray_OnInputs : NodeDefinition<InstanceData, KernelData, SimpleNode_WithECSTypes_InPortArray_OnInputs.KernelDefs, SimpleNode_WithECSTypes_InPortArray_OnInputs.GraphKernel>
+        internal class SimpleNode_WithECSTypes_InPortArray_OnInputs : KernelNodeDefinition<SimpleNode_WithECSTypes_InPortArray_OnInputs.KernelDefs>
         {
             public struct KernelDefs : IKernelPortDefinition
             {
                 public PortArray<DataInput<SimpleNode_WithECSTypes_InPortArray_OnInputs, DataOne>> Input;
             }
 
-            public struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
+            struct KernelData : IKernelData { }
+
+            struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
             {
                 public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports) { }
             }
         }
 
-        internal class SimpleNode_WithECSTypes_OnOutputs : NodeDefinition<InstanceData, KernelData, SimpleNode_WithECSTypes_OnOutputs.KernelDefs, SimpleNode_WithECSTypes_OnOutputs.GraphKernel>
+        internal class SimpleNode_WithECSTypes_OnOutputs : KernelNodeDefinition<SimpleNode_WithECSTypes_OnOutputs.KernelDefs>
         {
             public struct KernelDefs : IKernelPortDefinition
             {
@@ -86,17 +87,16 @@ namespace Unity.DataFlowGraph.Tests
 
             }
 
-            public struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
+            struct KernelData : IKernelData { }
+
+            struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
             {
                 public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports) { }
             }
         }
 
-        internal class SimpleNode_WithECSTypes : NodeDefinition<SimpleNode_WithECSTypes.InstanceData, SimpleNode_WithECSTypes.KernelData, SimpleNode_WithECSTypes.KernelDefs, SimpleNode_WithECSTypes.GraphKernel>
+        internal class SimpleNode_WithECSTypes : KernelNodeDefinition<SimpleNode_WithECSTypes.KernelDefs>
         {
-            public struct InstanceData : INodeData { }
-            public struct KernelData : IKernelData { }
-
             public struct KernelDefs : IKernelPortDefinition
             {
                 public DataInput<SimpleNode_WithECSTypes, SimpleData> Input;
@@ -104,7 +104,9 @@ namespace Unity.DataFlowGraph.Tests
                 public DataOutput<SimpleNode_WithECSTypes, Buffer<SimpleBuffer>> OutputBuffer;
             }
 
-            public struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
+            struct KernelData : IKernelData { }
+
+            struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
             {
                 public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
                 {

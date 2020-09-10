@@ -1,21 +1,18 @@
 using System.Collections.Generic;
 using NUnit.Framework;
 using Unity.Collections.LowLevel.Unsafe;
+using Unity.Collections;
 
 namespace Unity.DataFlowGraph.Tests
 {
     public class NodeHandleTests
     {
-        class TestNode : NodeDefinition<EmptyPorts> {}
-
-        class TestNode2 : NodeDefinition<EmptyPorts> {}
-
         [Test]
         public void NodeHandles_Record_NodeSetID_WhenCreated()
         {
             using (var set = new NodeSet())
             {
-                NodeHandle node = set.Create<TestNode>();
+                NodeHandle node = set.Create<EmptyNode>();
                 Assert.AreEqual(set.NodeSetID, node.NodeSetID);
                 set.Destroy(node);
             }
@@ -24,12 +21,12 @@ namespace Unity.DataFlowGraph.Tests
         [Test]
         public void NodeHandles_HaveExpected_SizeAndAlignment()
         {
-            Assert.AreEqual(8, UnsafeUtility.SizeOf<Collections.VersionedHandle>(), "SizeOf(VersionedHandle)");
-            Assert.AreEqual(4, UnsafeUtility.AlignOf<Collections.VersionedHandle>(), "AlignOf(VersionedHandle)");
+            Assert.AreEqual(8, UnsafeUtility.SizeOf<VersionedHandle>(), "SizeOf(VersionedHandle)");
+            Assert.AreEqual(4, UnsafeUtility.AlignOf<VersionedHandle>(), "AlignOf(VersionedHandle)");
             Assert.AreEqual(8, UnsafeUtility.SizeOf<NodeHandle>(), "SizeOf(NodeHandle)");
             Assert.AreEqual(4, UnsafeUtility.AlignOf<NodeHandle>(), "AlignOf(NodeHandle)");
-            Assert.AreEqual(8, UnsafeUtility.SizeOf<NodeHandle<TestNode>>(), "SizeOf(NodeHandle<T>)");
-            Assert.AreEqual(4, UnsafeUtility.AlignOf<NodeHandle<TestNode>>(), "AlignOf(NodeHandle<T>)");
+            Assert.AreEqual(8, UnsafeUtility.SizeOf<NodeHandle<EmptyNode>>(), "SizeOf(NodeHandle<T>)");
+            Assert.AreEqual(4, UnsafeUtility.AlignOf<NodeHandle<EmptyNode>>(), "AlignOf(NodeHandle<T>)");
             Assert.AreEqual(8, UnsafeUtility.SizeOf<ValidatedHandle>(), "SizeOf(ValidatedHandle)");
             Assert.AreEqual(4, UnsafeUtility.AlignOf<ValidatedHandle>(), "AlignOf(ValidatedHandle)");
         }
@@ -39,13 +36,13 @@ namespace Unity.DataFlowGraph.Tests
         {
             using (var set = new NodeSet())
             {
-                var a = set.Create<TestNode>();
-                var b = set.Create<TestNode>();
-                var c = set.Create<TestNode2>();
+                var a = set.Create<EmptyNode>();
+                var b = set.Create<EmptyNode>();
+                var c = set.Create<EmptyNode2>();
 
                 // Cannot compact following statements into reused functions,
-                // because they are subtly different and generic rules impact 
-                // function overloads and availability 
+                // because they are subtly different and generic rules impact
+                // function overloads and availability
 
                 // Compare equal type and instance
                 Assert.AreEqual(a, a);
@@ -82,7 +79,7 @@ namespace Unity.DataFlowGraph.Tests
                 Assert.IsFalse(((object)c).Equals(b));
                 Assert.IsFalse(c.Equals((object)b));
 
-                var comparer = EqualityComparer<NodeHandle<TestNode>>.Default;
+                var comparer = EqualityComparer<NodeHandle<EmptyNode>>.Default;
 
                 Assert.IsTrue(comparer.Equals(a, a));
 
@@ -99,13 +96,13 @@ namespace Unity.DataFlowGraph.Tests
             using (var set = new NodeSet())
             {
                 NodeHandle
-                    a = set.Create<TestNode>(),
-                    b = set.Create<TestNode>(),
-                    c = set.Create<TestNode2>();
+                    a = set.Create<EmptyNode>(),
+                    b = set.Create<EmptyNode>(),
+                    c = set.Create<EmptyNode2>();
 
                 // Cannot compact following statements into reused functions,
-                // because they are subtly different and generic rules impact 
-                // function overloads and availability 
+                // because they are subtly different and generic rules impact
+                // function overloads and availability
 
                 // Compare equal type and instance
                 Assert.AreEqual(a, a);
@@ -167,14 +164,14 @@ namespace Unity.DataFlowGraph.Tests
             const int iterations = 50;
 
             var codes = new Dictionary<int, int>();
-            var gc = new List<NodeHandle<TestNode>>();
+            var gc = new List<NodeHandle<EmptyNode>>();
 
             using (var set = new NodeSet())
             {
 
                 for (int i = 0; i < iterations; ++i)
                 {
-                    var handle = set.Create<TestNode>();
+                    var handle = set.Create<EmptyNode>();
 
                     gc.Add(handle);
                     codes[i] = handle.GetHashCode();
@@ -201,18 +198,18 @@ namespace Unity.DataFlowGraph.Tests
         {
             const int iterations = 50;
 
-            var typedHandles = new Dictionary<int, NodeHandle<TestNode>>();
+            var typedHandles = new Dictionary<int, NodeHandle<EmptyNode>>();
             var untypedHandles = new Dictionary<int, NodeHandle>();
             var boxedHandles = new Dictionary<int, object>();
 
-            var gc = new List<NodeHandle<TestNode>>();
+            var gc = new List<NodeHandle<EmptyNode>>();
 
             using (var set = new NodeSet())
             {
 
                 for (int i = 0; i < iterations; ++i)
                 {
-                    var handle = set.Create<TestNode>();
+                    var handle = set.Create<EmptyNode>();
                     gc.Add(handle);
 
                     typedHandles[i] = handle;
@@ -222,7 +219,6 @@ namespace Unity.DataFlowGraph.Tests
                     Assert.AreEqual(handle.GetHashCode(), typedHandles[i].GetHashCode());
                     Assert.AreEqual(handle.GetHashCode(), untypedHandles[i].GetHashCode());
                     Assert.AreEqual(handle.GetHashCode(), boxedHandles[i].GetHashCode());
-
                 }
 
                 foreach (var node in gc)

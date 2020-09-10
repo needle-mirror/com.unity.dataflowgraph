@@ -6,8 +6,8 @@ namespace Unity.DataFlowGraph
 {
     public interface IDSLHandler : IDisposable
     {
-        void Connect(NodeSet set, NodeHandle source, OutputPortID sourcePort, NodeHandle destination, InputPortID destinationPort);
-        void Disconnect(NodeSet set, NodeHandle source, OutputPortID sourcePort, NodeHandle destination, InputPortID destinationPort);
+        void Connect(NodeSetAPI set, NodeHandle source, OutputPortID sourcePort, NodeHandle destination, InputPortID destinationPort);
+        void Disconnect(NodeSetAPI set, NodeHandle source, OutputPortID sourcePort, NodeHandle destination, InputPortID destinationPort);
     }
 
     /// <summary>
@@ -29,7 +29,7 @@ namespace Unity.DataFlowGraph
             public ushort DSLPortIndex;
         }
 
-        public void Connect(NodeSet set, NodeHandle source, OutputPortID sourcePort, NodeHandle destination, InputPortID destinationPort)
+        public void Connect(NodeSetAPI set, NodeHandle source, OutputPortID sourcePort, NodeHandle destination, InputPortID destinationPort)
         {
             var srcNodeFunc = set.GetDefinition(source);
             var destNodeFunc = set.GetDefinition(destination);
@@ -45,7 +45,7 @@ namespace Unity.DataFlowGraph
                     Handle = source,
                     Interface = srcNodeDSL,
                     DSLPortIndex = GetDSLPortIndex(
-                        sourcePort, 
+                        sourcePort,
                         srcNodeFunc.GetPortDescription(source).Outputs.Cast<PortDescription.IPort<OutputPortID>>()
                     )
                 },
@@ -53,14 +53,14 @@ namespace Unity.DataFlowGraph
                     Handle = destination,
                     Interface = destNodeDSL,
                     DSLPortIndex = GetDSLPortIndex(
-                        destinationPort, 
+                        destinationPort,
                         destNodeFunc.GetPortDescription(destination).Inputs.Cast<PortDescription.IPort<InputPortID>>()
                     )
                 }
             );
         }
 
-        public void Disconnect(NodeSet set, NodeHandle source, OutputPortID sourcePort, NodeHandle destination, InputPortID destinationPort)
+        public void Disconnect(NodeSetAPI set, NodeHandle source, OutputPortID sourcePort, NodeHandle destination, InputPortID destinationPort)
         {
             var srcNodeFunc = set.GetDefinition(source);
             var destNodeFunc = set.GetDefinition(destination);
@@ -116,7 +116,7 @@ namespace Unity.DataFlowGraph
         public virtual void Dispose() { }
     }
 
-    public partial class NodeSet
+    public partial class NodeSetAPI
     {
         // TODO: Change all this to use type index lookup instead of associative lookup
 
@@ -135,12 +135,6 @@ namespace Unity.DataFlowGraph
             }
 
             return handler;
-        }
-
-        public TDSLHandler GetDSLHandler<TDSLHandler>()
-            where TDSLHandler : class, IDSLHandler
-        {
-            return (TDSLHandler)GetDSLHandler(typeof(TDSLHandler));
         }
     }
 }

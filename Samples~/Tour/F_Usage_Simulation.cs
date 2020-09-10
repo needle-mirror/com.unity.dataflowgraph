@@ -27,17 +27,22 @@ namespace Unity.DataFlowGraph.Tour
          * 
          * Concretely in this example, we'll just explore updating a node and a set.
          */
-        class MyNode : NodeDefinition<MyNode.MyPorts>
+        class MyNode : SimulationNodeDefinition<MyNode.MyPorts>
         {
             public struct MyPorts : ISimulationPortDefinition { }
 
-            /*
-             * Overriding the OnUpdate function will give you an update each simulation update.
-             * Normally nodes will just respond to incoming messages, otherwise. 
-             */
-            protected override void OnUpdate(in UpdateContext ctx)
+            struct NodeHandlers : INodeData, IUpdate
             {
-                Debug.Log("Updating MyNode");
+                /*
+                 * Implementing the IUpdate.Update function in an INodeData implementation in a nested declaration within
+                 * the NodeDefinition will give you an update each simulation update.
+                 * 
+                 * Normally nodes will just respond to incoming messages, otherwise.
+                 */
+                public void Update(in UpdateContext ctx)
+                {
+                    Debug.Log("Updating MyNode");
+                }
             }
         }
 

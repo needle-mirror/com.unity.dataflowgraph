@@ -1,4 +1,5 @@
 using System;
+using Unity.Collections;
 
 namespace Unity.DataFlowGraph
 {
@@ -11,14 +12,19 @@ namespace Unity.DataFlowGraph
     public readonly struct MessageContext
     {
         /// <summary>
+        /// The <see cref="NodeSetAPI"/> associated with this context.
+        /// </summary>
+        public readonly NodeSetAPI Set;
+
+        /// <summary>
         /// A handle to the node receiving a message.
         /// </summary>
-        public NodeHandle Handle => m_InputPair.Handle.ToPublicHandle();
+        public NodeHandle Handle => InputPair.Handle.ToPublicHandle();
 
         /// <summary>
         /// The port ID of the <see cref="MessageInput{TDefinition, TMsg}"/> on which the message is being received.
         /// </summary>
-        public InputPortID Port => m_InputPair.Port.PortID;
+        public InputPortID Port => InputPair.Port.PortID;
 
         /// <summary>
         /// If the above port ID corresponds to a <see cref="PortArray{TInputPort}"/>, this is the array index on which the message
@@ -28,10 +34,10 @@ namespace Unity.DataFlowGraph
         {
             get
             {
-                if (!m_InputPair.Port.IsArray)
+                if (!InputPair.Port.IsArray)
                     throw new InvalidOperationException("Trying to access index array for a non array PortID.");
 
-                return m_InputPair.Port.ArrayIndex;
+                return InputPair.Port.ArrayIndex;
             }
         }
 
@@ -41,7 +47,7 @@ namespace Unity.DataFlowGraph
         public void EmitMessage<T, TNodeDefinition>(MessageOutput<TNodeDefinition, T> port, in T msg)
             where TNodeDefinition : NodeDefinition
         {
-            m_Set.EmitMessage(m_InputPair.Handle, new OutputPortArrayID(port.Port), msg);
+            Set.EmitMessage(InputPair.Handle, new OutputPortArrayID(port.Port), msg);
         }
 
         /// <summary>
@@ -50,7 +56,7 @@ namespace Unity.DataFlowGraph
         public void EmitMessage<T, TNodeDefinition>(PortArray<MessageOutput<TNodeDefinition, T>> port, int arrayIndex, in T msg)
             where TNodeDefinition : NodeDefinition
         {
-            m_Set.EmitMessage(m_InputPair.Handle, new OutputPortArrayID(port.OutputPort, arrayIndex), msg);
+            Set.EmitMessage(InputPair.Handle, new OutputPortArrayID(port.GetPortID(), arrayIndex), msg);
         }
 
         /// <summary>
@@ -63,16 +69,53 @@ namespace Unity.DataFlowGraph
         public void SetKernelBufferSize<TGraphKernel>(in TGraphKernel requestedSize)
             where TGraphKernel : IGraphKernel
         {
-            m_Set.SetKernelBufferSize(m_InputPair.Handle, requestedSize);
+            Set.SetKernelBufferSize(InputPair.Handle, requestedSize);
         }
 
-        readonly InputPair m_InputPair;
-        readonly NodeSet m_Set;
+        internal readonly InputPair InputPair;
 
-        internal MessageContext(NodeSet set, in InputPair dest)
+        /// <summary>
+        /// Updates the associated <typeparamref name="TKernelData"/> asynchronously,
+        /// to be available in a <see cref="IGraphKernel"/> in the next render.
+        /// </summary>
+        public void UpdateKernelData<TKernelData>(in TKernelData data)
+            where TKernelData : struct, IKernelData
         {
-            m_Set = set;
-            m_InputPair = dest;
+            Set.UpdateKernelData(InputPair.Handle, data);
+        }
+
+        /// <summary>
+        /// Registers <see cref="Handle"/> for regular updates every time <see cref="NodeSet.Update"/> is called.
+        /// This only takes effect after the next <see cref="NodeSet.Update"/>.
+        /// <seealso cref="IUpdate.Update(in UpdateContext)"/>
+        /// <seealso cref="RemoveFromUpdate()"/>
+        /// </summary>
+        /// <remarks>
+        /// A node will automatically be removed from the update list when it is destroyed.
+        /// </remarks>
+        /// <exception cref="InvalidNodeDefinitionException">
+        /// Will be thrown if the <see cref="Handle"/> does not support updating.
+        /// </exception>
+        /// <exception cref="InvalidOperationException">
+        /// Thrown if <see cref="Handle"/> is already registered for updating.
+        /// </exception>
+        public void RegisterForUpdate() => Set.RegisterForUpdate(InputPair.Handle);
+
+        /// <summary>
+        /// Deregisters <see cref="Handle"/> from updating every time <see cref="NodeSet.Update"/> is called.
+        /// This only takes effect after the next <see cref="NodeSet.Update"/>.
+        /// <seealso cref="RegisterForUpdate()"/>
+        /// </summary>
+        /// <exception cref="InvalidOperationException">
+        /// Thrown if <see cref="Handle"/> is not registered for updating.
+        /// </exception>
+        public void RemoveFromUpdate() => Set.RemoveFromUpdate(InputPair.Handle);
+
+
+        internal MessageContext(NodeSetAPI set, in InputPair dest)
+        {
+            Set = set;
+            InputPair = dest;
         }
     }
 
@@ -121,7 +164,7 @@ namespace Unity.DataFlowGraph
         /// See <see cref="SendMessage{TMsg}(Unity.DataFlowGraph.NodeHandle,Unity.DataFlowGraph.InputPortID,TMsg)"/>
         /// </summary>
         public void SendMessage<TMsg, TDefinition>(NodeHandle<TDefinition> handle, MessageInput<TDefinition, TMsg> port, in TMsg msg)
-            where TDefinition : NodeDefinition, IMsgHandler<TMsg>
+            where TDefinition : NodeDefinition
         {
             SendMessage(handle, new InputPortArrayID((InputPortID)port), msg);
         }
@@ -132,14 +175,14 @@ namespace Unity.DataFlowGraph
         /// </summary>
         /// <exception cref="IndexOutOfRangeException">Thrown if the index is out of range with respect to the port array.</exception>
         public void SendMessage<TMsg, TDefinition>(NodeHandle<TDefinition> handle, PortArray<MessageInput<TDefinition, TMsg>> portArray, int index, in TMsg msg)
-            where TDefinition : NodeDefinition, IMsgHandler<TMsg>
+            where TDefinition : NodeDefinition
         {
             SendMessage(handle, new InputPortArrayID((InputPortID)portArray, index), msg);
         }
 
         public void SendMessage<TTask, TMsg, TDestination>(NodeInterfaceLink<TTask, TDestination> handle, in TMsg msg)
             where TTask : ITaskPort<TTask>
-            where TDestination : NodeDefinition, TTask, IMsgHandler<TMsg>, new()
+            where TDestination : NodeDefinition, TTask, new()
         {
             var f = GetDefinition(handle.TypedHandle);
             SendMessage(handle, f.GetPort(handle), msg);
@@ -207,12 +250,16 @@ namespace Unity.DataFlowGraph
             where TDefinition : NodeDefinition
             where TType : struct
         {
-            SetData(handle, new InputPortArrayID(portArray.InputPort, index), data);
+            SetData(handle, new InputPortArrayID(portArray.GetPortID(), index), data);
         }
 
+    }
+
+    public partial class NodeSetAPI
+    {
         unsafe internal void EmitMessage<TMsg>(ValidatedHandle handle, OutputPortArrayID port, in TMsg msg)
         {
-            if (!StillExists(handle))
+            if (!Nodes.StillExists(handle))
                 throw new InvalidOperationException("Cannot emit a message from a destroyed node");
 
             bool foundAnyValidConnections = false;
@@ -243,7 +290,7 @@ namespace Unity.DataFlowGraph
 
             if (!foundAnyValidConnections)
             {
-                for (var fP = GetNode(handle).ForwardedPortHead; fP != ForwardPortHandle.Invalid; fP = m_ForwardingTable[fP].NextIndex)
+                for (var fP = Nodes[handle].ForwardedPortHead; fP != ForwardPortHandle.Invalid; fP = m_ForwardingTable[fP].NextIndex)
                 {
                     ref var forward = ref m_ForwardingTable[fP];
 
@@ -260,15 +307,15 @@ namespace Unity.DataFlowGraph
             }
         }
 
-        void SendMessage<TMsg, TDefinition>(NodeHandle<TDefinition> handle, InputPortArrayID port, in TMsg msg)
-            where TDefinition : NodeDefinition, IMsgHandler<TMsg>
+        internal void SendMessage<TMsg, TDefinition>(NodeHandle<TDefinition> handle, InputPortArrayID port, in TMsg msg)
+            where TDefinition : NodeDefinition
         {
             var destination = new InputPair(this, handle, port);
             CheckPortArrayBounds(destination);
             GetDefinitionInternal(destination.Handle).OnMessage(new MessageContext(this, destination), msg);
         }
 
-        void SendMessage<TMsg>(NodeHandle handle, InputPortArrayID port, in TMsg msg)
+        internal unsafe void SendMessage<TMsg>(NodeHandle handle, InputPortArrayID port, in TMsg msg)
         {
             var destination = new InputPair(this, handle, port);
 
@@ -292,7 +339,7 @@ namespace Unity.DataFlowGraph
             definition.OnMessage(new MessageContext(this, destination), msg);
         }
 
-        void SetData<TType, TDefinition>(NodeHandle<TDefinition> handle, InputPortArrayID port, in TType data)
+        internal void SetData<TType, TDefinition>(NodeHandle<TDefinition> handle, InputPortArrayID port, in TType data)
             where TDefinition : NodeDefinition
             where TType : struct
         {
@@ -319,7 +366,7 @@ namespace Unity.DataFlowGraph
             m_Diff.SetData(destination, RenderGraph.AllocateAndCopyData(data));
         }
 
-        void SetData<TType>(NodeHandle handle, InputPortArrayID port, in TType data)
+        internal void SetData<TType>(NodeHandle handle, InputPortArrayID port, in TType data)
             where TType : struct
         {
             var destination = new InputPair(this, handle, port);

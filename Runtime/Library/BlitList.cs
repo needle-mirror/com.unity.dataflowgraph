@@ -94,7 +94,7 @@ namespace Unity.Collections
 
         size_t Alignment => UnsafeUtility.AlignOf<T>();
 
-        public bool IsCreated { get { return AllocationLabel != Allocator.Invalid && m_Memory != null; } }
+        public bool IsCreated { get { return AllocationLabel != Allocator.Invalid; } }
 
         public struct ReadOnly
         {
@@ -202,7 +202,8 @@ namespace Unity.Collections
         {
             if (IsCreated)
             {
-                UnsafeUtility.Free(m_Memory, AllocationLabel);
+                if(m_Memory != null)
+                    UnsafeUtility.Free(m_Memory, AllocationLabel);
                 m_Size = m_Capacity = 0;
                 AllocationLabel = Allocator.Invalid;
                 m_Memory = null;
@@ -275,12 +276,17 @@ namespace Unity.Collections
             UnsafeUtility.MemCpy(Pointer, other.Pointer, count * sizeof(T));
         }
 
+        /// <summary>
+        /// Sets <see cref="Count"/> to zero, without changing
+        /// <see cref="Capacity"/>
+        /// </summary>
+        public void Clear() => Resize(0);
+
         public void Resize(size_t newSize)
         {
-            if (AllocationLabel == Allocator.Invalid)
-                throw new ObjectDisposedException("NativeList<> not created");
+            CheckAlive();
 
-            if (m_Size == newSize && m_Size != 0)
+            if (m_Size == newSize)
                 return;
 
             if (newSize < m_Size)
@@ -330,10 +336,9 @@ namespace Unity.Collections
 
         public void Reserve(size_t newSize)
         {
-            if (AllocationLabel == Allocator.Invalid)
-                throw new ObjectDisposedException("NativeList<> not created");
+            CheckAlive();
 
-            if (newSize <= m_Capacity && m_Size != 0)
+            if (newSize <= m_Capacity)
                 return;
 
             // relocate

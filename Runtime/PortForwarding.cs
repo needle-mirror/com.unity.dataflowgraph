@@ -43,9 +43,9 @@ namespace Unity.DataFlowGraph
                 return new Unchecked(false, originPortID.Port, replacement, replacedPortID.Storage);
             }
 
-            public ForwardedPort CheckAndConvert(NodeSet set)
+            public ForwardedPort CheckAndConvert(NodeSetAPI set)
             {
-                return new ForwardedPort(IsInput, OriginPortID, set.Validate(Replacement), ReplacedPortID);
+                return new ForwardedPort(IsInput, OriginPortID, set.Nodes.Validate(Replacement.VHandle), ReplacedPortID);
             }
 
             public ushort GetOriginPortCounter()
@@ -137,7 +137,7 @@ namespace Unity.DataFlowGraph
         }
     }
 
-    public partial class NodeSet
+    public partial class NodeSetAPI
     {
         FreeList<ForwardedPort> m_ForwardingTable = new FreeList<ForwardedPort>(Allocator.Persistent);
 
@@ -177,7 +177,7 @@ namespace Unity.DataFlowGraph
             {
                 ref var originForward = ref m_ForwardingTable[currentCandidateHandle];
 
-                ref var nodeBeingForwadedTo = ref GetNode(originForward.Replacement);
+                ref var nodeBeingForwadedTo = ref Nodes[originForward.Replacement];
 
                 for (var fH = nodeBeingForwadedTo.ForwardedPortHead; fH != ForwardPortHandle.Invalid; fH = m_ForwardingTable[fH].NextIndex)
                 {

@@ -23,6 +23,7 @@ namespace Unity.DataFlowGraph.Examples.RenderGraph
         public Vector3 Rotation;
 
         public int Count;
+        public int TouchCount;
 
         public NodeSet.RenderExecutionModel ExecutionMode;
         bool DisregardOrder;
@@ -68,6 +69,14 @@ namespace Unity.DataFlowGraph.Examples.RenderGraph
                 m_Set.Connect(Mixer, AnimationMixer.KernelPorts.Output, Rotator, DirectionRotator.KernelPorts.Input);
             }
 
+            public void Touch()
+            {
+                NodeHandle thing = Mixer;
+                m_Set.Disconnect(Mixer, AnimationMixer.KernelPorts.Output, Rotator, DirectionRotator.KernelPorts.Input);
+                m_Set.Connect(Mixer, AnimationMixer.KernelPorts.Output, Rotator, DirectionRotator.KernelPorts.Input);
+
+            }
+
             public void Dispose()
             {
                 m_Set.Destroy(Horizontal);
@@ -78,6 +87,17 @@ namespace Unity.DataFlowGraph.Examples.RenderGraph
             }
         }
 
+        private void OnGUI()
+        {
+            if(GUI.Button(new Rect(5, 5, 100, 30), "Topology recompute"))
+            {
+                var stride = m_AnimationGraphs.Count / TouchCount;
+                for(int i = 0; i < TouchCount; ++i)
+                {
+                    m_AnimationGraphs[i * stride].Touch();
+                }
+            }
+        }
 
         void OnEnable()
         {

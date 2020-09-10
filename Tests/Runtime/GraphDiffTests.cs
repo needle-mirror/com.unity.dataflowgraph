@@ -15,30 +15,23 @@ namespace Unity.DataFlowGraph.Tests
             Kernel
         }
 
-        public struct Data : IKernelData
+        class NonKernelNode : SimulationNodeDefinition<NonKernelNode.EmptyPorts>
         {
-            public int Contents;
+            public struct EmptyPorts : ISimulationPortDefinition { }
         }
 
-        class NonKernelNode : NodeDefinition<EmptyPorts> {}
-
-        class KernelNode : NodeDefinition<Data, KernelNode.KernelDefs, KernelNode.Kernel>
+        public class KernelNode : KernelNodeDefinition<KernelNode.KernelDefs>
         {
-            public struct KernelDefs : IKernelPortDefinition
-            {
-            }
+            public struct KernelDefs : IKernelPortDefinition { }
+
+            struct Data : IKernelData { }
 
             [BurstCompile(CompileSynchronously = true)]
-            public struct Kernel : IGraphKernel<Data, KernelDefs>
+            struct Kernel : IGraphKernel<Data, KernelDefs>
             {
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
-                {
-
-                }
+                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports) { }
             }
         }
-
-
 
         [Test]
         public void KernelNode_HasValidKernelDataFields()
@@ -46,7 +39,7 @@ namespace Unity.DataFlowGraph.Tests
             using (var set = new NodeSet())
             {
                 NodeHandle node = set.Create<KernelNode>();
-                var internalData = set.GetNodeChecked(node);
+                var internalData = set.Nodes[node.VHandle];
 
                 unsafe
                 {
@@ -69,9 +62,8 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        [TestCase(NodeType.NonKernel)]
-        [TestCase(NodeType.Kernel)]
-        public void CreatingAndDestroyingNodes_UpdatesGraphDiff_OverUpdates(NodeType type)
+        [Test]
+        public void CreatingAndDestroyingNodes_UpdatesGraphDiff_OverUpdates([Values] NodeType type)
         {
             bool isKernel = type == NodeType.Kernel;
 
@@ -114,6 +106,27 @@ namespace Unity.DataFlowGraph.Tests
                     Assert.Zero(set.GetCurrentGraphDiff().DeletedNodes.Count);
                 }
 
+            }
+        }
+
+        [Test]
+        public void CreatingGraphValue_AddsEntryInGraphDiff([Values] bool strong)
+        {
+            using (var set = new NodeSet())
+            {
+                var node = set.Create<NodeWithAllTypesOfPorts>();
+                GraphValue<int> gv;
+
+                if (strong)
+                    gv = set.CreateGraphValue(node, NodeWithAllTypesOfPorts.KernelPorts.OutputScalar);
+                else
+                    gv = set.CreateGraphValue<int>(node, (OutputPortID)NodeWithAllTypesOfPorts.KernelPorts.OutputScalar);
+
+                Assert.AreEqual(1, set.GetCurrentGraphDiff().CreatedGraphValues.Count);
+                Assert.AreEqual(gv.Handle, set.GetCurrentGraphDiff().CreatedGraphValues[0].Versioned);
+
+                set.ReleaseGraphValue(gv);
+                set.Destroy(node);
             }
         }
 

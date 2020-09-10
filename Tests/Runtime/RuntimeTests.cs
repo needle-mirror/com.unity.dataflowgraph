@@ -10,8 +10,10 @@ namespace Unity.DataFlowGraph.Tests
 
     public class RuntimeTests
     {
-        class NodeWithManagedData : NodeDefinition<NodeWithManagedData.Data, EmptyPorts>
+        class NodeWithManagedData : SimulationNodeDefinition<NodeWithManagedData.EmptyPorts>
         {
+            public struct EmptyPorts : ISimulationPortDefinition { }
+
             [Managed]
             public struct Data : INodeData
             {

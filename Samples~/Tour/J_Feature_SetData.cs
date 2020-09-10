@@ -14,19 +14,17 @@ namespace Unity.DataFlowGraph.Tour
          * There's an API for updating the value of an unconnected input called SetData() on the NodeSet.
          * Concretely, we'll use it for setting initial values on the leaves of the graph. 
          */
-        public class MyNode : NodeDefinition<MyNode.InstanceData, MyNode.KernelData, MyNode.KernelDefs, MyNode.GraphKernel>
+        public class MyNode : KernelNodeDefinition<MyNode.KernelDefs>
         {
-            public struct InstanceData : INodeData { }
-
-            public struct KernelData : IKernelData { }
-
             public struct KernelDefs : IKernelPortDefinition
             {
                 public DataInput<MyNode, float> InputA, InputB;
                 public DataOutput<MyNode, float> Output;
             }
 
-            public struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
+            struct KernelData : IKernelData { }
+
+            struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
             {
                 public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
                 {

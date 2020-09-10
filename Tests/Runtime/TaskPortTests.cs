@@ -240,10 +240,6 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        class EmptyNode : NodeDefinition<EmptyPorts>
-        {
-        }
-
         [Test]
         public void Connect_UsingPortIndices_WithInvalidInterfaceLink_ThrowsException()
         {

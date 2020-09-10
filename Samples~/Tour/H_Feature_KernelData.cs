@@ -16,11 +16,12 @@ namespace Unity.DataFlowGraph.Tour
          * process its public inputs and outputs.
          */
         public class MyNode 
-            : NodeDefinition<MyNode.InstanceData, MyNode.SimPorts, MyNode.KernelData, MyNode.KernelDefs, MyNode.GraphKernel>
-            , IMsgHandler<float>
+            /*
+             * Now we're deriving from a combined simulation / rendering node definition base,
+             * so that this node can participate in both simulation and the rendering.
+             */
+            : SimulationKernelNodeDefinition<MyNode.SimPorts, MyNode.KernelDefs>
         {
-            public struct InstanceData : INodeData { }
-
             public struct SimPorts : ISimulationPortDefinition
             {
                 /// <summary>
@@ -29,7 +30,9 @@ namespace Unity.DataFlowGraph.Tour
                 public MessageInput<MyNode, float> SomeParameter;
             }
 
-            public struct KernelData : IKernelData
+            public struct KernelDefs : IKernelPortDefinition {}
+
+            struct KernelData : IKernelData
             {
                 /// <summary>
                 /// Here's the constant parameter we'd like to use inside the rendering pass.
@@ -37,9 +40,7 @@ namespace Unity.DataFlowGraph.Tour
                 public float MyPrivateParameter;
             }
 
-            public struct KernelDefs : IKernelPortDefinition {}
-
-            public struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
+            struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
             {
                 public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
                 {
@@ -47,15 +48,15 @@ namespace Unity.DataFlowGraph.Tour
                 }
             }
 
-            public void HandleMessage(in MessageContext ctx, in float msg)
+            struct NodeHandler : INodeData, IMsgHandler<float>
             {
-                /*
-                 * To access the kernel data inside the simulation and update it, we have a GetKernelData() API
-                 * just like GetNodeData() API.
-                 * If the kernel data changed, it will be updated before the next rendering pass.
-                 */
-                ref var kernelData = ref GetKernelData(ctx.Handle);
-                kernelData.MyPrivateParameter = Mathf.Sin(msg);
+                public void HandleMessage(in MessageContext ctx, in float msg)
+                {
+                    /*
+                     * To update the kernel data from inside the simulation we have the UpdateKernelData() API.
+                     */
+                    ctx.UpdateKernelData(new KernelData{ MyPrivateParameter = Mathf.Sin(msg) });
+                }
             }
         }
 

@@ -22,23 +22,21 @@ namespace Unity.DataFlowGraph.Tour
          * Concretely, we'll look at reading back a computed value from a rendering each frame in this example.
          * To do this, we'll reuse the binary mixer tree starred in I_Usage_DataFlow example.
          */
-        public class MyNode : NodeDefinition<MyNode.InstanceData, MyNode.KernelData, MyNode.KernelDefs, MyNode.GraphKernel>
+        public class MyNode : KernelNodeDefinition<MyNode.KernelDefs>
         {
-            public struct InstanceData : INodeData { }
-
-            public struct KernelData : IKernelData { }
-
             public struct KernelDefs : IKernelPortDefinition
             {
                 public DataInput<MyNode, float> InputA, InputB;
                 public DataOutput<MyNode, float> Output;
             }
 
+            struct KernelData : IKernelData { }
+
             /*
              * Since we'll communicate entirely through data, we can actually run entirely in Burst, so let's do that.
              */
             [BurstCompile]
-            public struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
+            struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
             {
                 public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
                 {

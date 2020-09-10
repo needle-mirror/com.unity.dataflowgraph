@@ -1,23 +1,49 @@
 ﻿using System;
 using Mono.Cecil;
-using Mono.Cecil.Rocks;
 
 namespace Unity.DataFlowGraph.CodeGen
 {
     partial class NodeDefinitionProcessor
     {
+        (FieldReference Sim, FieldReference Kernel) RecoverStaticPortFieldsFromNodeDefinition(TypeReference node)
+        {
+            FieldReference sim = null, kernel = null;
+
+            var rawNodeDefinition = m_Lib.DefinitionKindToType(DFGLibrary.NodeDefinitionKind.Naked);
+
+            // Keep drilling down a bit more, to recover static SimulationPorts and KernelPorts.
+            // Note, it's a bug to _not_ hit the base node definition (otherwise we shouldn't be in this function)
+            for(; !node.RefersToSame(rawNodeDefinition); node = node.InstantiatedBaseType())
+            {
+                switch(m_Lib.IdentifyDefinition(node))
+                {
+                    case DFGLibrary.NodeDefinitionKind.SimulationKernel:
+                        kernel = new FieldReference(m_Lib.SimulationKernelNodeDefinition_KernelPortsField.Name, m_Lib.SimulationKernelNodeDefinition_KernelPortsField.FieldType, EnsureImported(node));
+                        break;
+                    case DFGLibrary.NodeDefinitionKind.Simulation:
+                        sim  = new FieldReference(m_Lib.SimulationNodeDefinition_SimulationPortsField.Name, m_Lib.SimulationNodeDefinition_SimulationPortsField.FieldType, EnsureImported(node));
+                        return (sim, kernel);
+                    case DFGLibrary.NodeDefinitionKind.Kernel:
+                        kernel = new FieldReference(m_Lib.KernelNodeDefinition_KernelPortsField.Name, m_Lib.KernelNodeDefinition_KernelPortsField.FieldType, EnsureImported(node));
+                        return (sim, kernel);
+                }
+            }
+
+            return (null, null);
+        }
+
         (DFGLibrary.NodeDefinitionKind?, TypeReference) DetermineNodeDefinition(Diag diag)
         {
             // Determine the top level node definition derivation
             for (TypeReference currentRoot = DefinitionRoot; currentRoot != null;)
             {
-                var baseInstantiated = currentRoot.InstantiatedBaseType();
-                var kind = m_Lib.IdentifyDefinition(baseInstantiated.Resolve());
+                var firstNodeDefinitionHierarchyCandidate = currentRoot.InstantiatedBaseType();
+                var kind = m_Lib.IdentifyDefinition(firstNodeDefinitionHierarchyCandidate.Resolve());
 
                 if (kind.HasValue)
-                    return (kind, baseInstantiated);
+                    return (kind, firstNodeDefinitionHierarchyCandidate);
 
-                currentRoot = baseInstantiated;
+                currentRoot = firstNodeDefinitionHierarchyCandidate;
             }
 
             return (null, null);
@@ -52,8 +78,8 @@ namespace Unity.DataFlowGraph.CodeGen
                     {
                         if (resultLocation != null)
                             d.DFG_UE_01(this, (TypeLocationContext)interfaceWeAreLookingFor);
-
-                        resultLocation = node;
+                        else
+                            resultLocation = node;
                     }
                 }
 

@@ -86,7 +86,7 @@ namespace Unity.DataFlowGraph.Tests
                 var entity = f.EM.CreateEntity();
                 var node = f.Set.CreateComponentNode(entity);
 
-                ref readonly var kdata = ref f.Set.GetSimulationSide_KernelData(f.Set.CastHandle<InternalComponentNode>(node));
+                ref readonly var kdata = ref f.Set.GetSimulationSide_KernelData(f.Set.Validate(node));
 
                 Assert.AreEqual(entity, kdata.Entity);
 #pragma warning disable 618 // 'EntityManager.EntityComponentStore' is obsolete: 'This is slow. Use The EntityDataAccess directly in new code.'
@@ -110,7 +110,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 ref readonly var kernelNode = ref f.Set.DataGraph.GetInternalData()[node.VHandle.Index];
                 ref readonly var kernel = ref InternalComponentNode.GetGraphKernel(kernelNode.Instance.Kernel);
-                
+
                 Assert.IsTrue(kernel.Inputs.IsCreated);
                 Assert.IsTrue(kernel.Outputs.IsCreated);
                 Assert.IsTrue(kernel.JITPorts.IsCreated);
@@ -142,7 +142,7 @@ namespace Unity.DataFlowGraph.Tests
             {
                 var entity = f.EM.CreateEntity();
                 var node = f.Set.CreateComponentNode(entity);
-                
+
                 // This cannot select the template overload, as ComponentNode is not : new
                 // Hence the user can only ever get a base definition.
                 var def = f.Set.GetDefinition(node);
@@ -163,7 +163,7 @@ namespace Unity.DataFlowGraph.Tests
                 var entity = f.EM.CreateEntity();
                 var node = f.Set.CreateComponentNode(entity);
                 ref readonly var traits = ref f.Set.GetNodeTraits(node);
-                Assert.IsTrue(traits.Storage.IsComponentNode);
+                Assert.IsTrue(traits.KernelStorage.IsComponentNode);
                 f.Set.Destroy(node);
             }
         }
@@ -175,7 +175,7 @@ namespace Unity.DataFlowGraph.Tests
             {
                 var node = set.Create<NodeWithAllTypesOfPorts>();
                 ref readonly var traits = ref set.GetNodeTraits(node);
-                Assert.False(traits.Storage.IsComponentNode);
+                Assert.False(traits.KernelStorage.IsComponentNode);
                 set.Destroy(node);
             }
         }
@@ -276,7 +276,7 @@ namespace Unity.DataFlowGraph.Tests
                 Assert.AreEqual(1, buf.Length);
                 var item0 = buf[0];
 
-                Assert.AreEqual(node.VHandle, item0.Node.VHandle);
+                Assert.AreEqual(node.VHandle, item0.Node.Versioned);
                 Assert.AreEqual(f.Set.NodeSetID, item0.NodeSetID);
 
                 f.Set.Destroy(node);
@@ -321,9 +321,9 @@ namespace Unity.DataFlowGraph.Tests
                     else
                     {
                         f.Set.Disconnect(
-                            entityNode, 
-                            ComponentNode.Output(ComponentType.ReadOnly<SimpleData>()), 
-                            dfgNode, 
+                            entityNode,
+                            ComponentNode.Output(ComponentType.ReadOnly<SimpleData>()),
+                            dfgNode,
                             (InputPortID)SimpleNode_WithECSTypes.KernelPorts.Input
                         );
                     }
@@ -336,9 +336,9 @@ namespace Unity.DataFlowGraph.Tests
                     else
                     {
                         f.Set.Connect(
-                            entityNode, 
-                            ComponentNode.Output(ComponentType.ReadOnly<SimpleData>()), 
-                            dfgNode, 
+                            entityNode,
+                            ComponentNode.Output(ComponentType.ReadOnly<SimpleData>()),
+                            dfgNode,
                             (InputPortID)SimpleNode_WithECSTypes.KernelPorts.Input
                         );
                     }
@@ -392,9 +392,9 @@ namespace Unity.DataFlowGraph.Tests
                     else
                     {
                         f.Set.Connect(
-                            dfgNode, 
-                            (OutputPortID)SimpleNode_WithECSTypes.KernelPorts.Output, 
-                            entityNode, 
+                            dfgNode,
+                            (OutputPortID)SimpleNode_WithECSTypes.KernelPorts.Output,
+                            entityNode,
                             ComponentNode.Input(ComponentType.ReadWrite<SimpleData>())
                         );
                     }
@@ -627,7 +627,7 @@ namespace Unity.DataFlowGraph.Tests
                 var e = f.EM.CreateEntity(typeof(SimpleData));
                 var n = f.Set.CreateComponentNode(e);
                 var o = f.Set.Create<InOutTestNode>();
-                
+
                 Assert.Throws<InvalidOperationException>(() =>
                     {
                         if (forward)
@@ -765,9 +765,9 @@ namespace Unity.DataFlowGraph.Tests
                 var node2 = set.Create<SimpleNode_WithECSTypes>();
 
                 set.Connect(
-                    node, 
-                    ComponentNode.Output(ComponentType.ReadOnly<SimpleData>()), 
-                    node2, 
+                    node,
+                    ComponentNode.Output(ComponentType.ReadOnly<SimpleData>()),
+                    node2,
                     ComponentNode.Input(ComponentType.ReadWrite<SimpleData>())
                 );
 

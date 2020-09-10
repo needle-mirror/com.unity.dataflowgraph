@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Diagnostics;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
@@ -11,7 +12,6 @@ namespace Unity.DataFlowGraph
     using Topology = TopologyAPI<ValidatedHandle, InputPortArrayID, OutputPortArrayID>;
     using BufferResizeCommands = BlitList<RenderGraph.BufferResizeStruct>;
     using InputPortUpdateCommands = BlitList<RenderGraph.InputPortUpdateStruct>;
-    using UntypedPortArray = PortArray<DataInput<InvalidDefinitionSlot, byte>>;
 
     partial class NodeSet
     {
@@ -35,8 +35,6 @@ namespace Unity.DataFlowGraph
             Islands
         }
 
-        RenderExecutionModel m_Model;
-
         /// <summary>
         /// The render execution scheduling mode use for launching the processing of
         /// <see cref="IGraphKernel{TKernelData,TKernelPortDefinition}"/>s in the node set.
@@ -45,14 +43,25 @@ namespace Unity.DataFlowGraph
         /// <remarks>Changing this can drastically alter the execution runtime of your graph. The best choice largely depends on the topological layout of the graph in question.</remarks>
         public RenderExecutionModel RendererModel
         {
-            get => m_Model;
+            get => InternalRendererModel;
+            set => InternalRendererModel = value;
+        }
+    }
+
+    public partial class NodeSetAPI
+    {
+        internal NodeSet.RenderExecutionModel Model;
+
+        internal NodeSet.RenderExecutionModel InternalRendererModel
+        {
+            get => Model;
             set
             {
                 // trigger a topology recomputation
-                if (m_Model != value)
+                if (Model != value)
                     m_TopologyVersion.SignalTopologyChanged();
 
-                m_Model = value;
+                Model = value;
             }
 
         }
@@ -91,6 +100,8 @@ namespace Unity.DataFlowGraph
 
         const Allocator PortAllocator = Allocator.Persistent;
 
+        [DebuggerDisplay("{DebugDisplay(), nq}")]
+        [DebuggerTypeProxy(typeof(KernelNodeDebugView))]
         internal unsafe struct KernelNode
         {
             public bool AliveInRenderer => Instance.Kernel != null;
@@ -111,7 +122,7 @@ namespace Unity.DataFlowGraph
             {
                 ref var traits = ref TraitsHandle.Resolve();
 
-                if (traits.Storage.IsComponentNode)
+                if (traits.KernelStorage.IsComponentNode)
                 {
                     InternalComponentNode.GetGraphKernel(Instance.Kernel).Dispose();
                 }
@@ -122,7 +133,7 @@ namespace Unity.DataFlowGraph
                     UnsafeUtility.Free(offset.AsUntyped(Instance.Ports).Ptr, PortAllocator);
                 }
 
-                foreach (var offset in traits.Storage.KernelBufferInfos)
+                foreach (var offset in traits.KernelStorage.KernelBufferInfos)
                 {
                     UnsafeUtility.Free(offset.Offset.AsUntyped(Instance.Kernel).Ptr, PortAllocator);
                 }
@@ -132,16 +143,9 @@ namespace Unity.DataFlowGraph
                     ref var portDecl = ref traits.DataPorts.Inputs[i];
 
                     if (!portDecl.IsArray)
-                    {
-                        var inputPortPatch = portDecl.GetPointerToPatch(Instance.Ports);
-
-                        if (DataInputUtility.PortOwnsMemory(inputPortPatch))
-                            UnsafeUtility.Free(*inputPortPatch, PortAllocator);
-                    }
+                        portDecl.GetStorageLocation(Instance.Ports)->FreeIfNeeded(PortAllocator);
                     else
-                    {
-                        UntypedPortArray.Free(ref portDecl.AsPortArray(Instance.Ports), PortAllocator);
-                    }
+                        portDecl.AsPortArray(Instance.Ports).Free(PortAllocator);
                 }
 
                 traits.KernelLayout.Free(Instance, Allocator.Persistent);
@@ -151,6 +155,8 @@ namespace Unity.DataFlowGraph
             {
                 return ref *(BufferDescription*)((byte*)Instance.Kernel + byteOffset);
             }
+
+            string DebugDisplay() => KernelNodeDebugView.DebugDisplay(this);
         }
 
         // Note that this list and the one in NodeSet.m_Nodes alias each other
@@ -160,7 +166,7 @@ namespace Unity.DataFlowGraph
         NativeList<JobHandle> m_BackScheduledJobs;
         NativeList<ValidatedHandle> m_ChangedNodes;
 
-        NodeSet m_Set;
+        NodeSetAPI m_Set;
         internal Topology.TraversalCache Cache;
         internal SharedData m_SharedData;
         // TODO: Test this is in sync with # of kernel nodes
@@ -170,6 +176,8 @@ namespace Unity.DataFlowGraph
         bool m_IsRendering;
         AtomicSafetyManager.BufferProtectionScope m_BufferScope;
         EntityQuery m_NodeSetAttachmentQuery;
+        Topology.Database m_Database;
+        FlatTopologyMap m_Map;
 
         EntityQuery AttachmentQuery
         {
@@ -184,20 +192,22 @@ namespace Unity.DataFlowGraph
             }
         }
 
-        public RenderGraph(NodeSet set)
+        public RenderGraph(NodeSetAPI set)
         {
             m_Set = set;
             Cache = new Topology.TraversalCache(
                 16,
                 (uint)PortDescription.Category.Data | ((uint)PortDescription.Category.Data << (int)PortDescription.CategoryShift.BackConnection),
                 (uint)PortDescription.Category.Data | ((uint)PortDescription.Category.Data << (int)PortDescription.CategoryShift.FeedbackConnection));
-            m_SharedData = new SharedData(32);
+            m_SharedData = new SharedData(SimpleType.MaxAlignment);
             m_Model = NodeSet.RenderExecutionModel.MaximallyParallel;
             m_IslandFences = new NativeList<JobHandle>(16, Allocator.Persistent);
             m_BackScheduledJobs = new NativeList<JobHandle>(16, Allocator.Persistent);
             m_PreviousVersion = Topology.CacheAPI.VersionTracker.Create();
             m_BufferScope = AtomicSafetyManager.BufferProtectionScope.Create();
             m_ChangedNodes = new NativeList<ValidatedHandle>(16, Allocator.Persistent);
+            m_Database = new Topology.Database(32, Allocator.Persistent);
+            m_Map = new FlatTopologyMap(32, Allocator.Persistent);
         }
 
         public void CopyWorlds(GraphDiff ownedGraphDiff, JobHandle ecsExternalDependencies, NodeSet.RenderExecutionModel executionModel, VersionedList<DataOutputValue> values)
@@ -213,8 +223,7 @@ namespace Unity.DataFlowGraph
                 parallelInputPortUpdates = default,
                 parallelKernelBlit = default,
                 parallelTopology = default,
-                scheduleDeps = default,
-                asyncMemoryCopy = default;
+                scheduleDeps = default;
 
             try
             {
@@ -231,8 +240,8 @@ namespace Unity.DataFlowGraph
                 parallelTopology = Topology.ComputationContext<FlatTopologyMap>.InitializeContext(
                     internalDependencies,
                     out topologyContext,
-                    m_Set.GetTopologyDatabase(),
-                    m_Set.GetTopologyMap(),
+                    m_Database,
+                    m_Map,
                     Cache,
                     m_ChangedNodes,
                     m_NumExistingNodes,
@@ -260,13 +269,10 @@ namespace Unity.DataFlowGraph
                     )
                 );
 
-                asyncMemoryCopy = ResolveDataOutputsToGraphValues(parallelResizeBuffers, values);
-
-                m_ExternalDependencies = Utility.CombineDependencies(
+                m_ExternalDependencies = JobHandle.CombineDependencies(
                     m_ExternalDependencies,
                     ecsExternalDependencies,
-                    parallelKernelBlit,
-                    asyncMemoryCopy
+                    parallelResizeBuffers
                 );
 
                 Markers.PrepareGraphProfilerMarker.End();
@@ -280,7 +286,6 @@ namespace Unity.DataFlowGraph
 
                 Markers.PostScheduleTasksProfilerMarker.Begin();
                 scheduleDeps = InjectValueDependencies(scheduleDeps, values);
-
                 UpdateTopologyVersion(m_Set.TopologyVersion);
                 Markers.PostScheduleTasksProfilerMarker.End();
             }
@@ -290,9 +295,7 @@ namespace Unity.DataFlowGraph
                 parallelResizeBuffers.Complete();
                 parallelInputPortUpdates.Complete();
                 parallelKernelBlit.Complete();
-                parallelTopology.Complete();
                 scheduleDeps.Complete();
-                asyncMemoryCopy.Complete();
                 // TODO: If we ever reach this point through an exception, the worlds are now out of sync
                 // and cannot be safely diff'ed anymore...
                 // Should do a safe-pass and copy the whole world again.
@@ -306,9 +309,7 @@ namespace Unity.DataFlowGraph
                 Markers.FinalizeParallelTasksProfilerMarker.Begin();
                 parallelResizeBuffers.Complete();
                 parallelKernelBlit.Complete();
-                parallelTopology.Complete();
                 scheduleDeps.Complete();
-                asyncMemoryCopy.Complete();
 
                 ownedGraphDiff.Dispose();
                 if (topologyContext.IsCreated)
@@ -340,12 +341,14 @@ namespace Unity.DataFlowGraph
             m_BufferScope.Dispose();
             m_BackScheduledJobs.Dispose();
             m_ChangedNodes.Dispose();
+            m_Database.Dispose();
+            m_Map.Dispose();
         }
 
-        /// <param name="internalDeps">Dependencies for scheduling the graph</param>
+        /// <param name="topologyDependencies">Dependencies for scheduling the graph</param>
         /// <param name="externalDeps">Dependencies for the scheduled graph</param>
         /// <returns></returns>
-        JobHandle RenderWorld(JobHandle internalDeps, JobHandle externalDeps)
+        JobHandle RenderWorld(JobHandle topologyDependencies, JobHandle externalDeps)
         {
             var job = new WorldRenderingScheduleJob();
 
@@ -358,11 +361,8 @@ namespace Unity.DataFlowGraph
                 job.IslandFences = m_IslandFences;
                 job.Shared = m_SharedData;
                 job.ExternalDependencies = externalDeps;
+                job.TopologyDependencies = topologyDependencies;
 
-                Markers.WaitForSchedulingDependenciesProfilerMarker.Begin();
-                internalDeps.Complete();
-
-                Markers.WaitForSchedulingDependenciesProfilerMarker.End();
                 // TODO: Change to job.Run() to run it through burst (currently not supported due to faulty detected of main thread).
                 // Next TODO: Change to job.Schedule() if we can ever schedule jobs from non-main thread. This would remove any trace of
                 // the render graph on the main thread, and still be completely deterministic (although the future logic in copy worlds
@@ -405,11 +405,6 @@ namespace Unity.DataFlowGraph
             {
                 Debug.LogError($"NodeSet.RenderGraph.Traversal: {Topology.TraversalCache.FormatError(Cache.Errors.Dequeue())}");
             }
-        }
-
-        JobHandle ResolveDataOutputsToGraphValues(JobHandle inputDependencies, VersionedList<DataOutputValue> values)
-        {
-            return new ResolveDataOutputsToGraphValuesJob { Nodes = m_Nodes, Values = values }.Schedule(values.UncheckedCount, 2, inputDependencies);
         }
 
         JobHandle InjectValueDependencies(JobHandle inputDependencies, VersionedList<DataOutputValue> values)
@@ -538,10 +533,10 @@ namespace Unity.DataFlowGraph
                         var args = ownedGraphDiff.ResizedDataBuffers[ownedGraphDiff.Commands[i].ContainerIndex];
 
                         // Avoid nodes that never existed, because they were deleted in the same batch...
-                        if (!m_Set.StillExists(args.Handle))
+                        if (!simulationNodes.StillExists(args.Handle))
                             break;
 
-                        ref var node = ref simulationNodes[args.Handle.VHandle.Index];
+                        ref var node = ref simulationNodes[args.Handle];
                         ref var traits = ref llTraits[node.TraitsIndex].Resolve();
 
                         var portNumber = args.Port == default ? BufferResizeStruct.KernelBufferResizeHint : traits.DataPorts.FindOutputDataPortNumber(args.Port.PortID);
@@ -563,10 +558,10 @@ namespace Unity.DataFlowGraph
                         var args = ownedGraphDiff.ResizedPortArrays[ownedGraphDiff.Commands[i].ContainerIndex];
 
                         // Avoid nodes that never existed, because they were deleted in the same batch...
-                        if (!m_Set.StillExists(args.Destination.Handle))
+                        if (!simulationNodes.StillExists(args.Destination.Handle))
                             break;
 
-                        ref var node = ref simulationNodes[args.Destination.Handle.VHandle.Index];
+                        ref var node = ref simulationNodes[args.Destination.Handle];
                         ref var traits = ref llTraits[node.TraitsIndex].Resolve();
 
                         var portNumber = traits.DataPorts.FindInputDataPortNumber(args.Destination.Port.PortID);
@@ -585,10 +580,13 @@ namespace Unity.DataFlowGraph
                     case GraphDiff.Command.Create:
                     {
                         var handle = ownedGraphDiff.CreatedNodes[ownedGraphDiff.Commands[i].ContainerIndex];
-                        ref var node = ref simulationNodes[handle.VHandle.Index];
+                        ref var node = ref simulationNodes[handle];
+
+                        m_Map.EnsureSize(handle.Versioned.Index + 1);
+
 
                         // Avoid constructing nodes that never existed, because they were deleted in the same batch...
-                        if (m_Set.StillExists(handle))
+                        if (simulationNodes.StillExists(handle))
                         {
 
                             if (StillExists(handle))
@@ -623,13 +621,13 @@ namespace Unity.DataFlowGraph
                         var args = ownedGraphDiff.MessagesArrivingAtDataPorts[ownedGraphDiff.Commands[i].ContainerIndex];
 
                         // Avoid messaging nodes that never existed, because they were deleted in the same batch...
-                        if (!m_Set.StillExists(args.Destination.Handle))
+                        if (!simulationNodes.StillExists(args.Destination.Handle))
                         {
                             UnsafeUtility.Free(args.msg, PortAllocator);
                             break;
                         }
 
-                        ref var node = ref simulationNodes[args.Destination.Handle.VHandle.Index];
+                        ref var node = ref simulationNodes[args.Destination.Handle];
                         ref var traits = ref llTraits[node.TraitsIndex].Resolve();
 
                         var portNumber = traits.DataPorts.FindInputDataPortNumber(args.Destination.Port.PortID);
@@ -648,6 +646,26 @@ namespace Unity.DataFlowGraph
 
                         break;
                     }
+                    case GraphDiff.Command.CreatedConnection:
+                    {
+                        ref readonly var args = ref ownedGraphDiff.CreatedConnections[ownedGraphDiff.Commands[i].ContainerIndex];
+
+                        if (m_Set.Nodes.StillExists(args.Destination) && m_Set.Nodes.StillExists(args.Source))
+                            m_Database.Connect(ref m_Map, args.TraversalFlags, args.Source, args.SourceOutputPort, args.Destination, args.DestinationInputPort);
+
+                        break;
+                    }
+                    case GraphDiff.Command.DeletedConnection:
+                    {
+                        ref readonly var args = ref ownedGraphDiff.DeletedConnections[ownedGraphDiff.Commands[i].ContainerIndex];
+
+                        if (m_Set.Nodes.StillExists(args.Destination) && m_Set.Nodes.StillExists(args.Source))
+                            m_Database.Disconnect(ref m_Map, args.Source, args.SourceOutputPort, args.Destination, args.DestinationInputPort);
+
+                        break;
+                    }
+                    case GraphDiff.Command.GraphValueCreated:
+                        break;
                     default:
                         throw new ArgumentOutOfRangeException();
                 }
@@ -659,8 +677,8 @@ namespace Unity.DataFlowGraph
             liveNodesJob.KernelNodes = m_Nodes;
             liveNodesJob.ChangedNodes = m_ChangedNodes;
             liveNodesJob.Marker = Markers.AnalyseLiveNodes;
-            liveNodesJob.Map = m_Set.GetTopologyMap();
-            liveNodesJob.Filter = m_Set.GetTopologyDatabase();
+            liveNodesJob.Map = m_Map;
+            liveNodesJob.Filter = m_Database;
             liveNodesJob.Run();
         }
 
@@ -671,28 +689,32 @@ namespace Unity.DataFlowGraph
 
         internal static bool StillExists(ref BlitList<KernelNode> nodes, ValidatedHandle handle)
         {
-            if (handle.VHandle.Index >= nodes.Count)
+            if (handle.Versioned.Index >= nodes.Count)
                 return false;
 
-            ref var knode = ref nodes[handle.VHandle.Index];
+            ref var knode = ref nodes[handle.Versioned.Index];
             return knode.AliveInRenderer && knode.Handle == handle;
         }
 
         void Destruct(ValidatedHandle handle)
         {
-            m_Nodes[handle.VHandle.Index].FreeInplace();
+            m_Database.DisconnectAll(ref m_Map, handle);
+            m_Database.VertexDeleted(ref m_Map, handle);
+            m_Map[handle] = default;
+            m_Nodes[handle.Versioned.Index].FreeInplace();
             m_NumExistingNodes--;
         }
 
         unsafe void Construct((ValidatedHandle handle, int traitsIndex, LLTraitsHandle traitsHandle) args)
         {
-            var index = args.handle.VHandle.Index;
+            var index = args.handle.Versioned.Index;
             m_Nodes.EnsureSize(index + 1);
+
             ref var node = ref m_Nodes[index];
             ref var traits = ref args.traitsHandle.Resolve();
 
             node.Instance = traits.KernelLayout.Allocate(Allocator.Persistent);
-            node.KernelDataSize = traits.Storage.KernelData.Size;
+            node.KernelDataSize = traits.KernelStorage.KernelData.Size;
 
             // Assign owner IDs to data output buffers
             foreach (var offset in traits.DataPorts.OutputBufferOffsets)
@@ -701,7 +723,7 @@ namespace Unity.DataFlowGraph
             }
 
             // Assign owner IDs to kernel state buffers
-            foreach (var offset in traits.Storage.KernelBufferInfos)
+            foreach (var offset in traits.KernelStorage.KernelBufferInfos)
             {
                 offset.Offset.AsUntyped(node.Instance.Kernel) = new BufferDescription(null, 0, args.handle);
             }
@@ -711,12 +733,14 @@ namespace Unity.DataFlowGraph
             node.TraitsHandle = args.traitsHandle;
             node.Handle = args.handle;
 
-            if(traits.Storage.IsComponentNode)
+            if(traits.KernelStorage.IsComponentNode)
             {
                 InternalComponentNode.GetGraphKernel(node.Instance.Kernel).Create();
             }
 
             m_NumExistingNodes++;
+
+            m_Database.VertexCreated(ref m_Map, args.handle);
         }
 
         void ClearNodes()
@@ -734,6 +758,9 @@ namespace Unity.DataFlowGraph
         // stuff exposed for tests.
 
         internal BlitList<KernelNode> GetInternalData() => m_Nodes;
+        internal FlatTopologyMap GetMap_ForTesting() => m_Map;
+        internal Topology.Database GetDatabase_ForTesting() => m_Database;
+
     }
 
 }

@@ -19,10 +19,8 @@ namespace Unity.DataFlowGraph.Tour
          * (if it was downstream, it would be the same as a normal connection).
          * 
          */
-        public class AddNode : NodeDefinition<AddNode.KernelData, AddNode.KernelDefs, AddNode.GraphKernel>
+        public class AddNode : KernelNodeDefinition<AddNode.KernelDefs>
         {
-            public struct KernelData : IKernelData { }
-
             public struct KernelDefs : IKernelPortDefinition
             {
                 public DataInput<AddNode, uint>   InputA;
@@ -30,7 +28,9 @@ namespace Unity.DataFlowGraph.Tour
                 public DataOutput<AddNode, uint>  Result;
             }
 
-            public struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
+            struct KernelData : IKernelData { }
+
+            struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
             {
                 public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
                 {
@@ -49,10 +49,8 @@ namespace Unity.DataFlowGraph.Tour
             }
         }
 
-        public class DelayLineNode : NodeDefinition<DelayLineNode.KernelData, DelayLineNode.KernelDefs, DelayLineNode.GraphKernel>
+        public class DelayLineNode : KernelNodeDefinition<DelayLineNode.KernelDefs>
         {
-            public struct KernelData : IKernelData { }
-
             public struct KernelDefs : IKernelPortDefinition
             {
                 public DataInput<DelayLineNode, uint>   InputN;
@@ -60,7 +58,9 @@ namespace Unity.DataFlowGraph.Tour
                 public DataOutput<DelayLineNode, uint>  OutputN2;
             }
 
-            public struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
+            struct KernelData : IKernelData { }
+
+            struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
             {
                 uint m_PreviousValue;
                 public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)

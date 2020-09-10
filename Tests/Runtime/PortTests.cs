@@ -120,7 +120,7 @@ namespace Unity.DataFlowGraph.Tests
             Assert.AreEqual(10, connectionCategories.Count);
         }
 
-        public class KernelPortTestNode : NodeDefinition<EmptyData, EmptyKernelData, KernelPortTestNode.KernelDefs, KernelPortTestNode.Kernel>
+        public class KernelPortTestNode : KernelNodeDefinition<KernelPortTestNode.KernelDefs>
         {
             public struct KernelDefs : IKernelPortDefinition
             {
@@ -138,15 +138,17 @@ namespace Unity.DataFlowGraph.Tests
                 public DataOutput<KernelPortTestNode, PortIDs> PortIDsFromKernel;
             }
 
+            struct EmptyKernelData : IKernelData { }
+
             [BurstCompile(CompileSynchronously = true)]
-            public struct Kernel : IGraphKernel<EmptyKernelData, KernelDefs>
+            struct Kernel : IGraphKernel<EmptyKernelData, KernelDefs>
             {
                 public void Execute(RenderContext ctx, EmptyKernelData data, ref KernelDefs ports)
                 {
                     ref var portIDs = ref ctx.Resolve(ref ports.PortIDsFromKernel);
                     portIDs.Input1PortID = KernelPorts.Input1.Port;
                     portIDs.Input2PortID = KernelPorts.Input2.Port;
-                    portIDs.Input3PortID = KernelPorts.Input3.InputPort;
+                    portIDs.Input3PortID = KernelPorts.Input3.GetPortID();
                     portIDs.Output1PortID = KernelPorts.Output1.Port;
                     portIDs.Output2PortID = KernelPorts.Output2.Port;
                     portIDs.Output3PortID = KernelPorts.Output3.Port;
@@ -168,7 +170,7 @@ namespace Unity.DataFlowGraph.Tests
                 // Verify that PortIDs in the NodeDefinition match those seen by the Kernel.
                 Assert.AreEqual(KernelPortTestNode.KernelPorts.Input1.Port, portIDs.Input1PortID);
                 Assert.AreEqual(KernelPortTestNode.KernelPorts.Input2.Port, portIDs.Input2PortID);
-                Assert.AreEqual(KernelPortTestNode.KernelPorts.Input3.InputPort, portIDs.Input3PortID);
+                Assert.AreEqual(KernelPortTestNode.KernelPorts.Input3.GetPortID(), portIDs.Input3PortID);
                 Assert.AreEqual(KernelPortTestNode.KernelPorts.Output1.Port, portIDs.Output1PortID);
                 Assert.AreEqual(KernelPortTestNode.KernelPorts.Output2.Port, portIDs.Output2PortID);
                 Assert.AreEqual(KernelPortTestNode.KernelPorts.Output3.Port, portIDs.Output3PortID);

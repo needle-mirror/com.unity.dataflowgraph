@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using Mono.Cecil;
 using Mono.Cecil.Rocks;
@@ -193,7 +194,7 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
                 // GenericClass<A, B>
                 var subType = definition.MakeGenericInstanceType(definition.GenericParameters.Cast<TypeReference>().ToArray());
                 // <int, float>
-                var closedArgs = new Collection<TypeReference> { module.ImportReference(typeof(int)), module.ImportReference(typeof(float)) };
+                var closedArgs = new Collection<TypeReference> { module.TypeSystem.Int32, module.TypeSystem.Single };
                 // GenericClass<int, float>
                 var closed = HelperExtensions.InstantiateOpenTemplate_ForTesting(subType, closedArgs) as GenericInstanceType;
 
@@ -393,6 +394,154 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
                 
                 Assert.AreEqual(baze.GenericArguments[0], parentClosed.GenericArguments[2]);
                 Assert.AreEqual(baze.GenericArguments[1], parentClosed.GenericArguments[1]);
+            }
+        }
+
+        interface IFaceA { }
+        interface IFaceB : IFaceA { }
+        interface IFaceC : IFaceB { }
+
+        [Test]
+        public void InstantiatedInterfaces_DoesNotReportInterfaces_Twice_AndCanCollectNestedInterfaces()
+        {
+            using (var cecilAssembly = AssemblyManager.LoadThisTestAssemblyAgain())
+            {
+                var module = cecilAssembly.Assembly.MainModule;
+
+                var ifaceA = module.ImportReference(typeof(IFaceA));
+                var ifaceB = module.ImportReference(typeof(IFaceB));
+                var ifaceC = module.ImportReference(typeof(IFaceC));
+
+                var set = new List<TypeReference>();
+                foreach(var iface in ifaceB.InstantiatedInterfaces())
+                {
+                    set.ForEach(t => Assert.False(t.RefersToSame(iface.Definition)));
+                    set.Add(iface.Definition);
+                }
+
+                Assert.AreEqual(1, set.Count);
+                Assert.True(set.First().RefersToSame(ifaceA));
+
+                set = new List<TypeReference>();
+                foreach (var iface in ifaceC.InstantiatedInterfaces())
+                {
+                    set.ForEach(t => Assert.False(t.RefersToSame(iface.Definition)));
+                    set.Add(iface.Definition);
+                }
+
+                Assert.AreEqual(2, set.Count);
+                Assert.True(set.Any(i => i.RefersToSame(ifaceA)));
+                Assert.True(set.Any(i => i.RefersToSame(ifaceB)));
+            }
+        }
+
+        class ClassB : IFaceB
+        {
+
+        }
+
+        class ClassC : ClassB
+        {
+
+        }
+
+        [Test]
+        public void InstantiatedInterfaces_TraversesClassHierarchies()
+        {
+            using (var cecilAssembly = AssemblyManager.LoadThisTestAssemblyAgain())
+            {
+                var module = cecilAssembly.Assembly.MainModule;
+
+                var ifaceA = module.ImportReference(typeof(IFaceA));
+                var ifaceB = module.ImportReference(typeof(IFaceB));
+
+                var classB = module.ImportReference(typeof(ClassB));
+                var classC = module.ImportReference(typeof(ClassC));
+
+                var set = new List<TypeReference>();
+                foreach (var iface in classB.InstantiatedInterfaces())
+                {
+                    set.ForEach(t => Assert.False(t.RefersToSame(iface.Definition)));
+                    set.Add(iface.Definition);
+                }
+
+                Assert.AreEqual(2, set.Count);
+                Assert.True(set.Any(i => i.RefersToSame(ifaceA)));
+                Assert.True(set.Any(i => i.RefersToSame(ifaceB)));
+
+                set = new List<TypeReference>();
+                foreach (var iface in classC.InstantiatedInterfaces())
+                {
+                    set.ForEach(t => Assert.False(t.RefersToSame(iface.Definition)));
+                    set.Add(iface.Definition);
+                }
+
+                Assert.AreEqual(2, set.Count);
+                Assert.True(set.Any(i => i.RefersToSame(ifaceA)));
+                Assert.True(set.Any(i => i.RefersToSame(ifaceB)));
+            }
+        }
+
+        struct Thing<T>
+        {
+            int IntField;
+            double DoubleField;
+            T GenericField;
+        }
+
+        [Test]
+        public void InstantiatedFields_FindsInstantiatedFields()
+        {
+            using (var cecilAssembly = AssemblyManager.LoadThisTestAssemblyAgain())
+            {
+                var module = cecilAssembly.Assembly.MainModule;
+                var floatType = module.TypeSystem.Single;
+                var thingOpen = module.ImportReference(typeof(Thing<>));
+                var closedParameter = thingOpen.GenericParameters[0].InstantiateOpenTemplate(new Collection<TypeReference> { floatType });
+
+                Assert.True(closedParameter.RefersToSame(floatType));
+            }
+        }
+
+        [Test]
+        public void InstantiateOpenTemplate_CanInstantiateDirectGenericParameter()
+        {
+            using (var cecilAssembly = AssemblyManager.LoadThisTestAssemblyAgain())
+            {
+                var module = cecilAssembly.Assembly.MainModule;
+
+                var intType = module.TypeSystem.Int32;
+                var doubleType = module.TypeSystem.Double;
+
+                var floatType = module.TypeSystem.Single;
+                var thingOpen = module.ImportReference(typeof(Thing<>));
+                var thingClosed = thingOpen.MakeGenericInstanceType(floatType);
+
+                int foundFields = 0;
+
+                foreach (var t in new[] { intType, doubleType, thingOpen.GenericParameters[0] })
+                {
+                    foreach (var f in thingOpen.InstantiatedFields().ToList())
+                    {
+                        if (f.SubstitutedType.RefersToSame(t))
+                            foundFields++;
+                    }
+                }
+
+                Assert.AreEqual(3, foundFields);
+                foundFields = 0;
+
+                foreach (var t in new[] { intType, doubleType, floatType })
+                {
+                    foreach (var f in thingClosed.InstantiatedFields().ToList())
+                    {
+                        if (f.SubstitutedType.RefersToSame(t))
+                            foundFields++;
+                    }
+                }
+
+                Assert.AreEqual(3, foundFields);
+
             }
         }
 

@@ -3,16 +3,14 @@ using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
 using Unity.Burst;
-using UnityEngine;
-using UnityEngine.TestTools;
+using Unity.Jobs;
 
 namespace Unity.DataFlowGraph.Tests
 {
     public class RenderGraphTests
     {
-        // TODO tests: 
+        // TODO tests:
         // * Check assigning local output ports in a kernel to a non-ref variable will still update the output value
-        // * Check nodes in general are executed in topological order
 
         public class PotentiallyJobifiedNodeSet : NodeSet
         {
@@ -23,17 +21,7 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        public struct Node : INodeData
-        {
-            public int Contents;
-        }
-
-        public struct Data : IKernelData
-        {
-            public int Contents;
-        }
-
-        class KernelNode : NodeDefinition<Node, Data, KernelNode.KernelDefs, KernelNode.Kernel>
+        public class KernelNode : KernelNodeDefinition<KernelNode.KernelDefs>
         {
             public struct KernelDefs : IKernelPortDefinition
             {
@@ -43,12 +31,12 @@ namespace Unity.DataFlowGraph.Tests
 #pragma warning restore 649
             }
 
+            struct Data : IKernelData { }
+
             [BurstCompile(CompileSynchronously = true)]
-            public struct Kernel : IGraphKernel<Data, KernelDefs>
+            struct Kernel : IGraphKernel<Data, KernelDefs>
             {
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
-                {
-                }
+                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports) { }
             }
         }
 
@@ -106,15 +94,17 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        class PersistentKernelNode : NodeDefinition<Node, Data, PersistentKernelNode.KernelDefs, PersistentKernelNode.Kernel>
+        public class PersistentKernelNode : KernelNodeDefinition<PersistentKernelNode.KernelDefs>
         {
             public struct KernelDefs : IKernelPortDefinition
             {
                 public DataOutput<PersistentKernelNode, int> Output;
             }
 
+            struct Data : IKernelData { }
+
             [BurstCompile(CompileSynchronously = true)]
-            public struct Kernel : IGraphKernel<Data, KernelDefs>
+            struct Kernel : IGraphKernel<Data, KernelDefs>
             {
                 int m_State;
 
@@ -148,7 +138,7 @@ namespace Unity.DataFlowGraph.Tests
 
         /*  DAG test diagram.
          *  Flow from left to right.
-         *  
+         *
          *  A ---------------- B (1)
          *  A -------- C ----- B (2)
          *           /   \
@@ -156,7 +146,7 @@ namespace Unity.DataFlowGraph.Tests
          *           \   /
          *  A -------- C ----- B (4)
          *  A                    (5)
-         * 
+         *
          *  Contains nodes not connected anywhere.
          *  Contains multiple children (tree), and multiple parents (DAG).
          *  Contains multiple connected components.
@@ -267,7 +257,7 @@ namespace Unity.DataFlowGraph.Tests
             OutputPortID OutputPort { get; }
         }
 
-        public class ANode : NodeDefinition<Node, Data, ANode.KernelDefs, ANode.Kernel>, IComputeNode
+        public class ANode : KernelNodeDefinition<ANode.KernelDefs>, IComputeNode
         {
             public struct KernelDefs : IKernelPortDefinition
             {
@@ -275,8 +265,10 @@ namespace Unity.DataFlowGraph.Tests
                 public DataOutput<ANode, int> Output;
             }
 
+            struct Data : IKernelData { }
+
             [BurstCompile(CompileSynchronously = true)]
-            public struct Kernel : IGraphKernel<Data, KernelDefs>
+            struct Kernel : IGraphKernel<Data, KernelDefs>
             {
                 public void Execute(RenderContext ctx, Data data, ref KernelDefs ports) =>
                     ctx.Resolve(ref ports.Output) = ctx.Resolve(ports.ValueInput) + 1;
@@ -285,18 +277,18 @@ namespace Unity.DataFlowGraph.Tests
             public OutputPortID OutputPort => (OutputPortID)KernelPorts.Output;
         }
 
-        class BNode : NodeDefinition<Node, Data, BNode.KernelDefs, BNode.Kernel>, IComputeNode
+        public class BNode : KernelNodeDefinition<BNode.KernelDefs>, IComputeNode
         {
             public struct KernelDefs : IKernelPortDefinition
             {
-#pragma warning disable 649  // Assigned through internal DataFlowGraph reflection
                 public DataInput<BNode, int> Input;
                 public DataOutput<BNode, int> Output;
-#pragma warning restore 649
             }
 
+            struct Data : IKernelData { }
+
             [BurstCompile(CompileSynchronously = true)]
-            public struct Kernel : IGraphKernel<Data, KernelDefs>
+            struct Kernel : IGraphKernel<Data, KernelDefs>
             {
                 public void Execute(RenderContext ctx, Data data, ref KernelDefs ports) => ctx.Resolve(ref ports.Output) = ctx.Resolve(ports.Input) * 3;
             }
@@ -304,19 +296,19 @@ namespace Unity.DataFlowGraph.Tests
             public OutputPortID OutputPort => (OutputPortID)KernelPorts.Output;
         }
 
-        class CNode : NodeDefinition<Node, Data, CNode.KernelDefs, CNode.Kernel>, IComputeNode
+        public class CNode : KernelNodeDefinition<CNode.KernelDefs>, IComputeNode
         {
             public struct KernelDefs : IKernelPortDefinition
             {
-#pragma warning disable 649  // Assigned through internal DataFlowGraph reflection
                 public DataInput<CNode, int> InputA;
                 public DataInput<CNode, int> InputB;
                 public DataOutput<CNode, int> Output;
-#pragma warning restore 649
             }
 
+            struct Data : IKernelData { }
+
             [BurstCompile(CompileSynchronously = true)]
-            public struct Kernel : IGraphKernel<Data, KernelDefs>
+            struct Kernel : IGraphKernel<Data, KernelDefs>
             {
                 public void Execute(RenderContext ctx, Data data, ref KernelDefs ports) => ctx.Resolve(ref ports.Output) = ctx.Resolve(ports.InputA) + ctx.Resolve(ports.InputB);
             }
@@ -355,21 +347,25 @@ namespace Unity.DataFlowGraph.Tests
                  *           \   /
                  *  A -------- C ----- B (4)
                  *  A                    (5)
-                 *  
+                 *
                  *  A = in + 1
                  *  B = in * 3
                  *  C = in1 + in2
-                 *  
+                 *
                  */
 
                 void CheckExpectedValueAtRoot(int expected, DAGTest graph, int root, int i)
                 {
-                    var output = set.GetValueBlocking(graph.RootGVs[root]);
-                    ref var value = ref set.GetOutputValues()[graph.RootGVs[root].Handle.Index];
+                    ref var value = ref set.GetOutputValues()[graph.RootGVs[root].Handle];
+                    if (model == NodeSet.RenderExecutionModel.Synchronous)
+                        Assert.AreEqual(value.Dependency, new JobHandle());
+                    else
+                        Assert.AreNotEqual(value.Dependency, new JobHandle());
 
-                    Assert.IsTrue(value.IsLinkedToGraph, // This happens locally inside CopyWorlds.
-                        $"Race condition on Root[{root}] from render graph in graph iteration {i}"
-                    );
+                    var kernelNodes = set.DataGraph.GetInternalData();
+                    Assert.True(RenderGraph.StillExists(ref kernelNodes, value.Source));
+
+                    var output = set.GetValueBlocking(graph.RootGVs[root]);
 
                     if(expected != output)
                     {
@@ -385,7 +381,7 @@ namespace Unity.DataFlowGraph.Tests
 
                         Assert.AreEqual(
                             expected,
-                            output, 
+                            output,
                             $"Root[0] produced unexpected results in graph iteration {i}"
                         );
                     }
@@ -403,7 +399,7 @@ namespace Unity.DataFlowGraph.Tests
                     CheckExpectedValueAtRoot(
                         a * b,
                         graph,
-                        0, 
+                        0,
                         i
                     );
 
@@ -441,8 +437,7 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         public class UserStructValueNode
-            : NodeDefinition<Node, UserStructValueNode.SimPorts, UserStructValueNode.Data, UserStructValueNode.KernelDefs, UserStructValueNode.Kernel>
-            , IMsgHandler<int>
+            : SimulationKernelNodeDefinition<UserStructValueNode.SimPorts, UserStructValueNode.KernelDefs>
         {
             public struct KernelDefs : IKernelPortDefinition { }
 
@@ -468,7 +463,7 @@ namespace Unity.DataFlowGraph.Tests
             }
 
             [BurstCompile(CompileSynchronously = true)]
-            public struct Kernel : IGraphKernel<Data, KernelDefs>
+            struct Kernel : IGraphKernel<Data, KernelDefs>
             {
                 SwappedData privateData;
 
@@ -478,7 +473,10 @@ namespace Unity.DataFlowGraph.Tests
                 }
             }
 
-            public void HandleMessage(in MessageContext ctx, in int msg) => GetKernelData(ctx.Handle).value = msg;
+            struct Node : INodeData, IMsgHandler<int>
+            {
+                public void HandleMessage(in MessageContext ctx, in int msg) => ctx.UpdateKernelData(new Data{ value = msg });
+            }
         }
 
         [Test]
@@ -495,9 +493,9 @@ namespace Unity.DataFlowGraph.Tests
                 var knodes = set.DataGraph.GetInternalData();
                 set.DataGraph.SyncAnyRendering();
 
-                Assert.AreEqual(1, knodes.Count);
+                Assert.GreaterOrEqual(knodes.Count, 1);
 
-                ref var knode = ref knodes[((NodeHandle)node).VHandle.Index];
+                ref var knode = ref knodes[node.VHandle.Index];
                 var kernelData = (UserStructValueNode.Data*)knode.Instance.Data;
                 var kernel = (UserStructValueNode.SwappedData*)knode.Instance.Kernel;
 
@@ -547,7 +545,7 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        class SlowNode : NodeDefinition<Node, Data, SlowNode.KernelDefs, SlowNode.Kernel>
+        public class SlowNode : KernelNodeDefinition<SlowNode.KernelDefs>
         {
             public static volatile int s_RenderCount;
 
@@ -563,7 +561,9 @@ namespace Unity.DataFlowGraph.Tests
 #pragma warning restore
             }
 
-            public struct Kernel : IGraphKernel<Data, KernelDefs>
+            struct Data : IKernelData { }
+
+            struct Kernel : IGraphKernel<Data, KernelDefs>
             {
                 public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
                 {

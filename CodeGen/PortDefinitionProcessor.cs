@@ -33,7 +33,7 @@ namespace Unity.DataFlowGraph.CodeGen
         {
             foreach (var portField in DefinitionRoot.Fields)
             {
-                if (!portField.IsPublic || portField.IsStatic)
+                if (portField.IsStatic)
                 {
                     diag.DFG_UE_08(this, portField);
                     continue;

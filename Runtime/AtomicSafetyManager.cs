@@ -314,10 +314,10 @@ namespace Unity.DataFlowGraph
         /// Returns a job handle that until resolved protects the given handles 
         /// by marking them in use.
         /// 
-        /// Should be used to mark any "buffers" exposed out of the <see cref="NodeSet"/> for the duration
+        /// Should be used to mark any "buffers" exposed out of the <see cref="NodeSetAPI"/> for the duration
         /// of a "render" to detect whenever someone uses buffers concurrently erroneously,
-        /// e.g. scheduling a job using a future buffer against a <see cref="NodeSet"/>, but not properly inserting 
-        /// back dependencies such that rendering of that <see cref="NodeSet"/> and that job could overlap.
+        /// e.g. scheduling a job using a future buffer against a <see cref="NodeSetAPI"/>, but not properly inserting 
+        /// back dependencies such that rendering of that <see cref="NodeSetAPI"/> and that job could overlap.
         /// In that case, this system will throw a legible exception.
         /// </summary>
         public static unsafe JobHandle MarkHandlesAsUsed<TSafetyHandleContainer>(JobHandle dependency, TSafetyHandleContainer* handles, int handleCount)

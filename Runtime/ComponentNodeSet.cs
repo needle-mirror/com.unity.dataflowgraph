@@ -5,65 +5,31 @@ using Unity.Jobs;
 
 namespace Unity.DataFlowGraph
 {
-    public partial class NodeSet
+    public partial class NodeSetAPI
     {
         internal ComponentSystemBase HostSystem;
         BlitList<AtomicSafetyManager.ECSTypeAndSafety> m_ActiveComponentTypes;
         /// <summary>
         /// Contains the last <see cref="JobHandle"/> returned from
-        /// <see cref="Update(JobHandle)"/>.
+        /// <see cref="Update(JobHandle, ComponentSystemDispatch)"/>.
         /// </summary>
         JobHandle m_LastJobifiedUpdateHandle;
 
-        /// <summary>
-        /// Initializes this <see cref="NodeSet"/> in a mode that's compatible with running together with ECS,
-        /// through the use of <see cref="ComponentNode"/>s.
-        /// The <paramref name="hostSystem"/> and this instance are tied together from this point, and you must
-        /// update this set using the <see cref="Update(JobHandle)"/> function.
-        /// See also <seealso cref="NodeSet()"/>.
-        /// </summary>
-        /// <remarks>
-        /// Any instantiated nodes with <see cref="IKernelPortDefinition"/>s containing ECS types will be added
-        /// as dependencies to <paramref name="hostSystem"/>.
-        /// </remarks>
-        /// <exception cref="ArgumentNullException">
-        /// Thrown if the <paramref name="hostSystem"/> is null
-        /// </exception>
-        public NodeSet(ComponentSystemBase hostSystem)
-            : this(hostSystem, ConstructorType.InternalConstructor)
+        internal NodeSetAPI(ComponentSystemBase hostSystem, ComponentSystemDispatch _)
+            : this(hostSystem, InternalDispatch.Tag)
         {
             if (hostSystem == null)
             {
                 // In case of cascading constructors, an object can be partially constructed but still be 
                 // GC collected and finalized.
-                Dispose();
+                InternalDispose();
                 throw new ArgumentNullException(nameof(hostSystem));
             }
 
             m_ActiveComponentTypes = new BlitList<AtomicSafetyManager.ECSTypeAndSafety>(0, Allocator.Persistent);
         }
-
-        /// <summary>
-        /// Overload of <see cref="Update()"/>. Use this function inside a <see cref="ComponentSystemBase"/>.
-        /// </summary>
-        /// <remarks>
-        /// This function is only compatible if you used the <see cref="NodeSet(ComponentSystemBase)"/> constructor.
-        /// </remarks>
-        /// <param name="inputDeps">
-        /// Input dependencies derived from <see cref="JobComponentSystem.OnUpdate(JobHandle)"/> or <see cref="SystemBase.Dependency"/>, pass the 
-        /// input dependencies into this function.
-        /// </param>
-        /// <returns>
-        /// A <see cref="JobHandle"/> that should be returned or included in a dependency chain inside 
-        /// <see cref="JobComponentSystem.OnUpdate(JobHandle)"/> or assigned to <see cref="SystemBase.Dependency"/>.
-        /// </returns>
-        /// <exception cref="InvalidOperationException">
-        /// Can be thrown if this <see cref="NodeSet"/> was created without using the ECS constructor 
-        /// <see cref="NodeSet(ComponentSystemBase)"/>, in which case you need to use the 
-        /// <see cref="Update()"/> function instead.
-        /// See also base documentation for <see cref="Update"/>
-        /// </exception>
-        public JobHandle Update(JobHandle inputDeps)
+   
+        internal JobHandle Update(JobHandle inputDeps, ComponentSystemDispatch _)
         {
             if (HostSystem == null)
                 throw new InvalidOperationException($"This {typeof(NodeSet)} was not created together with a job component system");
@@ -137,4 +103,3 @@ namespace Unity.DataFlowGraph
             => m_ActiveComponentTypes;
     }
 }
-

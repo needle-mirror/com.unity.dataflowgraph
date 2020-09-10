@@ -19,7 +19,7 @@ namespace Unity.DataFlowGraph.Tour
          * with and what data it will process.
          * 
          */
-        class MyNode : NodeDefinition<MyNode.MyPorts>
+        class MyNode : SimulationNodeDefinition<MyNode.MyPorts>
         {
             /*
              * A node is required to have a port definition - we'll use an empty one for now, but we'll come back to

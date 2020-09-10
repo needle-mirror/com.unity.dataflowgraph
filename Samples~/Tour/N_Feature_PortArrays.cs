@@ -19,11 +19,8 @@ namespace Unity.DataFlowGraph.Tour
          * 
          * Let's create a node with a port array and explore the syntax and APIs needed.
          */
-        public class MyNode : NodeDefinition<MyNode.InstanceData, MyNode.SimPorts, MyNode.KernelData, MyNode.KernelDefs, MyNode.GraphKernel>, IMsgHandler<Vector3>
+        public class MyNode : SimulationKernelNodeDefinition<MyNode.SimPorts, MyNode.KernelDefs>
         {
-            public struct InstanceData : INodeData { }
-            public struct KernelData : IKernelData { }
-
             public struct SimPorts : ISimulationPortDefinition
             {
                 public PortArray<MessageInput<MyNode, Vector3>> Input;
@@ -34,7 +31,9 @@ namespace Unity.DataFlowGraph.Tour
                 public PortArray<DataInput<MyNode, Vector3>> Input;
             }
 
-            public struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
+            struct KernelData : IKernelData { }
+
+            struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
             {
                 public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
                 {
@@ -53,11 +52,14 @@ namespace Unity.DataFlowGraph.Tour
                 }
             }
 
-            public void HandleMessage(in MessageContext ctx, in Vector3 msg)
+            struct NodeHandlers : INodeData, IMsgHandler<Vector3>
             {
-                if(ctx.Port == SimulationPorts.Input)
+                public void HandleMessage(in MessageContext ctx, in Vector3 msg)
                 {
-                    Debug.Log($"Got a Vector3 on input port array, on index {ctx.ArrayIndex} with value {msg}");
+                    if (ctx.Port == SimulationPorts.Input)
+                    {
+                        Debug.Log($"Got a Vector3 on input port array, on index {ctx.ArrayIndex} with value {msg}");
+                    }
                 }
             }
         }

@@ -18,13 +18,7 @@ namespace Unity.DataFlowGraph.Tests
         // * Check that ports are numbered upwards
         // * Fail for direct declarations of data ports without pattern
 
-        public struct Node : INodeData { }
-
-        public struct Data : IKernelData { }
-
-        class EmptyNode : NodeDefinition<EmptyPorts> { }
-
-        public class NodeWithOneMessageIO : NodeDefinition<Node, NodeWithOneMessageIO.SimPorts>, IMsgHandler<int>
+        public class NodeWithOneMessageIO : SimulationNodeDefinition<NodeWithOneMessageIO.SimPorts>
         {
             public struct SimPorts : ISimulationPortDefinition
             {
@@ -34,10 +28,13 @@ namespace Unity.DataFlowGraph.Tests
 #pragma warning restore 649
             }
 
-            public void HandleMessage(in MessageContext ctx, in int msg) { }
+            struct Node : INodeData, IMsgHandler<int>
+            {
+                public void HandleMessage(in MessageContext ctx, in int msg) { }
+            }
         }
 
-        public class NodeWithMessageArrays : NodeDefinition<Node, NodeWithMessageArrays.SimPorts>, IMsgHandler<int>
+        public class NodeWithMessageArrays : SimulationNodeDefinition<NodeWithMessageArrays.SimPorts>
         {
             public struct SimPorts : ISimulationPortDefinition
             {
@@ -47,13 +44,15 @@ namespace Unity.DataFlowGraph.Tests
 #pragma warning restore 649
             }
 
-            public void HandleMessage(in MessageContext ctx, in int msg) { }
+            struct Node : INodeData, IMsgHandler<int>
+            {
+                public void HandleMessage(in MessageContext ctx, in int msg) { }
+            }
         }
 
         class NodeWithManyInputs
-            : NodeDefinition<Node, NodeWithManyInputs.SimPorts, Data, NodeWithManyInputs.KernelDefs, NodeWithManyInputs.Kernel>
+            : SimulationKernelNodeDefinition<NodeWithManyInputs.SimPorts, NodeWithManyInputs.KernelDefs>
             , TestDSL
-            , IMsgHandler<int>
         {
             public struct SimPorts : ISimulationPortDefinition
             {
@@ -72,15 +71,21 @@ namespace Unity.DataFlowGraph.Tests
 #pragma warning restore 649
             }
 
+            struct Data : IKernelData { }
+
             [BurstCompile(CompileSynchronously = true)]
-            public struct Kernel : IGraphKernel<Data, KernelDefs>
+            struct Kernel : IGraphKernel<Data, KernelDefs>
             {
                 public void Execute(RenderContext ctx, Data data, ref KernelDefs ports) { }
             }
-            public void HandleMessage(in MessageContext ctx, in int msg) { }
+
+            struct Node : INodeData, IMsgHandler<int>
+            {
+                public void HandleMessage(in MessageContext ctx, in int msg) { }
+            }
         }
 
-        class NodeWithManyOutputs : NodeDefinition<Node, NodeWithManyOutputs.SimPorts, Data, NodeWithManyOutputs.KernelDefs, NodeWithManyOutputs.Kernel>, TestDSL
+        class NodeWithManyOutputs : SimulationKernelNodeDefinition<NodeWithManyOutputs.SimPorts, NodeWithManyOutputs.KernelDefs>, TestDSL
         {
             public struct SimPorts : ISimulationPortDefinition
             {
@@ -98,20 +103,19 @@ namespace Unity.DataFlowGraph.Tests
 #pragma warning restore 649
             }
 
+            struct Data : IKernelData { }
+
             [BurstCompile(CompileSynchronously = true)]
-            public struct Kernel : IGraphKernel<Data, KernelDefs>
+            struct Kernel : IGraphKernel<Data, KernelDefs>
             {
                 public void Execute(RenderContext ctx, Data data, ref KernelDefs ports) { }
             }
         }
 
         class NodeWithMixedInputs
-            : NodeDefinition<Node, NodeWithMixedInputs.SimPorts>
+            : SimulationNodeDefinition<NodeWithMixedInputs.SimPorts>
             , TestDSL
-            , IMsgHandler<int>
         {
-            public void HandleMessage(in MessageContext ctx, in int msg) { }
-
             public struct SimPorts : ISimulationPortDefinition
             {
 #pragma warning disable 649  // Assigned through internal DataFlowGraph reflection
@@ -121,9 +125,14 @@ namespace Unity.DataFlowGraph.Tests
                 public DSLInput<NodeWithMixedInputs, DSL, TestDSL> D1;
 #pragma warning restore 649
             }
+
+            struct Node : INodeData, IMsgHandler<int>
+            {
+                public void HandleMessage(in MessageContext ctx, in int msg) { }
+            }
         }
 
-        class NodeWithOneDSLIO : NodeDefinition<Node, NodeWithOneDSLIO.SimPorts>, TestDSL
+        class NodeWithOneDSLIO : SimulationNodeDefinition<NodeWithOneDSLIO.SimPorts>, TestDSL
         {
             public struct SimPorts : ISimulationPortDefinition
             {
@@ -134,23 +143,35 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        public class NodeWithNonStaticPorts_OutsideOfPortDefinition : NodeDefinition<EmptyPorts>, IMsgHandler<int>
+        public class NodeWithNonStaticPorts_OutsideOfPortDefinition
+            : SimulationNodeDefinition<NodeWithNonStaticPorts_OutsideOfPortDefinition.EmptyPorts>
         {
+            public struct EmptyPorts : ISimulationPortDefinition { }
+
             public MessageInput<NodeWithNonStaticPorts_OutsideOfPortDefinition, int> Input;
             public MessageOutput<NodeWithNonStaticPorts_OutsideOfPortDefinition, int> Output;
 
-            public void HandleMessage(in MessageContext ctx, in int msg) { }
+            struct Node : INodeData, IMsgHandler<int>
+            {
+                public void HandleMessage(in MessageContext ctx, in int msg) { }
+            }
         }
 
-        public class NodeWithStaticPorts_OutsideOfPortDefinition : NodeDefinition<EmptyPorts>, IMsgHandler<int>
+        public class NodeWithStaticPorts_OutsideOfPortDefinition
+            : SimulationNodeDefinition<NodeWithStaticPorts_OutsideOfPortDefinition.EmptyPorts>
         {
+            public struct EmptyPorts : ISimulationPortDefinition { }
+
             public static MessageInput<NodeWithStaticPorts_OutsideOfPortDefinition, int> Input;
             public static MessageOutput<NodeWithStaticPorts_OutsideOfPortDefinition, int> Output;
 
-            public void HandleMessage(in MessageContext ctx, in int msg) { }
+            struct Node : INodeData, IMsgHandler<int>
+            {
+                public void HandleMessage(in MessageContext ctx, in int msg) { }
+            }
         }
 
-        public class NodeWithOneDataIO : NodeDefinition<Node, Data, NodeWithOneDataIO.KernelDefs, NodeWithOneDataIO.Kernel>
+        public class NodeWithOneDataIO : KernelNodeDefinition<NodeWithOneDataIO.KernelDefs>
         {
             public struct KernelDefs : IKernelPortDefinition
             {
@@ -166,14 +187,16 @@ namespace Unity.DataFlowGraph.Tests
 
             }
 
+            struct Data : IKernelData { }
+
             [BurstCompile(CompileSynchronously = true)]
-            public struct Kernel : IGraphKernel<Data, KernelDefs>
+            struct Kernel : IGraphKernel<Data, KernelDefs>
             {
                 public void Execute(RenderContext ctx, Data data, ref KernelDefs ports) { }
             }
         }
 
-        class NodeWithDataArrayInput : NodeDefinition<Node, Data, NodeWithDataArrayInput.KernelDefs, NodeWithDataArrayInput.Kernel>
+        class NodeWithDataArrayInput : KernelNodeDefinition<NodeWithDataArrayInput.KernelDefs>
         {
             public struct KernelDefs : IKernelPortDefinition
             {
@@ -182,16 +205,18 @@ namespace Unity.DataFlowGraph.Tests
 #pragma warning restore 649
             }
 
+            struct Data : IKernelData { }
+
             [BurstCompile(CompileSynchronously = true)]
-            public struct Kernel : IGraphKernel<Data, KernelDefs>
+            struct Kernel : IGraphKernel<Data, KernelDefs>
             {
                 public void Execute(RenderContext ctx, Data data, ref KernelDefs ports) { }
             }
         }
 
-        [InvalidTestNodeDefinition]
+        [IsNotInstantiable]
         class NodeWithMessageAndDSLPortsInIKernelPortDefinition
-            : NodeDefinition<Node, Data, NodeWithMessageAndDSLPortsInIKernelPortDefinition.KernelDefs, NodeWithMessageAndDSLPortsInIKernelPortDefinition.Kernel>
+            : KernelNodeDefinition<NodeWithMessageAndDSLPortsInIKernelPortDefinition.KernelDefs>
                 , TestDSL
         {
             public struct KernelDefs : IKernelPortDefinition
@@ -202,8 +227,10 @@ namespace Unity.DataFlowGraph.Tests
 #pragma warning restore 649
             }
 
+            struct Data : IKernelData { }
+
             [BurstCompile(CompileSynchronously = true)]
-            public struct Kernel : IGraphKernel<Data, KernelDefs>
+            struct Kernel : IGraphKernel<Data, KernelDefs>
             {
                 public void Execute(RenderContext ctx, Data data, ref KernelDefs ports) { }
             }
@@ -399,7 +426,7 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        public class ComplexKernelAggregateNode : NodeDefinition<Node, Data, ComplexKernelAggregateNode.KernelDefs, ComplexKernelAggregateNode.Kernel>
+        public class ComplexKernelAggregateNode : KernelNodeDefinition<ComplexKernelAggregateNode.KernelDefs>
         {
             public struct ComplexAggregate
             {
@@ -420,8 +447,10 @@ namespace Unity.DataFlowGraph.Tests
                 public DataOutput<ComplexKernelAggregateNode, ComplexAggregate> Output;
             }
 
+            struct Data : IKernelData { }
+
             [BurstCompile(CompileSynchronously = true)]
-            public struct Kernel : IGraphKernel<Data, KernelDefs>
+            struct Kernel : IGraphKernel<Data, KernelDefs>
             {
                 public void Execute(RenderContext ctx, Data data, ref KernelDefs ports) { }
             }
@@ -483,18 +512,14 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        [InvalidTestNodeDefinition]
+        [IsNotInstantiable]
         public class NodeWithDataPortsInSimulationPortDefinition
-            : NodeDefinition<NodeWithDataPortsInSimulationPortDefinition.Node, NodeWithDataPortsInSimulationPortDefinition.SimPorts>
+            : SimulationNodeDefinition<NodeWithDataPortsInSimulationPortDefinition.SimPorts>
         {
             public struct SimPorts : ISimulationPortDefinition
             {
                 public DataInput<NodeWithDataPortsInSimulationPortDefinition, float> Input;
                 public DataOutput<NodeWithDataPortsInSimulationPortDefinition, float> Output;
-            }
-
-            public struct Node : INodeData
-            {
             }
         }
 
@@ -560,19 +585,19 @@ namespace Unity.DataFlowGraph.Tests
                 Assert.AreEqual(NodeWithManyInputs.SimulationPorts.I0.Port, (InputPortID)inputNodePorts.Inputs[0]);
                 Assert.AreEqual(NodeWithManyInputs.SimulationPorts.I1.Port, (InputPortID)inputNodePorts.Inputs[1]);
                 Assert.AreEqual(NodeWithManyInputs.SimulationPorts.I2.Port, (InputPortID)inputNodePorts.Inputs[2]);
-                Assert.AreEqual(NodeWithManyInputs.SimulationPorts.IArray3.InputPort, (InputPortID)inputNodePorts.Inputs[3]);
+                Assert.AreEqual(NodeWithManyInputs.SimulationPorts.IArray3.GetPortID(), (InputPortID)inputNodePorts.Inputs[3]);
                 Assert.AreEqual(NodeWithManyInputs.SimulationPorts.D4.Port, (InputPortID)inputNodePorts.Inputs[4]);
                 Assert.AreEqual(NodeWithManyInputs.SimulationPorts.D5.Port, (InputPortID)inputNodePorts.Inputs[5]);
                 Assert.AreEqual(NodeWithManyInputs.SimulationPorts.D6.Port, (InputPortID)inputNodePorts.Inputs[6]);
                 Assert.AreEqual(NodeWithManyInputs.KernelPorts.K7.Port, (InputPortID)inputNodePorts.Inputs[7]);
                 Assert.AreEqual(NodeWithManyInputs.KernelPorts.K8.Port, (InputPortID)inputNodePorts.Inputs[8]);
                 Assert.AreEqual(NodeWithManyInputs.KernelPorts.K9.Port, (InputPortID)inputNodePorts.Inputs[9]);
-                Assert.AreEqual(NodeWithManyInputs.KernelPorts.KArray10.InputPort, (InputPortID)inputNodePorts.Inputs[10]);
+                Assert.AreEqual(NodeWithManyInputs.KernelPorts.KArray10.GetPortID(), (InputPortID)inputNodePorts.Inputs[10]);
 
                 Assert.AreEqual(NodeWithManyOutputs.SimulationPorts.M0.Port, (OutputPortID)outputNodePorts.Outputs[0]);
                 Assert.AreEqual(NodeWithManyOutputs.SimulationPorts.M1.Port, (OutputPortID)outputNodePorts.Outputs[1]);
                 Assert.AreEqual(NodeWithManyOutputs.SimulationPorts.M2.Port, (OutputPortID)outputNodePorts.Outputs[2]);
-                Assert.AreEqual(NodeWithManyOutputs.SimulationPorts.MArray3.OutputPort, (OutputPortID)outputNodePorts.Outputs[3]);
+                Assert.AreEqual(NodeWithManyOutputs.SimulationPorts.MArray3.GetPortID(), (OutputPortID)outputNodePorts.Outputs[3]);
                 Assert.AreEqual(NodeWithManyOutputs.SimulationPorts.D4.Port, (OutputPortID)outputNodePorts.Outputs[4]);
                 Assert.AreEqual(NodeWithManyOutputs.SimulationPorts.D5.Port, (OutputPortID)outputNodePorts.Outputs[5]);
                 Assert.AreEqual(NodeWithManyOutputs.SimulationPorts.D6.Port, (OutputPortID)outputNodePorts.Outputs[6]);
@@ -630,6 +655,86 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
+        class NodeWithSomeNonPublicPorts
+            : SimulationKernelNodeDefinition<NodeWithSomeNonPublicPorts.SimPorts, NodeWithSomeNonPublicPorts.KernelDefs>
+            , TestDSL
+        {
+            public struct SimPorts : ISimulationPortDefinition
+            {
+#pragma warning disable 649  // Assigned through internal DataFlowGraph reflection
+                public MessageInput<NodeWithSomeNonPublicPorts, int> IM0;
+                MessageInput<NodeWithSomeNonPublicPorts, int> IM1;
+                public PortArray<MessageInput<NodeWithSomeNonPublicPorts, int>> IMArray2;
+                internal PortArray<MessageInput<NodeWithSomeNonPublicPorts, int>> IMArray3;
+                public DSLInput<NodeWithSomeNonPublicPorts, DSL, TestDSL> IDSL4;
+                DSLInput<NodeWithSomeNonPublicPorts, DSL, TestDSL> IDSL5;
+                public MessageOutput<NodeWithSomeNonPublicPorts, int> OM0;
+                internal MessageOutput<NodeWithSomeNonPublicPorts, int> OM1;
+                public PortArray<MessageOutput<NodeWithSomeNonPublicPorts, int>> OMArray2;
+                PortArray<MessageOutput<NodeWithSomeNonPublicPorts, int>> OMArray3;
+                public DSLOutput<NodeWithSomeNonPublicPorts, DSL, TestDSL> ODSL4;
+                internal DSLOutput<NodeWithSomeNonPublicPorts, DSL, TestDSL> ODSL5;
+#pragma warning restore 649
+            }
+
+            public struct KernelDefs : IKernelPortDefinition
+            {
+#pragma warning disable 649  // Assigned through internal DataFlowGraph reflection
+                public DataInput<NodeWithSomeNonPublicPorts, int> IK6;
+                DataInput<NodeWithSomeNonPublicPorts, int> IK7;
+                public PortArray<DataInput<NodeWithSomeNonPublicPorts, int>> IKArray8;
+                internal PortArray<DataInput<NodeWithSomeNonPublicPorts, int>> IKArray9;
+                public DataOutput<NodeWithSomeNonPublicPorts, int> OK6;
+                DataOutput<NodeWithSomeNonPublicPorts, int> OK7;
+#pragma warning restore 649
+            }
+
+            struct Data : IKernelData { }
+
+            [BurstCompile(CompileSynchronously = true)]
+            struct Kernel : IGraphKernel<Data, KernelDefs>
+            {
+                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports) { }
+            }
+
+            struct Node : INodeData, IMsgHandler<int>
+            {
+                public void HandleMessage(in MessageContext ctx, in int msg) { }
+            }
+        }
+
+        [Test]
+        public void PublicPortDescriptions_DoNotInclude_NonPublicPorts()
+        {
+            using (var set = new NodeSet())
+            {
+                var publicPorts = set.GetStaticPortDescription<NodeWithSomeNonPublicPorts>();
+                var allPorts = set.GetDefinition<NodeWithSomeNonPublicPorts>().AutoPorts;
+
+                Assert.AreEqual(5, publicPorts.Inputs.Count);
+                Assert.AreEqual(10, allPorts.Inputs.Count);
+                for (int i = 0; i < publicPorts.Inputs.Count; ++i)
+                {
+                    Assert.AreEqual(publicPorts.Inputs[i], allPorts.Inputs[i*2]);
+                    Assert.True(publicPorts.Inputs[i].IsPublic);
+                    Assert.True(allPorts.Inputs[i*2].IsPublic);
+                    Assert.False(allPorts.Inputs[i*2+1].IsPublic);
+                    Assert.AreNotEqual((InputPortID)publicPorts.Inputs[i], (InputPortID)allPorts.Inputs[i*2+1]);
+                }
+
+                Assert.AreEqual(4, publicPorts.Outputs.Count);
+                Assert.AreEqual(8, allPorts.Outputs.Count);
+                for (int i = 0; i < publicPorts.Outputs.Count; ++i)
+                {
+                    Assert.AreEqual(publicPorts.Outputs[i], allPorts.Outputs[i*2]);
+                    Assert.True(publicPorts.Outputs[i].IsPublic);
+                    Assert.True(allPorts.Outputs[i*2].IsPublic);
+                    Assert.False(allPorts.Outputs[i*2+1].IsPublic);
+                    Assert.AreNotEqual((OutputPortID)publicPorts.Outputs[i], (OutputPortID)allPorts.Outputs[i*2+1]);
+                }
+            }
+        }
+
         [Test]
         public void SimulationPorts_AreNotAllNullAssignedPortIDs()
         {
@@ -682,20 +787,60 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void ExpectPortIDs_AreAssignedIndices_BasedOnPortDeclarationOrder([ValueSource(typeof(TestUtilities), nameof(TestUtilities.FindValidTestNodes))] Type nodeType)
+        public void ExpectPortIDs_AreAssignedIndices_BasedOnPortDeclarationOrder_UsingNodeTyped_StaticPortDescription([ValueSource(typeof(TestUtilities), nameof(TestUtilities.FindInstantiableTestNodes))] Type nodeType)
         {
             // This assumes that PortDescriptions respect port declaration order (<see cref="PortDeclarations_RespectsDeclarationOrder"/>)
             using (var set = new NodeSet())
             {
+                var def = set.GetDefinitionFromType(nodeType);
                 var ports = set.GetStaticPortDescriptionFromType(nodeType);
 
                 ushort portNumber = 0;
-                foreach (var input in ports.Inputs)
-                    Assert.AreEqual(portNumber++, ((InputPortID)input).Port);
+                if (def.AutoPorts.Inputs.All(p => p.IsPublic))
+                    foreach (var input in ports.Inputs)
+                        Assert.AreEqual(portNumber++, ((InputPortID)input).Port);
 
                 portNumber = 0;
-                foreach (var output in ports.Outputs)
-                    Assert.AreEqual(portNumber++, ((OutputPortID)output).Port);
+                if (def.AutoPorts.Outputs.All(p => p.IsPublic))
+                    foreach (var output in ports.Outputs)
+                        Assert.AreEqual(portNumber++, ((OutputPortID)output).Port);
+            }
+        }
+
+        [Test]
+        public void ExpectPortIDs_AreAssignedIndices_BasedOnPortDeclarationOrder_UsingDefinitionFromHandle_StaticOrDynamic([ValueSource(typeof(TestUtilities), nameof(TestUtilities.FindInstantiableTestNodes))] Type nodeType)
+        {
+            // This assumes that PortDescriptions respect port declaration order (<see cref="PortDeclarations_RespectsDeclarationOrder"/>)
+            using (var set = new NodeSet())
+            {
+                var handle = set.CreateNodeFromType(nodeType);
+                var def = set.GetDefinition(handle);
+                var staticPorts = set.GetStaticPortDescription(handle);
+                var weakPorts = set.GetPortDescription(handle);
+
+                if (def.AutoPorts.Inputs.All(p => p.IsPublic))
+                {
+                    Assert.AreEqual(staticPorts.Inputs.Count, weakPorts.Inputs.Count);
+
+                    for (int i = 0; i < staticPorts.Inputs.Count; ++i)
+                    {
+                        Assert.AreEqual((ushort)i, ((InputPortID)staticPorts.Inputs[i]).Port);
+                        Assert.AreEqual((ushort)i, ((InputPortID)weakPorts.Inputs[i]).Port);
+                    }
+                }
+
+                if (def.AutoPorts.Outputs.All(p => p.IsPublic))
+                {
+                    Assert.AreEqual(staticPorts.Outputs.Count, weakPorts.Outputs.Count);
+
+                    for (int i = 0; i < staticPorts.Outputs.Count; ++i)
+                    {
+                        Assert.AreEqual((ushort)i, ((OutputPortID)staticPorts.Outputs[i]).Port);
+                        Assert.AreEqual((ushort)i, ((OutputPortID)weakPorts.Outputs[i]).Port);
+                    }
+                }
+
+                set.Destroy(handle);
             }
         }
 
@@ -770,9 +915,8 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         class NodeWithParametricPortTypeIncludingDSLs<T>
-            : NodeDefinition<Node, NodeWithParametricPortTypeIncludingDSLs<T>.SimPorts, Data, NodeWithParametricPortTypeIncludingDSLs<T>.KernelDefs, NodeWithParametricPortTypeIncludingDSLs<T>.Kernel>
+            : SimulationKernelNodeDefinition<NodeWithParametricPortTypeIncludingDSLs<T>.SimPorts, NodeWithParametricPortTypeIncludingDSLs<T>.KernelDefs>
             , TestDSL
-            , IMsgHandler<T>
                 where T : struct
         {
             public struct SimPorts : ISimulationPortDefinition
@@ -795,13 +939,18 @@ namespace Unity.DataFlowGraph.Tests
 #pragma warning restore 649
             }
 
+            struct Data : IKernelData { }
+
             [BurstCompile(CompileSynchronously = true)]
-            public struct Kernel : IGraphKernel<Data, KernelDefs>
+            struct Kernel : IGraphKernel<Data, KernelDefs>
             {
                 public void Execute(RenderContext ctx, Data data, ref KernelDefs ports) { }
             }
 
-            public void HandleMessage(in MessageContext ctx, in T msg) { }
+            struct Node : INodeData, IMsgHandler<T>
+            {
+                public void HandleMessage(in MessageContext ctx, in T msg) { }
+            }
         }
 
         [Test]
@@ -872,7 +1021,7 @@ namespace Unity.DataFlowGraph.Tests
                 Assert.AreEqual(NodeWithAllTypesOfPorts.SimulationPorts.MessageIn.Port, (InputPortID)NodeWithAllTypesOfPorts.SimulationPorts.MessageIn);
                 Assert.AreEqual((InputPortID)desc.Inputs[0], (InputPortID)NodeWithAllTypesOfPorts.SimulationPorts.MessageIn);
 
-                Assert.AreEqual(NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayIn.InputPort, (InputPortID)NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayIn);
+                Assert.AreEqual(NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayIn.GetPortID(), (InputPortID)NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayIn);
                 Assert.AreEqual((InputPortID)desc.Inputs[1], (InputPortID)NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayIn);
 
                 Assert.AreEqual(NodeWithAllTypesOfPorts.SimulationPorts.DSLIn.Port, (InputPortID)NodeWithAllTypesOfPorts.SimulationPorts.DSLIn);
@@ -881,13 +1030,13 @@ namespace Unity.DataFlowGraph.Tests
                 Assert.AreEqual(NodeWithAllTypesOfPorts.KernelPorts.InputBuffer.Port, (InputPortID)NodeWithAllTypesOfPorts.KernelPorts.InputBuffer);
                 Assert.AreEqual((InputPortID)desc.Inputs[3], (InputPortID)NodeWithAllTypesOfPorts.KernelPorts.InputBuffer);
 
-                Assert.AreEqual(NodeWithAllTypesOfPorts.KernelPorts.InputArrayBuffer.InputPort, (InputPortID)NodeWithAllTypesOfPorts.KernelPorts.InputArrayBuffer);
+                Assert.AreEqual(NodeWithAllTypesOfPorts.KernelPorts.InputArrayBuffer.GetPortID(), (InputPortID)NodeWithAllTypesOfPorts.KernelPorts.InputArrayBuffer);
                 Assert.AreEqual((InputPortID)desc.Inputs[4], (InputPortID)NodeWithAllTypesOfPorts.KernelPorts.InputArrayBuffer);
 
                 Assert.AreEqual(NodeWithAllTypesOfPorts.KernelPorts.InputScalar.Port, (InputPortID)NodeWithAllTypesOfPorts.KernelPorts.InputScalar);
                 Assert.AreEqual((InputPortID)desc.Inputs[5], (InputPortID)NodeWithAllTypesOfPorts.KernelPorts.InputScalar);
 
-                Assert.AreEqual(NodeWithAllTypesOfPorts.KernelPorts.InputArrayScalar.InputPort, (InputPortID)NodeWithAllTypesOfPorts.KernelPorts.InputArrayScalar);
+                Assert.AreEqual(NodeWithAllTypesOfPorts.KernelPorts.InputArrayScalar.GetPortID(), (InputPortID)NodeWithAllTypesOfPorts.KernelPorts.InputArrayScalar);
                 Assert.AreEqual((InputPortID)desc.Inputs[6], (InputPortID)NodeWithAllTypesOfPorts.KernelPorts.InputArrayScalar);
 
                 set.Destroy(node);
@@ -906,7 +1055,7 @@ namespace Unity.DataFlowGraph.Tests
                 Assert.AreEqual(NodeWithAllTypesOfPorts.SimulationPorts.MessageOut.Port, (OutputPortID)NodeWithAllTypesOfPorts.SimulationPorts.MessageOut);
                 Assert.AreEqual((OutputPortID)desc.Outputs[0], (OutputPortID)NodeWithAllTypesOfPorts.SimulationPorts.MessageOut);
 
-                Assert.AreEqual(NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayOut.OutputPort, (OutputPortID)NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayOut);
+                Assert.AreEqual(NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayOut.GetPortID(), (OutputPortID)NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayOut);
                 Assert.AreEqual((OutputPortID)desc.Outputs[1], (OutputPortID)NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayOut);
 
                 Assert.AreEqual(NodeWithAllTypesOfPorts.SimulationPorts.DSLOut.Port, (OutputPortID)NodeWithAllTypesOfPorts.SimulationPorts.DSLOut);
@@ -919,6 +1068,279 @@ namespace Unity.DataFlowGraph.Tests
                 Assert.AreEqual((OutputPortID)desc.Outputs[4], (OutputPortID)NodeWithAllTypesOfPorts.KernelPorts.OutputScalar);
 
                 set.Destroy(node);
+            }
+        }
+
+        public class UberWithPartialNonPublicComms
+            : SimulationKernelNodeDefinition<UberWithPartialNonPublicComms.SimPorts, UberWithPartialNonPublicComms.KernelDefs>
+        {
+            public struct SimPorts : ISimulationPortDefinition
+            {
+                public MessageInput<UberWithPartialNonPublicComms, int> PublicInput;
+                public MessageOutput<UberWithPartialNonPublicComms, int> PublicOutput;
+#pragma warning disable 649  // Assigned through internal DataFlowGraph reflection
+                internal MessageInput<UberWithPartialNonPublicComms, int> PrivateInput;
+                internal MessageOutput<UberWithPartialNonPublicComms, int> PrivateOutput;
+#pragma warning restore 649
+            }
+
+            public struct KernelDefs : IKernelPortDefinition
+            {
+                public DataInput<UberWithPartialNonPublicComms, int> PublicInput;
+                public DataOutput<UberWithPartialNonPublicComms, int> PublicOutput;
+#pragma warning disable 649  // Assigned through internal DataFlowGraph reflection
+                internal DataInput<UberWithPartialNonPublicComms, int> PrivateInput;
+                internal DataOutput<UberWithPartialNonPublicComms, int> PrivateOutput;
+#pragma warning restore 649
+            }
+
+            struct Node : INodeData, IInit, IDestroy, IMsgHandler<int>
+            {
+                NodeHandle Child;
+
+                public void Init(InitContext ctx)
+                {
+                    var self = ctx.Set.CastHandle<UberWithPartialNonPublicComms>(ctx.Handle);
+                    var child = ctx.Set.Create<PassthroughTest<int>>();
+                    ctx.Set.Connect(self, SimulationPorts.PrivateOutput, child, PassthroughTest<int>.SimulationPorts.Input);
+                    ctx.Set.Connect(child, PassthroughTest<int>.SimulationPorts.Output, self, SimulationPorts.PrivateInput);
+                    ctx.Set.Connect(self, KernelPorts.PrivateOutput, child, PassthroughTest<int>.KernelPorts.Input);
+                    ctx.Set.Connect(child, PassthroughTest<int>.KernelPorts.Output, self, KernelPorts.PrivateInput, NodeSet.ConnectionType.Feedback);
+                    Child = child;
+                }
+
+                public void Destroy(DestroyContext ctx)
+                {
+                    ctx.Set.Destroy(Child);
+                }
+
+                public void HandleMessage(in MessageContext ctx, in int msg)
+                {
+                    if (ctx.Port == SimulationPorts.PublicInput)
+                        ctx.EmitMessage(SimulationPorts.PrivateOutput, msg);
+                    else if (ctx.Port == SimulationPorts.PrivateInput)
+                        ctx.EmitMessage(SimulationPorts.PublicOutput, msg);
+                }
+            }
+
+            struct Data : IKernelData {}
+
+            [BurstCompile(CompileSynchronously = true)]
+            struct Kernel : IGraphKernel<Data, KernelDefs>
+            {
+                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
+                {
+                    ctx.Resolve(ref ports.PrivateOutput) = ctx.Resolve(ports.PublicInput);
+                    ctx.Resolve(ref ports.PublicOutput) = ctx.Resolve(ports.PrivateInput);
+                }
+            }
+        }
+
+        [Test]
+        public void UberCanCommunicate_WithChild_ThroughPartiallyNonPublicPorts()
+        {
+            const int k_Loops = 10;
+            using (var set = new NodeSet())
+            {
+                var uber = set.Create<UberWithPartialNonPublicComms>();
+                var result = set.Create<PassthroughTest<int>>();
+
+                set.Connect(uber, UberWithPartialNonPublicComms.SimulationPorts.PublicOutput, result, PassthroughTest<int>.SimulationPorts.Input);
+                var gv = set.CreateGraphValue(uber, UberWithPartialNonPublicComms.KernelPorts.PublicOutput);
+
+                for (int i = 0; i < k_Loops; ++i)
+                {
+                    set.SendMessage(uber, UberWithPartialNonPublicComms.SimulationPorts.PublicInput, i);
+                    set.SetData(uber, UberWithPartialNonPublicComms.KernelPorts.PublicInput, -i);
+                    set.Update();
+                    Assert.AreEqual(i, set.GetNodeData<PassthroughTest<int>.NodeData>(result).LastReceivedMsg);
+                    var value = set.GetValueBlocking(gv);
+                    Assert.AreEqual(-i, i == 0 ? 0 : value - 1);
+                }
+
+                set.ReleaseGraphValue(gv);
+                set.Destroy(uber, result);
+            }
+        }
+
+        public class UberWithNonPublicDataComms
+            : SimulationKernelNodeDefinition<UberWithNonPublicDataComms.SimPorts, UberWithNonPublicDataComms.KernelDefs>
+        {
+            public struct SimPorts : ISimulationPortDefinition
+            {
+                public MessageInput<UberWithNonPublicDataComms, int> PublicInput;
+                public MessageOutput<UberWithNonPublicDataComms, int> PublicOutput;
+            }
+
+            public struct KernelDefs : IKernelPortDefinition
+            {
+#pragma warning disable 649  // Assigned through internal DataFlowGraph reflection
+                internal DataInput<UberWithNonPublicDataComms, int> PrivateInput;
+                internal DataOutput<UberWithNonPublicDataComms, int> PrivateOutput;
+#pragma warning restore 649
+            }
+
+            struct Node : INodeData, IInit, IDestroy, IUpdate, IMsgHandler<int>
+            {
+                NodeHandle Child;
+                public GraphValue<int> Value;
+
+                public void Init(InitContext ctx)
+                {
+                    ctx.RegisterForUpdate();
+
+                    var self = ctx.Set.CastHandle<UberWithNonPublicDataComms>(ctx.Handle);
+                    var child = ctx.Set.Create<PassthroughTest<int>>();
+                    ctx.Set.Connect(self, KernelPorts.PrivateOutput, child, PassthroughTest<int>.KernelPorts.Input);
+                    ctx.Set.Connect(child, PassthroughTest<int>.KernelPorts.Output, self, KernelPorts.PrivateInput, NodeSet.ConnectionType.Feedback);
+                    Value = ctx.Set.CreateGraphValue(child, PassthroughTest<int>.KernelPorts.Output);
+                    Child = child;
+                }
+
+                public void Destroy(DestroyContext ctx)
+                {
+                    ctx.Set.ReleaseGraphValue(Value);
+                    ctx.Set.Destroy(Child);
+                }
+
+                public void HandleMessage(in MessageContext ctx, in int msg)
+                {
+                    ctx.UpdateKernelData(new Data {Content = msg});
+                }
+
+                public void Update(in UpdateContext ctx)
+                {
+                    ctx.EmitMessage(SimulationPorts.PublicOutput, ctx.Set.GetValueBlocking(Value));
+                }
+            }
+
+            struct Data : IKernelData
+            {
+                public int Content;
+            }
+
+            [BurstCompile(CompileSynchronously = true)]
+            struct Kernel : IGraphKernel<Data, KernelDefs>
+            {
+                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
+                {
+                    ctx.Resolve(ref ports.PrivateOutput) = ctx.Resolve(ports.PrivateInput) + data.Content;
+                }
+            }
+        }
+
+        [Test]
+        public void UberCanCommunicate_WithChild_ThroughNonPublicDataPorts()
+        {
+            const int k_Loops = 10;
+            using (var set = new NodeSet())
+            {
+                var uber = set.Create<UberWithNonPublicDataComms>();
+                var result = set.Create<PassthroughTest<int>>();
+
+                set.Connect(uber, UberWithNonPublicDataComms.SimulationPorts.PublicOutput, result, PassthroughTest<int>.SimulationPorts.Input);
+
+                int lastValue = 1;
+                for (int i = 0; i < k_Loops; ++i)
+                {
+                    set.SendMessage(uber, UberWithNonPublicDataComms.SimulationPorts.PublicInput, i);
+                    set.Update();
+                    var value = set.GetNodeData<PassthroughTest<int>.NodeData>(result).LastReceivedMsg;
+                    Assert.AreEqual(i + lastValue - 1, set.GetNodeData<PassthroughTest<int>.NodeData>(result).LastReceivedMsg);
+                    lastValue = value;
+                }
+
+                set.Destroy(uber, result);
+            }
+        }
+
+        public class UberWithNonPublicMsgComms
+            : SimulationKernelNodeDefinition<UberWithNonPublicMsgComms.SimPorts, UberWithNonPublicMsgComms.KernelDefs>
+        {
+            public struct SimPorts : ISimulationPortDefinition
+            {
+#pragma warning disable 649  // Assigned through internal DataFlowGraph reflection
+                internal MessageInput<UberWithNonPublicMsgComms, int> PrivateInput;
+                internal MessageOutput<UberWithNonPublicMsgComms, int> PrivateOutput;
+#pragma warning restore 649
+            }
+
+            public struct KernelDefs : IKernelPortDefinition
+            {
+                public DataInput<UberWithNonPublicMsgComms, int> PublicInput;
+                public DataOutput<UberWithNonPublicMsgComms, int> PublicOutput;
+            }
+
+            struct Node : INodeData, IInit, IDestroy, IUpdate, IMsgHandler<int>
+            {
+                public NodeHandle Child;
+                public GraphValue<int> Value;
+
+                public void HandleMessage(in MessageContext ctx, in int msg)
+                {
+                    ctx.UpdateKernelData(new Data {Content = msg});
+                }
+
+                public void Update(in UpdateContext ctx)
+                {
+                    ctx.EmitMessage(SimulationPorts.PrivateOutput, ctx.Set.GetValueBlocking(Value));
+                }
+
+                public void Init(InitContext ctx)
+                {
+                    ctx.RegisterForUpdate();
+                    var self = ctx.Set.CastHandle<UberWithNonPublicMsgComms>(ctx.Handle);
+                    var child = ctx.Set.Create<PassthroughTest<int>>();
+                    ctx.Set.Connect(self, SimulationPorts.PrivateOutput, child, PassthroughTest<int>.SimulationPorts.Input);
+                    ctx.Set.Connect(child, PassthroughTest<int>.SimulationPorts.Output, self, SimulationPorts.PrivateInput);
+                    Value = ctx.Set.CreateGraphValue(self, KernelPorts.PublicOutput);
+                    Child = child;
+                }
+
+                public void Destroy(DestroyContext ctx)
+                {
+                    ctx.Set.ReleaseGraphValue(Value);
+                    ctx.Set.Destroy(Child);
+                }
+            }
+
+            struct Data : IKernelData
+            {
+                public int Content;
+            }
+
+            [BurstCompile(CompileSynchronously = true)]
+            struct Kernel : IGraphKernel<Data, KernelDefs>
+            {
+                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
+                {
+                    ctx.Resolve(ref ports.PublicOutput) = ctx.Resolve(ports.PublicInput) + data.Content;
+                }
+            }
+        }
+
+        [Test]
+        public void UberCanCommunicate_WithChild_ThroughNonPublicMsgPorts()
+        {
+            const int k_Loops = 10;
+            using (var set = new NodeSet())
+            {
+                var uber = set.Create<UberWithNonPublicMsgComms>();
+
+                var gv = set.CreateGraphValue(uber, UberWithNonPublicMsgComms.KernelPorts.PublicOutput);
+
+                int lastValue = 0;
+                for (int i = 0; i < k_Loops; ++i)
+                {
+                    set.SetData(uber, UberWithNonPublicMsgComms.KernelPorts.PublicInput, i);
+                    set.Update();
+                    var value = set.GetValueBlocking(gv);
+                    Assert.AreEqual(i + lastValue, value);
+                    lastValue = value;
+                }
+
+                set.ReleaseGraphValue(gv);
+                set.Destroy(uber);
             }
         }
     }

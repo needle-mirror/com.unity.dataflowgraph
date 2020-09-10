@@ -17,23 +17,13 @@ namespace Unity.DataFlowGraph.Tests
             Assert.Throws<ArgumentOutOfRangeException>(() => Buffer<long>.SizeRequest(-1));
         }
 
-        public struct Node : INodeData
-        {
-            public int Contents;
-        }
-
-        public struct Data : IKernelData
-        {
-            public int Contents;
-        }
-
         public struct Aggregate
         {
             public Buffer<long> SubBuffer1;
             public Buffer<long> SubBuffer2;
         }
 
-        public class KernelBufferOutputNode : NodeDefinition<Node, Data, KernelBufferOutputNode.KernelDefs, KernelBufferOutputNode.Kernel>
+        public class KernelBufferOutputNode : KernelNodeDefinition<KernelBufferOutputNode.KernelDefs>
         {
             public struct KernelDefs : IKernelPortDefinition
             {
@@ -41,8 +31,10 @@ namespace Unity.DataFlowGraph.Tests
                 public DataOutput<KernelBufferOutputNode, Aggregate> Output3;
             }
 
+            struct Data : IKernelData { }
+
             [BurstCompile(CompileSynchronously = true)]
-            public struct Kernel : IGraphKernel<Data, KernelDefs>
+            struct Kernel : IGraphKernel<Data, KernelDefs>
             {
                 public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
                 {
@@ -65,7 +57,7 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        public class KernelBufferInputNode : NodeDefinition<Node, Data, KernelBufferInputNode.KernelDefs, KernelBufferInputNode.Kernel>
+        public class KernelBufferInputNode : KernelNodeDefinition<KernelBufferInputNode.KernelDefs>
         {
             public struct KernelDefs : IKernelPortDefinition
             {
@@ -74,8 +66,10 @@ namespace Unity.DataFlowGraph.Tests
                 public DataOutput<KernelBufferInputNode, long> Sum;
             }
 
+            struct Data : IKernelData { }
+
             [BurstCompile(CompileSynchronously = true)]
-            public struct Kernel : IGraphKernel<Data, KernelDefs>
+            struct Kernel : IGraphKernel<Data, KernelDefs>
             {
                 public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
                 {
@@ -269,8 +263,7 @@ namespace Unity.DataFlowGraph.Tests
 
 
         public class GenericOutput<T>
-            : NodeDefinition<Node, GenericOutput<T>.SimPorts, GenericOutput<T>.KernelData, GenericOutput<T>.KernelDefs, GenericOutput<T>.Kernel>
-            , IMsgHandler<T>
+            : SimulationKernelNodeDefinition<GenericOutput<T>.SimPorts, GenericOutput<T>.KernelDefs>
                 where T : struct
         {
             public struct SimPorts : ISimulationPortDefinition
@@ -286,13 +279,13 @@ namespace Unity.DataFlowGraph.Tests
                 public DataOutput<GenericOutput<T>, Buffer<T>> Output;
             }
 
-            public struct KernelData : IKernelData
+            struct KernelData : IKernelData
             {
                 public T Value;
             }
 
             [BurstCompile(CompileSynchronously = true)]
-            public struct Kernel : IGraphKernel<KernelData, KernelDefs>
+            struct Kernel : IGraphKernel<KernelData, KernelDefs>
             {
                 public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
                 {
@@ -302,12 +295,14 @@ namespace Unity.DataFlowGraph.Tests
                 }
             }
 
-            public void HandleMessage(in MessageContext ctx, in T msg) => GetKernelData(ctx.Handle).Value = msg;
+            struct Node : INodeData, IMsgHandler<T>
+            {
+                public void HandleMessage(in MessageContext ctx, in T msg) => ctx.UpdateKernelData(new KernelData { Value = msg });
+            }
         }
 
         public class GenericInput<T>
-            : NodeDefinition<Node, GenericInput<T>.SimPorts, GenericInput<T>.KernelData, GenericInput<T>.KernelDefs, GenericInput<T>.Kernel>
-            , IMsgHandler<T>
+            : SimulationKernelNodeDefinition<GenericInput<T>.SimPorts, GenericInput<T>.KernelDefs>
                 where T : struct
 
         {
@@ -316,7 +311,6 @@ namespace Unity.DataFlowGraph.Tests
                 // (To ensure we test cases where inputs are not the first port input declaration)
                 public MessageInput<GenericInput<T>, T> Dummy;
             }
-
 
             public struct KernelDefs : IKernelPortDefinition
             {
@@ -330,7 +324,7 @@ namespace Unity.DataFlowGraph.Tests
             }
 
             [BurstCompile(CompileSynchronously = true)]
-            public struct Kernel : IGraphKernel<KernelData, KernelDefs>
+            struct Kernel : IGraphKernel<KernelData, KernelDefs>
             {
                 public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
                 {
@@ -340,7 +334,10 @@ namespace Unity.DataFlowGraph.Tests
                 }
             }
 
-            public void HandleMessage(in MessageContext ctx, in T msg) => throw new NotImplementedException();
+            struct Node : INodeData, IMsgHandler<T>
+            {
+                public void HandleMessage(in MessageContext ctx, in T msg) => throw new NotImplementedException();
+            }
         }
 
         public struct CustomStructure
@@ -423,7 +420,7 @@ namespace Unity.DataFlowGraph.Tests
         }
 
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
-        public class KernelBufferInputReaderNode : NodeDefinition<Node, Data, KernelBufferInputReaderNode.KernelDefs, KernelBufferInputReaderNode.Kernel>
+        public class KernelBufferInputReaderNode : KernelNodeDefinition<KernelBufferInputReaderNode.KernelDefs>
         {
             public struct KernelDefs : IKernelPortDefinition
             {
@@ -433,7 +430,9 @@ namespace Unity.DataFlowGraph.Tests
                 public DataInput<KernelBufferInputReaderNode, int> ArrayIndexToTest;
             }
 
-            public struct Kernel : IGraphKernel<Data, KernelDefs>
+            struct Data : IKernelData { }
+
+            struct Kernel : IGraphKernel<Data, KernelDefs>
             {
                 public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
                 {
@@ -501,7 +500,7 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        public class KernelBufferOutputWriterNode : NodeDefinition<Node, Data, KernelBufferOutputWriterNode.KernelDefs, KernelBufferOutputWriterNode.Kernel>
+        public class KernelBufferOutputWriterNode : KernelNodeDefinition<KernelBufferOutputWriterNode.KernelDefs>
         {
             public struct KernelDefs : IKernelPortDefinition
             {
@@ -511,7 +510,9 @@ namespace Unity.DataFlowGraph.Tests
                 public DataInput<KernelBufferOutputWriterNode, int> ArrayIndexToTest;
             }
 
-            public struct Kernel : IGraphKernel<Data, KernelDefs>
+            struct Data : IKernelData { }
+
+            struct Kernel : IGraphKernel<Data, KernelDefs>
             {
                 public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
                 {
@@ -566,7 +567,7 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        public class NodeThatWritesToInputBuffer : NodeDefinition<Node, Data, NodeThatWritesToInputBuffer.KernelDefs, NodeThatWritesToInputBuffer.Kernel>
+        public class NodeThatWritesToInputBuffer : KernelNodeDefinition<NodeThatWritesToInputBuffer.KernelDefs>
         {
             public struct KernelDefs : IKernelPortDefinition
             {
@@ -574,7 +575,9 @@ namespace Unity.DataFlowGraph.Tests
                 public DataOutput<NodeThatWritesToInputBuffer, int> GotException;
             }
 
-            public struct Kernel : IGraphKernel<Data, KernelDefs>
+            struct Data : IKernelData { }
+
+            struct Kernel : IGraphKernel<Data, KernelDefs>
             {
                 public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
                 {
@@ -618,7 +621,7 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        public class StaleKernelChecker : NodeDefinition<Node, Data, StaleKernelChecker.KernelDefs, StaleKernelChecker.Kernel>
+        public class StaleKernelChecker : KernelNodeDefinition<StaleKernelChecker.KernelDefs>
         {
             public struct KernelDefs : IKernelPortDefinition
             {
@@ -628,7 +631,9 @@ namespace Unity.DataFlowGraph.Tests
                 public DataOutput<StaleKernelChecker, int> ErrorCode;
             }
 
-            public unsafe struct Kernel : IGraphKernel<Data, KernelDefs>
+            struct Data : IKernelData { }
+
+            unsafe struct Kernel : IGraphKernel<Data, KernelDefs>
             {
                 struct CheatingNativeArrayStorage
                 {
@@ -808,7 +813,7 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        public class ComplexKernelAggregateNode : NodeDefinition<Node, Data, ComplexKernelAggregateNode.KernelDefs, ComplexKernelAggregateNode.Kernel>
+        public class ComplexKernelAggregateNode : KernelNodeDefinition<ComplexKernelAggregateNode.KernelDefs>
         {
             public struct KernelDefs : IKernelPortDefinition
             {
@@ -818,8 +823,10 @@ namespace Unity.DataFlowGraph.Tests
                 public DataOutput<ComplexKernelAggregateNode, ComplexAggregate> Output;
             }
 
+            struct Data : IKernelData { }
+
             [BurstCompile(CompileSynchronously = true)]
-            public struct Kernel : IGraphKernel<Data, KernelDefs>
+            struct Kernel : IGraphKernel<Data, KernelDefs>
             {
                 public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
                 {
@@ -959,7 +966,7 @@ namespace Unity.DataFlowGraph.Tests
         }
 
 
-        public class StatefulKernelNode : NodeDefinition<Node, Data, StatefulKernelNode.KernelDefs, StatefulKernelNode.Kernel>
+        public class StatefulKernelNode : KernelNodeDefinition<StatefulKernelNode.KernelDefs>
         {
             public struct KernelDefs : IKernelPortDefinition
             {
@@ -967,13 +974,18 @@ namespace Unity.DataFlowGraph.Tests
                 public DataOutput<StatefulKernelNode, Buffer<long>> Output;
             }
 
-            protected internal override void Init(InitContext ctx)
+            struct Node : INodeData, IInit
             {
-                ctx.SetKernelBufferSize(new Kernel {stateBuffer = Buffer<long>.SizeRequest(10)});
+                public void Init(InitContext ctx)
+                {
+                    ctx.SetKernelBufferSize(new Kernel {stateBuffer = Buffer<long>.SizeRequest(10)});
+                }
             }
 
+            internal struct Data : IKernelData { }
+
             [BurstCompile(CompileSynchronously = true)]
-            public struct Kernel : IGraphKernel<Data, KernelDefs>
+            internal struct Kernel : IGraphKernel<Data, KernelDefs>
             {
                 internal Buffer<long> stateBuffer;
 
@@ -999,7 +1011,14 @@ namespace Unity.DataFlowGraph.Tests
             {
                 var node = set.Create<StatefulKernelNode>();
 
-                set.SetKernelBufferSize(set.GetNodeChecked(node).Self, new StatefulKernelNode.Kernel {stateBuffer = Buffer<long>.SizeRequest(1)});
+                set.SetKernelBufferSize(
+                    set.Nodes.Validate(node.VHandle),
+                    new StatefulKernelNode.Kernel
+                    {
+                        stateBuffer = Buffer<long>.SizeRequest(1)
+                    }
+                );
+
                 set.Update();
 
                 set.Destroy(node);
@@ -1035,25 +1054,30 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        public class KernelNodeWithInvalidSetKernelBufferSize : NodeDefinition<Node, Data, KernelNodeWithInvalidSetKernelBufferSize.KernelDefs, KernelNodeWithInvalidSetKernelBufferSize.Kernel>
+        public class KernelNodeWithInvalidSetKernelBufferSize : KernelNodeDefinition<KernelNodeWithInvalidSetKernelBufferSize.KernelDefs>
         {
             public struct KernelDefs : IKernelPortDefinition {}
 
-            protected internal override void Init(InitContext ctx)
+            struct Node : INodeData, IInit
             {
-                try
+                public void Init(InitContext ctx)
                 {
-                    // This is invalid as it doesn't pass in the right IGraphKernel type
-                    ctx.SetKernelBufferSize(new StatefulKernelNode.Kernel {stateBuffer = Buffer<long>.SizeRequest(10)});
-                }
-                catch (ArgumentException)
-                {
-                    Debug.Log("All is good");
+                    try
+                    {
+                        // This is invalid as it doesn't pass in the right IGraphKernel type
+                        ctx.SetKernelBufferSize(new StatefulKernelNode.Kernel {stateBuffer = Buffer<long>.SizeRequest(10)});
+                    }
+                    catch (ArgumentException)
+                    {
+                        Debug.Log("All is good");
+                    }
                 }
             }
 
+            struct Data : IKernelData { }
+
             [BurstCompile(CompileSynchronously = true)]
-            public struct Kernel : IGraphKernel<Data, KernelDefs>
+            struct Kernel : IGraphKernel<Data, KernelDefs>
             {
                 public void Execute(RenderContext ctx, Data data, ref KernelDefs ports) {}
             }

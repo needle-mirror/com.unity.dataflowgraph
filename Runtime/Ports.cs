@@ -12,6 +12,12 @@ using UnityEngine.Scripting;
 namespace Unity.DataFlowGraph
 {
 
+#if UNITY_64 || UNITY_EDITOR_64
+    using PointerWord = System.UInt64;
+#else
+    using PointerWord = System.UInt32;
+#endif
+
 #pragma warning disable 660, 661  // We do not want Equals(object) nor GetHashCode() for all port primitives
 
     /// <summary>
@@ -249,6 +255,11 @@ namespace Unity.DataFlowGraph
     }
 
     /// <summary>
+    /// Base interface all input port types that are allowed in <see cref="PortArray"/>s.
+    /// </summary>
+    public interface IInputPort : IIndexablePort {}
+
+    /// <summary>
     /// Declaration of a specific message input connection port for a given node type.
     ///
     /// These are used as fields within an <see cref="ISimulationPortDefinition"/> struct implementation
@@ -261,8 +272,8 @@ namespace Unity.DataFlowGraph
     /// <typeparam name="TDefinition">
     /// The <see cref="NodeDefinition{TNodeData,TSimulationPortDefinition}"/> to which this port is associated.
     /// </typeparam>
-    public struct MessageInput<TDefinition, TMsg> : IIndexablePort
-        where TDefinition : NodeDefinition, IMsgHandler<TMsg>
+    public struct MessageInput<TDefinition, TMsg> : IInputPort
+        where TDefinition : NodeDefinition
     {
         internal InputPortID Port;
 
@@ -288,6 +299,11 @@ namespace Unity.DataFlowGraph
     }
 
     /// <summary>
+    /// Base interface all output port types that are allowed in <see cref="PortArray"/>s.
+    /// </summary>
+    public interface IOutputPort : IIndexablePort {}
+
+    /// <summary>
     /// Declaration of a specific message output connection port for a given node type.
     ///
     /// These are used as fields within an <see cref="ISimulationPortDefinition"/> struct implementation
@@ -296,7 +312,7 @@ namespace Unity.DataFlowGraph
     /// <typeparam name="TDefinition">
     /// The <see cref="NodeDefinition{TNodeData,TSimulationPortDefinition}"/> to which this port is associated.
     /// </typeparam>
-    public struct MessageOutput<TDefinition, TMsg> : IIndexablePort
+    public struct MessageOutput<TDefinition, TMsg> : IOutputPort
         where TDefinition : NodeDefinition
     {
         internal OutputPortID Port;
@@ -400,29 +416,74 @@ namespace Unity.DataFlowGraph
         }
     }
 
-    internal static unsafe class DataInputUtility
+    internal readonly unsafe struct DataInputStorage
     {
-        public enum Ownership : ushort
+        public const int MinimumInputAlignment = (int)(k_OwnershipMask + 1);
+        const PointerWord k_OwnershipMask = 0x3;
+        const PointerWord k_PointerMask = ~k_OwnershipMask;
+
+        public enum Ownership : PointerWord
         {
             None = 0,
             OwnedByPort = 1 << 0,
-            OwnedByBatch = 1 << 1,
-            ExternalMask = OwnedByPort | OwnedByBatch
+            ExternalMask = OwnedByPort
         }
 
-        internal static ref Ownership GetMemoryOwnership(void** inputPortPatch)
+        readonly public void* Pointer;
+
+        readonly public InputPortID PortID;
+
+        public DataInputStorage(void* pointer)
         {
-            /// Note: hijacking the area of memory for <see cref="DataInput{TDefinition, TType}.Port"/> which is
-            /// unused on the RenderGraph side.
-            return ref *(Ownership*)(inputPortPatch + 1);
+            Pointer = pointer;
+            PortID = default;
+#if DFG_ASSERTIONS
+            if (((PointerWord)Pointer & k_OwnershipMask) != 0)
+                throw new AssertionException("Pointer to DataInput must have first three bits zero (alignment)");
+#endif
         }
 
-        public static bool PortOwnsMemory(void** inputPortPatch)
-            => GetMemoryOwnership(inputPortPatch) == Ownership.OwnedByPort;
+        public DataInputStorage(InputPortID portID)
+        {
+            Pointer = default;
+            PortID = portID;
+        }
 
-        public static bool SomethingOwnsMemory(void** inputPortPatch)
-            => (GetMemoryOwnership(inputPortPatch) & Ownership.ExternalMask) != 0;
+        public DataInputStorage(void* pointer, Ownership ownership)
+            : this(pointer)
+        {
+#if DFG_ASSERTIONS
+            if (((PointerWord)ownership & k_PointerMask) != 0)
+                throw new AssertionException("Ownership has out of range bits");
+#endif
+            Utility.As<InputPortID, Ownership>(ref PortID) = ownership;
+        }
+
+        public void FreeIfNeeded(Allocator originalAllocator)
+        {
+            if (OwnsMemory())
+                UnsafeUtility.Free(Pointer, originalAllocator);
+        }
+
+        public Ownership GetMemoryOwnership()
+        {
+            return Utility.As<InputPortID, Ownership>(ref Utility.AsRef(PortID));
+        }
+
+        public bool OwnsMemory() => GetMemoryOwnership() == Ownership.OwnedByPort;
+
+        public static bool PortOwnsMemory<TDefinition, TType>(in DataInput<TDefinition, TType> port)
+            where TDefinition : NodeDefinition
+            where TType : struct
+        {
+            return port.Storage.OwnsMemory();
+        }
+
+        public bool SomethingOwnsMemory()
+            => GetMemoryOwnership() != Ownership.None;
     }
+
+    public interface IDataInputPort : IInputPort {}
 
     /// <summary>
     /// Declaration of a specific data input connection port for a given node type.
@@ -437,13 +498,13 @@ namespace Unity.DataFlowGraph
     /// The <see cref="NodeDefinition{TNodeData,TSimulationportDefinition,TKernelData,TKernelPortDefinition,TKernel}"/> to which this port is associated.
     /// </typeparam>
     [DebuggerDisplay("{Value}")]
-    public readonly unsafe struct DataInput<TDefinition, TType> : IIndexablePort
+    public readonly unsafe struct DataInput<TDefinition, TType> : IDataInputPort
         where TDefinition : NodeDefinition
         where TType : struct
     {
-        internal readonly void* Ptr;
-        internal readonly InputPortID Port;
-
+        internal readonly DataInputStorage Storage;
+        internal void* Ptr => Storage.Pointer;
+        internal InputPortID Port => Storage.PortID;
 
         /// <summary>
         /// Converts the <paramref name="input"/> to an untyped <see cref="InputPortID"/>.
@@ -462,22 +523,13 @@ namespace Unity.DataFlowGraph
         /// <see cref="DataOutput{TDefinition, TType}"/> or <see cref="InternalComponentNode.OutputFromECS"/>.
         /// <seealso cref="RenderContext.Resolve{TNodeDefinition, T}(in DataInput{TNodeDefinition, T})"/>
         /// </summary>
-        internal DataInput(void* ptr)
-        {
-            Ptr = ptr;
-            Port = default;
-        }
-
+        internal DataInput(void* ptr) => Storage = new DataInputStorage(ptr);
         /// <summary>
         /// Creates a DataInput that must only be used as a <see cref="InputPortID"/>
         /// <seealso cref="Port"/>
         /// <seealso cref="DataInput(InputPortID)"/>
         /// </summary>
-        internal DataInput(InputPortID port)
-        {
-            Ptr = null;
-            Port = port;
-        }
+        internal DataInput(InputPortID port) => Storage = new DataInputStorage(port);
 
         /// <summary>
         /// Creates a DataInput that must only be used as a <see cref="InputPortID"/>
@@ -579,7 +631,7 @@ namespace Unity.DataFlowGraph
         public NativeArray<T> ToNative(GraphValueResolver resolver) => resolver.Resolve(this);
 
         /// <summary>
-        /// The return value should be used with <see cref="NodeSet.SetBufferSize{TDefinition, TType}"/> to resize
+        /// The return value should be used with <see cref="NodeSetAPI.SetBufferSize{TDefinition, TType}"/> to resize
         /// a buffer.
         /// </summary>
         public static Buffer<T> SizeRequest(int size)
@@ -627,6 +679,8 @@ namespace Unity.DataFlowGraph
     /// </summary>
     public struct PortDescription
     {
+        internal const uint k_MaskForAnyData = (int)Category.Data | ((int)Category.Data << (int)CategoryShift.FeedbackConnection) | ((int)Category.Data << (int)CategoryShift.BackConnection);
+
         /// <summary>
         /// Bit-shifting constants used to modulate <see cref="Category"/>
         /// </summary>
@@ -671,7 +725,7 @@ namespace Unity.DataFlowGraph
             Category m_Category;
             Type m_Type;
             internal ushort m_Port;
-            internal bool m_HasBuffers, m_IsPortArray;
+            internal bool m_HasBuffers, m_IsPortArray, m_IsPublic;
             string m_Name;
 
             /// <summary>
@@ -679,7 +733,7 @@ namespace Unity.DataFlowGraph
             /// </summary>
             public Category Category => m_Category;
 
-            [Obsolete("Use Category instead.")]
+            [Obsolete("Use Category instead.", true)]
             public Category PortUsage => m_Category;
 
             /// <summary>
@@ -703,7 +757,9 @@ namespace Unity.DataFlowGraph
             /// </summary>
             public bool IsPortArray => m_IsPortArray;
 
-            internal static InputPort Data(Type type, ushort port, bool hasBuffers, bool isPortArray, string name)
+            internal bool IsPublic => m_IsPublic;
+
+            internal static InputPort Data(Type type, ushort port, bool hasBuffers, bool isPortArray, bool isPublic, string name)
             {
                 InputPort ret;
                 ret.m_Category = Category.Data;
@@ -712,10 +768,11 @@ namespace Unity.DataFlowGraph
                 ret.m_Name = name;
                 ret.m_HasBuffers = hasBuffers;
                 ret.m_IsPortArray = isPortArray;
+                ret.m_IsPublic = isPublic;
                 return ret;
             }
 
-            internal static InputPort Message(Type type, ushort port, bool isPortArray, string name)
+            internal static InputPort Message(Type type, ushort port, bool isPortArray, bool isPublic, string name)
             {
                 InputPort ret;
                 ret.m_Category = Category.Message;
@@ -724,10 +781,11 @@ namespace Unity.DataFlowGraph
                 ret.m_Name = name;
                 ret.m_HasBuffers = false;
                 ret.m_IsPortArray = isPortArray;
+                ret.m_IsPublic = isPublic;
                 return ret;
             }
 
-            internal static InputPort DSL(Type type, ushort port, string name)
+            internal static InputPort DSL(Type type, ushort port, bool isPublic, string name)
             {
                 InputPort ret;
                 ret.m_Category = Category.DomainSpecific;
@@ -736,6 +794,7 @@ namespace Unity.DataFlowGraph
                 ret.m_Name = name;
                 ret.m_HasBuffers = false;
                 ret.m_IsPortArray = false;
+                ret.m_IsPublic = isPublic;
                 return ret;
             }
 
@@ -754,6 +813,7 @@ namespace Unity.DataFlowGraph
                     left.m_Type == right.m_Type &&
                     left.m_Port == right.m_Port &&
                     left.m_IsPortArray == right.m_IsPortArray &&
+                    left.m_IsPublic == right.m_IsPublic &&
                     left.m_Name == right.m_Name;
             }
 
@@ -795,6 +855,7 @@ namespace Unity.DataFlowGraph
                     (((int)m_Category) << 0) ^ // 3-bits
                     (((int)m_Port) << 3) ^ // 16-bits
                     ((m_IsPortArray ? 1 : 0) << 19) ^ // 1-bit
+                    ((m_IsPublic ? 1 : 0) << 20) ^ // 1-bit
                     m_Type.GetHashCode() ^
                     m_Name.GetHashCode();
             }
@@ -809,7 +870,7 @@ namespace Unity.DataFlowGraph
             Type m_Type;
             internal ushort m_Port;
             internal List<(int Offset, SimpleType ItemType)> m_BufferInfos;
-            internal bool m_IsPortArray;
+            internal bool m_IsPortArray, m_IsPublic;
             string m_Name;
 
             /// <summary>
@@ -817,7 +878,7 @@ namespace Unity.DataFlowGraph
             /// </summary>
             public Category Category => m_Category;
 
-            [Obsolete("Use Category instead.")]
+            [Obsolete("Use Category instead.", true)]
             public Category PortUsage => m_Category;
 
             /// <summary>
@@ -841,13 +902,15 @@ namespace Unity.DataFlowGraph
             /// </summary>
             public bool IsPortArray => m_IsPortArray;
 
+            internal bool IsPublic => m_IsPublic;
+
             /// <summary>
             /// List of offsets of all <see cref="Buffer{T}"/> instances within the port relative to the beginning of
             /// the <see cref="DataInput{TDefinition,TType}"/>
             /// </summary>
             internal List<(int Offset, SimpleType ItemType)> BufferInfos => m_BufferInfos;
 
-            internal static OutputPort Data(Type type, ushort port, List<(int Offset, SimpleType ItemType)> bufferInfos, string name)
+            internal static OutputPort Data(Type type, ushort port, List<(int Offset, SimpleType ItemType)> bufferInfos, bool isPublic, string name)
             {
                 OutputPort ret;
                 ret.m_Category = Category.Data;
@@ -856,10 +919,11 @@ namespace Unity.DataFlowGraph
                 ret.m_Name = name;
                 ret.m_BufferInfos = bufferInfos;
                 ret.m_IsPortArray = false;
+                ret.m_IsPublic = isPublic;
                 return ret;
             }
 
-            internal static OutputPort Message(Type type, ushort port, bool isPortArray, string name)
+            internal static OutputPort Message(Type type, ushort port, bool isPortArray, bool isPublic, string name)
             {
                 OutputPort ret;
                 ret.m_Category = Category.Message;
@@ -868,10 +932,11 @@ namespace Unity.DataFlowGraph
                 ret.m_Name = name;
                 ret.m_BufferInfos = null;
                 ret.m_IsPortArray = isPortArray;
+                ret.m_IsPublic = isPublic;
                 return ret;
             }
 
-            internal static OutputPort DSL(Type type, ushort port, string name)
+            internal static OutputPort DSL(Type type, ushort port, bool isPublic, string name)
             {
                 OutputPort ret;
                 ret.m_Category = Category.DomainSpecific;
@@ -880,6 +945,7 @@ namespace Unity.DataFlowGraph
                 ret.m_Name = name;
                 ret.m_BufferInfos = null;
                 ret.m_IsPortArray = false;
+                ret.m_IsPublic = isPublic;
                 return ret;
             }
 
@@ -897,6 +963,8 @@ namespace Unity.DataFlowGraph
                     left.m_Category == right.m_Category &&
                     left.m_Type == right.m_Type &&
                     left.m_Port == right.m_Port &&
+                    left.m_IsPortArray == right.m_IsPortArray &&
+                    left.m_IsPublic == right.m_IsPublic &&
                     left.m_Name == right.m_Name;
             }
 
@@ -937,6 +1005,8 @@ namespace Unity.DataFlowGraph
                 return
                     (((int)m_Category) << 0) ^ // 3-bits
                     (((int)m_Port.GetHashCode()) << 3) ^ // 16-bits
+                    ((m_IsPortArray ? 1 : 0) << 19) ^ // 1-bit
+                    ((m_IsPublic ? 1 : 0) << 20) ^ // 1-bit
                     m_Type.GetHashCode() ^
                     m_Name.GetHashCode();
             }

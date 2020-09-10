@@ -124,6 +124,9 @@ namespace Unity.DataFlowGraph
             )
                 where TTopologyFromVertex : Database.ITopologyFromVertex
             {
+                if (IsCacheFresh(versionTracker, context.Cache))
+                    return deps;
+                
                 ComputationContext<TTopologyFromVertex>.ComputeTopologyJob topologyJob;
                 topologyJob.Context = context;
                 topologyJob.NewVersion = versionTracker.Version;

@@ -91,10 +91,10 @@ namespace Unity.DataFlowGraph
         }
 
         /// <summary>
-        /// A resolved <see cref="PortArray{TInputPort}"/> (see
+        /// A resolved <see cref="PortArray{TPort}"/> of <see cref="DataInput{TDefinition,TType}"/>. (see
         /// <see cref="RenderContext.Resolve{TNodeDefinition,TType}(ref Unity.DataFlowGraph.DataOutput{TNodeDefinition,TType})"/>).
         /// </summary>
-        [DebuggerDisplay("Size = {Size}")]
+        [DebuggerDisplay("Length = {Length}")]
         [DebuggerTypeProxy(typeof(ResolvedPortArrayDebugView<,>))]
         public readonly struct ResolvedPortArray<TDefinition, TType>
             where TType : struct
@@ -117,7 +117,7 @@ namespace Unity.DataFlowGraph
                     if ((uint)i >= Length)
                         throw new IndexOutOfRangeException();
 
-                    return Utility.AsRef<TType>(PortArray[(ushort)i].Ptr);
+                    return Utility.AsRef<TType>(PortArray.GetRef((ushort)i).Ptr);
                 }
             }
 
@@ -153,7 +153,7 @@ namespace Unity.DataFlowGraph
         }
 
         /// <summary>
-        /// Resolves a <see cref="PortArray{TInputPort}"/> of data inputs so that individual items in the array may be
+        /// Resolves a <see cref="PortArray{TPort}"/> of data inputs so that individual items in the array may be
         /// accessed.
         /// </summary>
         public ResolvedPortArray<TDefinition, TType> Resolve<TDefinition, TType>(in PortArray<DataInput<TDefinition, TType>> input)

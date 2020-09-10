@@ -5,9 +5,9 @@ namespace Unity.DataFlowGraph
 {
     static class DebugInfo
     {
-        static Dictionary<ushort, NodeSet> s_RegisteredNodeSets = new Dictionary<ushort, NodeSet>();
+        static Dictionary<ushort, NodeSetAPI> s_RegisteredNodeSets = new Dictionary<ushort, NodeSetAPI>();
 
-        public static void RegisterNodeSetCreation(NodeSet set)
+        public static void RegisterNodeSetCreation(NodeSetAPI set)
         {
             try
             {
@@ -22,7 +22,7 @@ namespace Unity.DataFlowGraph
             }
         }
 
-        public static void RegisterNodeSetDisposed(NodeSet set)
+        public static void RegisterNodeSetDisposed(NodeSetAPI set)
         {
             try
             {
@@ -34,7 +34,7 @@ namespace Unity.DataFlowGraph
             }
         }
 
-        internal static NodeSet DebugGetNodeSet(ushort nodeSetID)
+        internal static NodeSetAPI DebugGetNodeSet(ushort nodeSetID)
         {
             return s_RegisteredNodeSets.TryGetValue(nodeSetID, out var set) ? set : null;
         }

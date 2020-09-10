@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Linq;
+using System.Reflection;
 using System.Text.RegularExpressions;
 using NUnit.Framework;
 using Unity.Burst;
@@ -8,7 +9,7 @@ using UnityEngine;
 using UnityEngine.TestTools;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs.LowLevel.Unsafe;
-
+using Unity.Mathematics;
 #if UNITY_EDITOR
 using UnityEditor;
 #endif
@@ -29,17 +30,7 @@ namespace Unity.DataFlowGraph.Tests
         const int k_DataPadding = 35;
         const int k_KernelPadding = 57;
 
-        public unsafe struct Node : INodeData
-        {
-            fixed byte m_Pad[k_NodePadding];
-        }
-
-        public unsafe struct Data : IKernelData
-        {
-            fixed byte m_Pad[k_DataPadding];
-        }
-
-        class KernelNodeWithIO : NodeDefinition<Node, Data, KernelNodeWithIO.KernelDefs, KernelNodeWithIO.Kernel>
+        class KernelNodeWithIO : KernelNodeDefinition<KernelNodeWithIO.KernelDefs>
         {
 #pragma warning disable 649  // Assigned through internal DataFlowGraph reflection
             public struct NestedAggregate
@@ -63,14 +54,22 @@ namespace Unity.DataFlowGraph.Tests
             }
 #pragma warning restore 649
 
+            internal unsafe struct Node : INodeData
+            {
+                fixed byte m_Pad[k_NodePadding];
+            }
+
+            internal unsafe struct Data : IKernelData
+            {
+                fixed byte m_Pad[k_DataPadding];
+            }
+
             [BurstCompile(CompileSynchronously = true)]
-            public unsafe struct Kernel : IGraphKernel<Data, KernelDefs>
+            internal unsafe struct Kernel : IGraphKernel<Data, KernelDefs>
             {
                 fixed byte m_Pad[k_KernelPadding];
 
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
-                {
-                }
+                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports) { }
             }
         }
 
@@ -80,36 +79,140 @@ namespace Unity.DataFlowGraph.Tests
             Managed
         }
 
-        public struct EmptyKernelDefs : IKernelPortDefinition { }
-
-        public struct EmptyKernel : IGraphKernel<Data, EmptyKernelDefs>
+        class EmptyKernelNode : KernelNodeDefinition<EmptyKernelNode.KernelDefs>
         {
-            public void Execute(RenderContext ctx, Data data, ref EmptyKernelDefs ports) { }
+            public struct KernelDefs : IKernelPortDefinition { }
+
+            unsafe struct Node : INodeData
+            {
+                fixed byte m_Pad[k_NodePadding];
+            }
+
+            internal unsafe struct Data : IKernelData
+            {
+                fixed byte m_Pad[k_DataPadding];
+            }
+
+            internal struct Kernel : IGraphKernel<Data, KernelDefs>
+            {
+                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports) { }
+            }
         }
 
-        [BurstCompile(CompileSynchronously = true)]
-        public struct BurstedEmptyKernel : IGraphKernel<Data, EmptyKernelDefs>
+        class BurstedEmptyKernelNode : KernelNodeDefinition<BurstedEmptyKernelNode.KernelDefs>
         {
-            public void Execute(RenderContext ctx, Data data, ref EmptyKernelDefs ports) { }
+            public struct KernelDefs : IKernelPortDefinition { }
+
+            unsafe struct Node : INodeData
+            {
+                fixed byte m_Pad[k_NodePadding];
+            }
+
+            internal unsafe struct Data : IKernelData
+            {
+                fixed byte m_Pad[k_DataPadding];
+            }
+
+            [BurstCompile(CompileSynchronously = true)]
+            internal struct Kernel : IGraphKernel<Data, KernelDefs>
+            {
+                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports) { }
+            }
         }
 
-        class EmptyKernelNode : NodeDefinition<Node, Data, EmptyKernelDefs, EmptyKernel>
+        class SimpleNode : SimulationNodeDefinition<SimpleNode.EmptyPorts>
         {
+            public struct EmptyPorts : ISimulationPortDefinition { }
 
+            public unsafe struct Node : INodeData
+            {
+                fixed byte m_Pad[k_NodePadding];
+            }
         }
 
-        class BurstedEmptyKernelNode : NodeDefinition<Node, Data, EmptyKernelDefs, BurstedEmptyKernel>
+        static SimpleType CompareSimpleType<T>(SimpleType computed)
+            where T : struct
         {
-        }
+            SimpleType actual = SimpleType.Create<T>();
 
-        class SimpleNode : NodeDefinition<Node, EmptyPorts> {}
-
-        void CompareSimpleTypes(SimpleType original, SimpleType analysed)
-        {
-            Assert.AreEqual(original.Size, analysed.Size);
+            Assert.AreEqual(actual.Size, computed.Size);
             // analysed may be overaligned
-            Assert.GreaterOrEqual(analysed.Align, original.Align);
+            Assert.GreaterOrEqual(computed.Align, actual.Align);
+            Assert.Zero(computed.Align % actual.Align, "Computed alignment is not a multiple of actual alignment");
+            Assert.AreEqual(1, math.countbits(computed.Align), "Computed alignment is not a power-of-two");
+            Assert.Zero(actual.Size % computed.Align, "Size is not a multiple of computed alignment");
+
+            return actual;
         }
+
+#if !ENABLE_IL2CPP // This reflection is problematic for IL2CPP
+        static SimpleType CompareSimpleType(Type type, SimpleType computed)
+        {
+            var compareSimpleTypeGenericFunction = typeof(LowLevelNodeTraitsTests).GetMethods(BindingFlags.Static | BindingFlags.NonPublic).Single(m => m.Name == nameof(CompareSimpleType) && m.GetGenericArguments().Length==1);
+            var compareSimpleType = compareSimpleTypeGenericFunction.MakeGenericMethod(type);
+            return (SimpleType)compareSimpleType.Invoke(null, new object[]{ computed });
+        }
+
+        struct EmptyStruct {}
+        unsafe struct PointerStruct {void* p;}
+        struct ShortAndByteStruct {short s; byte b;}
+        struct ThreeByteStruct {byte b1, b2; byte b3;}
+        unsafe struct TwoPointersStruct {void* p1, p2;}
+        unsafe struct ThreePointersStruct {void* p1, p2, p3;}
+        unsafe struct ThreePointersAndAByteStruct {void* p1, p2, p3; byte b;}
+        unsafe struct ThreePointersAndAShortStruct {void* p1, p2, p3; short b;}
+        unsafe struct BigStructWithPointers {void* p1, p2, p3, p4; int i1, i2, i3; short s1, s2, s3; byte b;}
+
+        [TestCase(typeof(bool), 1, 1, 1),
+         TestCase(typeof(byte), 1, 1, 1),
+         TestCase(typeof(short), 2, 2, 2),
+         TestCase(typeof(int), 4, 4, 4),
+         TestCase(typeof(float), 4, 4, 4),
+         TestCase(typeof(double), 8, 8, 8),
+         TestCase(typeof(long), 8, 8, 8),
+         TestCase(typeof(ThreeByteStruct), 3, 1, 1),
+         TestCase(typeof(ShortAndByteStruct), 4, 2, 4),
+#if UNITY_64 || UNITY_EDITOR_64
+         TestCase(typeof(PointerStruct), 8, 8, 8),
+         TestCase(typeof(TwoPointersStruct), 16, 8, 16),
+         TestCase(typeof(ThreePointersStruct), 24, 8, 8),
+         TestCase(typeof(ThreePointersAndAByteStruct), 32, 8, SimpleType.MaxAlignment),
+         TestCase(typeof(ThreePointersAndAShortStruct), 32, 8, SimpleType.MaxAlignment),
+         TestCase(typeof(BigStructWithPointers), 56, 8, 8),
+#else
+         TestCase(typeof(PointerStruct), 4, 4, 4),
+         TestCase(typeof(TwoPointersStruct), 8, 4, 8),
+         TestCase(typeof(ThreePointersStruct), 12, 4, 4),
+         TestCase(typeof(ThreePointersAndAByteStruct), 16, 8, SimpleType.MaxAlignment),
+         TestCase(typeof(ThreePointersAndAShortStruct), 16, 8, SimpleType.MaxAlignment),
+         TestCase(typeof(BigStructWithPointers), 12 + 16 + 4 + 4, 8, SimpleType.MaxAlignment),
+#endif
+         TestCase(typeof(EmptyStruct), 1, 1, 1)]
+        public void SimpleType_CorrectlyComputes_AlignmentAndSize_FromSystemType(Type type, int expectedSize, int expectedAlignment, int expectedComputedAlignment)
+        {
+            var alignOfGenericMethod = typeof(UnsafeUtility).GetMethod(nameof(UnsafeUtility.AlignOf), BindingFlags.Static | BindingFlags.Public);
+            var alignOfMethod = alignOfGenericMethod.MakeGenericMethod(type);
+            var actualAlign = (int) alignOfMethod.Invoke(null, new object[0]);
+
+            Assert.AreEqual(actualAlign, expectedAlignment);
+
+            var sizeOfGenericMethod = typeof(UnsafeUtility).GetMethods().Single(m => m.Name == nameof(UnsafeUtility.SizeOf) && m.GetGenericArguments().Length==1);
+            var sizeOfMethod = sizeOfGenericMethod.MakeGenericMethod(type);
+            var actualSize = (int) sizeOfMethod.Invoke(null, new object[0]);
+
+            Assert.AreEqual(actualSize, expectedSize);
+
+            SimpleType actual = CompareSimpleType(type, new SimpleType(expectedSize, expectedAlignment));
+            Assert.AreEqual(actual.Align, expectedAlignment);
+            Assert.AreEqual(actual.Size, expectedSize);
+
+            var computed = new SimpleType(type);
+            CompareSimpleType(type, computed);
+
+            Assert.Zero(expectedComputedAlignment % expectedAlignment, "Expected computed alignment is not a multiple of expected alignment");
+            Assert.AreEqual(expectedComputedAlignment, computed.Align);
+        }
+#endif // ENABLE_IL2CPP
 
         [TestCase(NodeType.Kernel), TestCase(NodeType.NonKernel)]
         public void LowLevelNodeTraits_IsCreated(NodeType type)
@@ -151,10 +254,10 @@ namespace Unity.DataFlowGraph.Tests
 
                 ref readonly var llTraits = ref set.GetNodeTraits(node);
 
-                CompareSimpleTypes(SimpleType.Create<KernelNodeWithIO.Kernel>(), llTraits.Storage.Kernel);
-                CompareSimpleTypes(SimpleType.Create<KernelNodeWithIO.KernelDefs>(), llTraits.Storage.KernelPorts);
-                CompareSimpleTypes(SimpleType.Create<Data>(), llTraits.Storage.KernelData);
-                CompareSimpleTypes(SimpleType.Create<Node>(), llTraits.Storage.NodeData);
+                CompareSimpleType<KernelNodeWithIO.Kernel>(llTraits.KernelStorage.Kernel);
+                CompareSimpleType<KernelNodeWithIO.KernelDefs>(llTraits.KernelStorage.KernelPorts);
+                CompareSimpleType<KernelNodeWithIO.Data>(llTraits.KernelStorage.KernelData);
+                CompareSimpleType<KernelNodeWithIO.Node>(llTraits.SimulationStorage.NodeData);
 
                 set.Destroy(node);
             }
@@ -167,7 +270,7 @@ namespace Unity.DataFlowGraph.Tests
             {
                 NodeHandle node = type == NodeType.Kernel ? (NodeHandle)set.Create<KernelNodeWithIO>() : set.Create<SimpleNode>();
 
-                Assert.AreNotEqual(new SimpleType(), set.GetNodeTraits(node).Storage.SimPorts);
+                Assert.AreNotEqual(new SimpleType(), set.GetNodeTraits(node).SimulationStorage.SimPorts);
 
                 set.Destroy(node);
             }
@@ -240,16 +343,18 @@ namespace Unity.DataFlowGraph.Tests
 
                 ref readonly var llTraits = ref set.GetNodeTraits(node);
 
-                Data data;
-                BurstedEmptyKernel bkernel;
-                EmptyKernel kernel;
-                EmptyKernelDefs defs;
+                BurstedEmptyKernelNode.Data bdata;
+                EmptyKernelNode.Data data;
+                BurstedEmptyKernelNode.Kernel bkernel;
+                EmptyKernelNode.Kernel kernel;
+                BurstedEmptyKernelNode.KernelDefs bdefs;
+                EmptyKernelNode.KernelDefs defs;
 
                 var instance = new KernelLayout.Pointers
                 (
                     kernel: flags == CompilationFlags.Bursted ? (RenderKernelFunction.BaseKernel*)&bkernel : (RenderKernelFunction.BaseKernel*)&kernel,
-                    data: (RenderKernelFunction.BaseData*)&data,
-                    ports: (RenderKernelFunction.BasePort*)&defs
+                    data: flags == CompilationFlags.Bursted ? (RenderKernelFunction.BaseData*)&bdata : (RenderKernelFunction.BaseData*)&data,
+                    ports: flags == CompilationFlags.Bursted ? (RenderKernelFunction.BasePort*)&bdefs : (RenderKernelFunction.BasePort*)&defs
                 );
 
                 llTraits.VTable.KernelFunction.Invoke(new RenderContext(), instance);
@@ -259,20 +364,30 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        [InvalidTestNodeDefinition]
-        class InvalidForBurstKernelNodeWithIO : NodeDefinition<Node, Data, InvalidForBurstKernelNodeWithIO.KernelDefs, InvalidForBurstKernelNodeWithIO.InvalidForBurstKernel>
+        [IsNotInstantiable]
+        class InvalidForBurstKernelNodeWithIO : KernelNodeDefinition<InvalidForBurstKernelNodeWithIO.KernelDefs>
         {
             public struct KernelDefs : IKernelPortDefinition
             {
                 public DataOutput<InvalidForBurstKernelNodeWithIO, int> Output1, Output2;
             }
 
+            unsafe struct Node : INodeData
+            {
+                fixed byte m_Pad[k_NodePadding];
+            }
+
+            internal unsafe struct Data : IKernelData
+            {
+                fixed byte m_Pad[k_DataPadding];
+            }
+
 #if UNITY_EDITOR
             [BurstCompile(CompileSynchronously = true)]
 #endif
-            public struct InvalidForBurstKernel : IGraphKernel<Data, InvalidForBurstKernelNodeWithIO.KernelDefs>
+            internal struct Kernel : IGraphKernel<Data, KernelDefs>
             {
-                public void Execute(RenderContext ctx, Data data, ref InvalidForBurstKernelNodeWithIO.KernelDefs ports)
+                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
                 {
                     var burstCantDoTypeOf = typeof(int);
                     ctx.Resolve(ref ports.Output1) = 11;
@@ -343,7 +458,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 Assert.AreEqual(
                     llTraits.VTable.KernelFunction.ReflectionData,
-                    RenderKernelFunction.GetManagedFunction<Data, InvalidForBurstKernelNodeWithIO.KernelDefs, InvalidForBurstKernelNodeWithIO.InvalidForBurstKernel>().ReflectionData
+                    RenderKernelFunction.GetManagedFunction<InvalidForBurstKernelNodeWithIO.Data, InvalidForBurstKernelNodeWithIO.KernelDefs, InvalidForBurstKernelNodeWithIO.Kernel>().ReflectionData
                 );
 
                 var knodes = set.DataGraph.GetInternalData();
@@ -365,10 +480,10 @@ namespace Unity.DataFlowGraph.Tests
 
                 ref readonly var llTraits = ref set.GetNodeTraits(node);
 
-                CompareSimpleTypes(new SimpleType(), llTraits.Storage.Kernel);
-                CompareSimpleTypes(new SimpleType(), llTraits.Storage.KernelPorts);
-                CompareSimpleTypes(new SimpleType(), llTraits.Storage.KernelData);
-                CompareSimpleTypes(SimpleType.Create<Node>(), llTraits.Storage.NodeData);
+                Assert.AreEqual(new SimpleType(), llTraits.KernelStorage.Kernel);
+                Assert.AreEqual(new SimpleType(), llTraits.KernelStorage.KernelPorts);
+                Assert.AreEqual(new SimpleType(), llTraits.KernelStorage.KernelData);
+                CompareSimpleType<SimpleNode.Node>(llTraits.SimulationStorage.NodeData);
 
                 set.Destroy(node);
             }
@@ -488,7 +603,7 @@ namespace Unity.DataFlowGraph.Tests
                 rawNodeDefinition = new KernelNodeWithIO();
 
                 LLTraitsHandle handle = new LLTraitsHandle();
-                Assert.DoesNotThrow(() => handle = rawNodeDefinition.BaseTraits.CreateNodeTraits(rawNodeDefinition.GetType()));
+                Assert.DoesNotThrow(() => handle = rawNodeDefinition.BaseTraits.CreateNodeTraits(rawNodeDefinition.GetType(), rawNodeDefinition.SimulationStorageTraits, rawNodeDefinition.KernelStorageTraits));
 
                 Assert.IsTrue(handle.IsCreated);
 
@@ -547,5 +662,21 @@ namespace Unity.DataFlowGraph.Tests
                 set.Destroy(node);
             }
         }
+
+        [Test]
+        public unsafe void DataStructures_HaveExpectedAlignment_AndSize()
+        {
+            int pointerAlignAndSize = sizeof(void*);
+
+            // * 2 due to 3 extra ownership bits that cannot be packed in the pointer on XBox and PS4
+            int expectedDataInputSizeAndAlign = pointerAlignAndSize * 2;
+
+            Assert.AreEqual(expectedDataInputSizeAndAlign, UnsafeUtility.SizeOf<DataInputStorage>(), "SizeOf(DataInputStorage)");
+            Assert.AreEqual(pointerAlignAndSize, UnsafeUtility.AlignOf<DataInputStorage>(), "AlignOf(DataInputStorage)");
+
+            Assert.AreEqual(expectedDataInputSizeAndAlign, UnsafeUtility.SizeOf<DataInput<InvalidDefinitionSlot, Matrix4x4>>(), "SizeOf(DataInput<>)");
+            Assert.AreEqual(pointerAlignAndSize, UnsafeUtility.AlignOf<DataInput<InvalidDefinitionSlot, Matrix4x4>>(), "AlignOf(DataInput<>)");
+        }
     }
+
 }

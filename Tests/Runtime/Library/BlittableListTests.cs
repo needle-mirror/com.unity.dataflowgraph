@@ -457,5 +457,49 @@ namespace Unity.DataFlowGraph.Library.Tests
                 }
             }
         }
+
+        [Test]
+        public void Clear_ChangesCount_ButDoesNotChangeCapacity_NorReallocate([Values(0, 1, 4, 18, 2000)] int size)
+        {
+            using (var list = new BlitList<int>(size))
+            {
+                var pointer = list.Pointer;
+                var oldCapacity = list.Capacity;
+                list.Clear();
+                Assert.True(pointer == list.Pointer);
+                Assert.Zero(list.Count);
+                Assert.AreEqual(oldCapacity, list.Capacity);
+            }
+        }
+
+        public void CreatingZeroSizedBlitList_DoesNotCauseAllocation()
+        {
+            using (var list = new BlitList<int>(0))
+            {
+                Assert.True(list.Pointer == null);
+            }
+        }
+
+        [Test]
+        public void ResizingZeroSizedBlitList_ToZero_DoesNotCauseReallocation()
+        {
+            using (var list = new BlitList<int>(0))
+            {
+                var pointer = list.Pointer;
+                list.Resize(0);
+                Assert.True(pointer == list.Pointer);
+            }
+        }
+
+        [Test]
+        public void ClearingZeroSizedBlitList_DoesNotCauseReallocation()
+        {
+            using (var list = new BlitList<int>(0))
+            {
+                var pointer = list.Pointer;
+                list.Clear();
+                Assert.True(pointer == list.Pointer);
+            }
+        }
     }
 }

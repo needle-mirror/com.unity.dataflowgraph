@@ -12,28 +12,28 @@ namespace Unity.DataFlowGraph.Tests
             public float OtherContents;
         }
 
-        public class SimpleMessageNode : NodeDefinition<Node, SimpleMessageNode.SimPorts>, IMsgHandler<Message>
+        public class SimpleMessageNode : NodeDefinition<Node, SimpleMessageNode.SimPorts>, IMsgHandler<GenericMessage<int>>
         {
             public struct SimPorts : ISimulationPortDefinition
             {
-                public MessageInput<SimpleMessageNode, Message> Input;
-                public MessageOutput<SimpleMessageNode, Message> Output;
+                public MessageInput<SimpleMessageNode, GenericMessage<int>> Input;
+                public MessageOutput<SimpleMessageNode, GenericMessage<int>> Output;
             }
 
-            public void HandleMessage(in MessageContext ctx, in Message msg)
+            public void HandleMessage(in MessageContext ctx, in GenericMessage<int> msg)
             {
                 ref var data = ref GetNodeData(ctx.Handle);
 
                 Assert.That(ctx.Port == SimulationPorts.Input);
                 data.Contents = msg.Contents;
-                ctx.EmitMessage(SimulationPorts.Output, new Message(data.Contents + 20));
+                ctx.EmitMessage(SimulationPorts.Output, data.Contents + 20);
             }
 
             protected internal override void OnUpdate(in UpdateContext ctx)
             {
                 ref var data = ref GetNodeData(ctx.Handle);
                 data.Contents += 1;
-                ctx.EmitMessage(SimulationPorts.Output, new Message(data.Contents + 20));
+                ctx.EmitMessage(SimulationPorts.Output, data.Contents + 20);
             }
         }
 
@@ -47,12 +47,40 @@ namespace Unity.DataFlowGraph.Tests
                     b = set.Create<SimpleMessageNode>();
 
                 set.Connect(a, SimpleMessageNode.SimulationPorts.Output, b, SimpleMessageNode.SimulationPorts.Input);
-                set.SendMessage(a, SimpleMessageNode.SimulationPorts.Input, new Message(10));
+                set.SendMessage(a, SimpleMessageNode.SimulationPorts.Input, 10);
 
                 Assert.AreEqual(10, set.GetNodeData<Node>(a).Contents);
                 Assert.AreEqual(30, set.GetNodeData<Node>(b).Contents);
 
                 set.Destroy(a, b);
+            }
+        }
+
+        [Test]
+        public void TestSimpleMessageEmitting_ToChildren_OnInit()
+        {
+            const int k_MagicMessage = 77;
+
+            using (var set = new NodeSet())
+            {
+                var node = set.Create<DelegateMessageIONode<NodeHandle<PassthroughTest<Message>>>, NodeHandle<PassthroughTest<Message>>>(
+                    initHandler: (InitContext ctx, ref NodeHandle<PassthroughTest<Message>> Child) =>
+                    {
+                        Child = ctx.Set.Create<PassthroughTest<Message>>();
+                        var self = ctx.Set.CastHandle<DelegateMessageIONode<NodeHandle<PassthroughTest<Message>>>>(ctx.Handle);
+                        ctx.Set.Connect(
+                            self, DelegateMessageIONode<NodeHandle<PassthroughTest<Message>>>.SimulationPorts.Output,
+                            Child, PassthroughTest<Message>.SimulationPorts.Input);
+                        ctx.EmitMessage(DelegateMessageIONode<NodeHandle>.SimulationPorts.Output, k_MagicMessage);
+                    },
+                    destroyHandler: (DestroyContext ctx, ref NodeHandle<PassthroughTest<Message>> Child) => ctx.Set.Destroy(Child)
+                );
+
+                var child = set.GetNodeData<DelegateMessageIONode<NodeHandle>.NodeData>(node).CustomNodeData;
+
+                Assert.AreEqual(k_MagicMessage, set.GetNodeData<PassthroughTest<Message>.NodeData>(child).LastReceivedMsg.Contents);
+
+                set.Destroy(node);
             }
         }
 
@@ -66,7 +94,7 @@ namespace Unity.DataFlowGraph.Tests
                     b = set.Create<SimpleMessageNode>();
 
                 set.Connect(a, SimpleMessageNode.SimulationPorts.Output, b, SimpleMessageNode.SimulationPorts.Input);
-                set.SendMessage(a, SimpleMessageNode.SimulationPorts.Input, new Message(10));
+                set.SendMessage(a, SimpleMessageNode.SimulationPorts.Input, 10);
 
                 for (var i = 1; i < 10; ++i)
                 {
@@ -108,6 +136,10 @@ namespace Unity.DataFlowGraph.Tests
                         ctx.EmitMessage(DelegateMessageIONode.SimulationPorts.Output, new Message());
                     }
                 );
+
+                // new-style update registration only happens after the next update
+                set.Update();
+
                 Assert.Throws<InvalidOperationException>(() => set.Update());
             }
         }
@@ -177,7 +209,7 @@ namespace Unity.DataFlowGraph.Tests
             using (var set = new NodeSet())
             {
                 var node = set.Create<DelegateMessageIONode<Node>, Node>(
-                    (in MessageContext ctx, in Message msg) => set.GetNodeData<Node>(ctx.Handle).Contents += msg.Contents);
+                    (in MessageContext ctx, in Message msg, ref Node data) => data.Contents += msg.Contents);
 
                 Assert.AreEqual(0, set.GetNodeData<Node>(node).Contents);
 
@@ -188,7 +220,7 @@ namespace Unity.DataFlowGraph.Tests
                         set.SendMessage(node, DelegateMessageIONode<Node>.SimulationPorts.Input, new Message(10));
                     }
 
-                    var contents = set.GetNodeData<Node>(node).Contents;
+                    var contents = set.GetNodeData<DelegateMessageIONode<Node>.NodeData>(node).CustomNodeData.Contents;
                     Assert.AreEqual((mc + 1) * 10 * 10, contents);
                 }
 
@@ -607,6 +639,117 @@ namespace Unity.DataFlowGraph.Tests
                 Assert.Throws<ArgumentException>(() => set.Connect(dataNode1, PassthroughTest<int>.KernelPorts.Output, dataNode2, PassthroughTest<int>.KernelPorts.Input));
 
                 set.Destroy(msgNode, dataNode1, dataNode2);
+            }
+        }
+
+        public class NewStyleMessageNode : SimulationNodeDefinition<NewStyleMessageNode.MyPorts>
+        {
+            public struct MyPorts : ISimulationPortDefinition
+            {
+                public MessageInput<NewStyleMessageNode, int> IntInput;
+                public MessageInput<NewStyleMessageNode, float> FloatInput;
+            }
+
+            internal struct NodeData : INodeData, IMsgHandler<int>, IMsgHandler<float>
+            {
+                public int IntResult;
+                public float FloatResult;
+
+                public void HandleMessage(in MessageContext ctx, in int msg)
+                {
+                    IntResult = msg;
+                }
+
+                public void HandleMessage(in MessageContext ctx, in float msg)
+                {
+                    FloatResult = msg;
+                }
+            }
+        }
+
+        [Test]
+        public void CanCallNewStyle_CodeGenerated_MessageHandlers()
+        {
+            using (var set = new NodeSet())
+            {
+                var node = set.Create<NewStyleMessageNode>();
+                ref var nodeData = ref set.GetNodeData<NewStyleMessageNode.NodeData>(node);
+
+                set.SendMessage(node, NewStyleMessageNode.SimulationPorts.IntInput, 10);
+                Assert.AreEqual(10, nodeData.IntResult);
+
+                set.SendMessage(node, NewStyleMessageNode.SimulationPorts.FloatInput, 10);
+                Assert.AreEqual(10.0f, nodeData.FloatResult);
+
+                set.Destroy(node);
+            }
+        }
+
+        public class GenericHiddenNewStyleMessageNode<T> : SimulationNodeDefinition<GenericHiddenNewStyleMessageNode<T>.MyPorts>
+            where T : struct
+        {
+            interface HiddenInterface : IMsgHandler<T> { }
+
+            interface MoreHiddenInterface : HiddenInterface { }
+
+            internal struct NodeData : INodeData, MoreHiddenInterface
+            {
+                public T Result;
+
+                public void HandleMessage(in MessageContext ctx, in T msg)
+                {
+                    Result = msg;
+                }
+            }
+
+            public struct MyPorts : ISimulationPortDefinition
+            {
+                public MessageInput<GenericHiddenNewStyleMessageNode<T>, T> Input;
+
+            }
+        }
+
+        [Test]
+        public void CanCallNewStyle_CodeGenerated_DoubleHidden_MessageHandlers_ThatAreAlsoGeneric()
+        {
+            using (var set = new NodeSet())
+            {
+                var node = set.Create<GenericHiddenNewStyleMessageNode<float>>();
+                ref var nodeData = ref set.GetNodeData<GenericHiddenNewStyleMessageNode<float>.NodeData>(node);
+
+                set.SendMessage(node, GenericHiddenNewStyleMessageNode<float>.SimulationPorts.Input, 10.0f);
+                Assert.AreEqual(10, nodeData.Result);
+
+                set.Destroy(node);
+            }
+        }
+
+        public class NewStyleInitHandler : SimulationNodeDefinition<NewStyleInitHandler.MyPorts>
+        {
+            public struct MyPorts : ISimulationPortDefinition { }
+
+            internal struct NodeData : INodeData, IInit
+            {
+                public bool Called;
+
+                public void Init(InitContext ctx)
+                {
+                    Called = true;
+                }
+            }
+        }
+
+        [Test]
+        public void CanCallNewStyle_CodeGenerated_InitHandler()
+        {
+            using (var set = new NodeSet())
+            {
+                var node = set.Create<NewStyleInitHandler>();
+                ref var nodeData = ref set.GetNodeData<NewStyleInitHandler.NodeData>(node);
+
+                Assert.True(nodeData.Called);
+
+                set.Destroy(node);
             }
         }
     }

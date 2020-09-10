@@ -15,7 +15,7 @@ namespace Unity.DataFlowGraph
         }
 
         internal NodeHandle TypedHandle;
-        internal NodeSet Set;
+        internal NodeSetAPI Set;
     }
 
     public struct NodeAdapter<TDefinition>
@@ -30,10 +30,10 @@ namespace Unity.DataFlowGraph
         }
 
         internal NodeHandle<TDefinition> m_Handle;
-        internal NodeSet Set;
+        internal NodeSetAPI Set;
     }
 
-    public partial class NodeSet
+    public partial class NodeSetAPI
     {
         public NodeAdapter<TDefinition> Adapt<TDefinition>(NodeHandle<TDefinition> n)
             where TDefinition : NodeDefinition, new() => new NodeAdapter<TDefinition>() { Set = this, m_Handle = n };

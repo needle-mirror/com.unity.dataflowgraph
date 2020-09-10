@@ -4,6 +4,45 @@ All notable changes to this package will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [0.17.0-preview.4] - 2020-09-10
+### Added
+- `InitContext.EmitMessage()` identical to the same function existing in `UpdateContext` and `MessageContext`
+
+## [0.17.0-preview.3] - 2020-09-08
+### Deprecated
+- Adding estimated deprecation date of 2020-10-27 for the old `NodeDefinition<...>` base classes
+
+## [0.17.0-preview.2] - 2020-09-03
+### Fixed
+- Regression causing incorrect reporting of DFG_UE_11 (Definition declares an input message port with no matching handler)
+
+## [0.17.0-preview.1] - 2020-09-02
+### Added
+- `InitContext`, `UpdateContext`, `MessageContext` and `DestroyContext` now all have a public `NodeSetAPI Set` field which gives access to a restricted subset of functionality of the `NodeSet`
+- `IUpdate`, `IDestroy`, `IInit` complimentary interfaces for implementing previous functionality from `NodeDefinition.Update`, `NodeDefinition.Destroy` and `NodeDefinition.Init`
+- `.RegisterForUpdate` and `.RemoveFromUpdate` on every context for registering nodes implementing `IUpdate` for recurring update calls. Default is unregistered.
+- `IUpdate`, `IDestroy`, `IInit` and `IMsgHandler<T>` can and must now be implemented directly on your `INodeData`.
+- `.UpdateKernelData<T>()` on the various contexts for submitting a new value for your `IKernelData`, available in the next rendering. This supersedes `ref T GetKernelData()`
+- Weak and strong variants of `HasStaticPortDescription`, `GetStaticPortDescription` and `GetPortDescription` on `NodeSet` and `NodeSetAPI` 
+- `internal` and `private` port declarations on kernel / simulation port definitions are now allowed
+- `NodeSet` has been split into a hierarchy of `NodeSet` deriving from `NodeSetAPI`. `.IsCreated`, `.GetGraphValueResolver`, `.Update`, `.Dispose`, `.InjectDependencyFromConsumer`, `.RenderModel` is only implemented on `NodeSet`
+- Topology jobs are now asynchronous with respect to the main thread, except in case of `NodeSet.RenderExecutionModel.MaximallyParallel`
+- `bool NodeSet.ValueTargetExists<T>(GraphValue<T>)` - tests whether an existing graph value's target node also still exists
+
+### Changed
+- All Samples and the Tour migrated to the new style of `NodeDefinition`s
+
+### Deprecated
+- `NodeDefinition<...>` base classes are superseded by the use of `SimulationNodeDefinition<>`, `KernelNodeDefinition<>`, and `SimulationKernelNodeDefinition<>`. Since traits are no longer passed to the base class via generic parameters, node definitions are now required to declare their `INodeData`, `ISimulationPortDefinition`, `IKernelPortDefinition`, `IKernelData`, and `IGraphKernel` structs within their class definition scope. Furthermore, `Init`, `Destroy`, `Update`, and `HandleMessage` handlers must now be implemented on the `INodeData` struct
+
+### Fixed
+- Topology jobs are now not scheduled if not needed, instead of earlying out which still has overhead
+- Graph values are now only initially set up once instead of every frame
+- Removed a lot of zero-sized allocations
+
+### Internal
+- Removed reliance on UnsafeUtilityEx
+
 ## [0.16.0-preview.3] - 2020-08-18
 ### Fixed
 - Fixed regression introduced in 0.16.0-preview.1; `ComponentNode`s could transition into a passive state (read/writing default values) when unrelated topology changes were made

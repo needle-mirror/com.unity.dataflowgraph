@@ -1,4 +1,5 @@
-﻿using Mono.Cecil;
+﻿using System.Linq;
+using Mono.Cecil;
 using Mono.Cecil.Cil;
 using MethodAttributes = Mono.Cecil.MethodAttributes;
 
@@ -73,13 +74,8 @@ namespace Unity.DataFlowGraph.CodeGen
                     break;
 
                 case DFGLibrary.NodeTraitsKind._4:
-                    instance.GenericArguments.Add(NodeDataImplementation);
-                    AddKernelAspects();
-                    break;
-
                 case DFGLibrary.NodeTraitsKind._5:
                     instance.GenericArguments.Add(NodeDataImplementation);
-                    instance.GenericArguments.Add(SimulationPortImplementation);
                     AddKernelAspects();
                     break;
             }
@@ -143,6 +139,84 @@ namespace Unity.DataFlowGraph.CodeGen
             return property;
         }
 
+        void CreateSimulationStorageTraitsOverride(Diag d)
+        {
+            var newMethod = new MethodDefinition(
+                m_Lib.Get_SimulationStorageTraits.Name,
+                DFGLibrary.MethodProtectedOverrideFlags | MethodAttributes.SpecialName,
+                m_Lib.SimulationStorageDefinitionType
+            ) { HasThis = true };
+
+            newMethod.Body.InitLocals = true;
+            newMethod.Body.Variables.Add(new VariableDefinition(m_Lib.SimulationStorageDefinitionType));
+
+            //  protected override SimulationStorageDefinition SimulationStorageTraits => {
+            //      return SimulationStorageDefinition.Create<TNodeData, TSimPorts>(nodeDataIsManaged: ?, isScaffolded: ?);
+            //  }
+            var il = newMethod.Body.GetILProcessor();
+            il.Emit(OpCodes.Nop);
+
+            GenericInstanceMethod genMethod;
+            if (NodeDataImplementation != null)
+            {
+                var nodeDataIsManaged = NodeDataImplementation.Resolve().CustomAttributes.Any(a => a.AttributeType.RefersToSame(m_Lib.ManagedNodeDataAttribute));
+                il.Emit(nodeDataIsManaged ? OpCodes.Ldc_I4_1 : OpCodes.Ldc_I4_0);
+                il.Emit(Kind.Value.IsScaffolded() ? OpCodes.Ldc_I4_1 : OpCodes.Ldc_I4_0);
+
+                if (SimulationPortImplementation != null)
+                    genMethod = m_Lib.SimulationStorageDefinitionCreateMethod.MakeGenericInstanceMethod(DefinitionRoot, NodeDataImplementation, SimulationPortImplementation);
+                else
+                    genMethod = m_Lib.SimulationStorageDefinitionNoPortsCreateMethod.MakeGenericInstanceMethod(DefinitionRoot, NodeDataImplementation);
+            }
+            else
+            {
+                genMethod = m_Lib.SimulationStorageDefinitionNoDataCreateMethod.MakeGenericInstanceMethod(SimulationPortImplementation);
+            }
+            il.Emit(OpCodes.Call, genMethod);
+
+            il.Emit(OpCodes.Stloc_0);
+            il.Emit(OpCodes.Ldloc_0);
+            il.Emit(OpCodes.Ret);
+
+            DefinitionRoot.Methods.Add(newMethod);
+
+            var property = new PropertyDefinition(nameof(NodeDefinition.SimulationStorageTraits), PropertyAttributes.None, m_Lib.SimulationStorageDefinitionType) { HasThis = true, GetMethod = newMethod };
+            DefinitionRoot.Properties.Add(property);
+        }
+
+        void CreateKernelStorageTraitsOverride(Diag d)
+        {
+            var newMethod = new MethodDefinition(
+                m_Lib.Get_KernelStorageTraits.Name,
+                DFGLibrary.MethodProtectedOverrideFlags | MethodAttributes.SpecialName,
+                m_Lib.KernelStorageDefinitionType
+            ) { HasThis = true };
+
+            newMethod.Body.InitLocals = true;
+            newMethod.Body.Variables.Add(new VariableDefinition(m_Lib.KernelStorageDefinitionType));
+
+            //  protected override KernelStorageDefinition KernelStorageTraits => {
+            //      return KernelStorageDefinition.Create<TKernelData, TKernelPortDefinition, TUserKernel>(isComponentNode: ?);
+            //  }
+            var il = newMethod.Body.GetILProcessor();
+            il.Emit(OpCodes.Nop);
+
+            var isComponentNode = DefinitionRoot.RefersToSame(m_Lib.InternalComponentNodeType);
+            il.Emit(isComponentNode ? OpCodes.Ldc_I4_1 : OpCodes.Ldc_I4_0);
+
+            var genMethod = m_Lib.KernelStorageDefinitionCreateMethod.MakeGenericInstanceMethod(DefinitionRoot, KernelDataImplementation, KernelPortImplementation, GraphKernelImplementation);
+            il.Emit(OpCodes.Call, genMethod);
+
+            il.Emit(OpCodes.Stloc_0);
+            il.Emit(OpCodes.Ldloc_0);
+            il.Emit(OpCodes.Ret);
+
+            DefinitionRoot.Methods.Add(newMethod);
+
+            var property = new PropertyDefinition(nameof(NodeDefinition.KernelStorageTraits), PropertyAttributes.None, m_Lib.KernelStorageDefinitionType) { HasThis = true, GetMethod = newMethod };
+            DefinitionRoot.Properties.Add(property);
+        }
+
         void CreateTraitsExpression(Diag d)
         {
             void EnsureImportedIfNotNull(ref TypeReference t)
@@ -161,6 +235,12 @@ namespace Unity.DataFlowGraph.CodeGen
             CreateBaseTraitsOverride(d, field.Def);
 
             EmitCallToMethodInDefaultConstructor(FormClassInstantiatedMethodReference(initializer));
+
+            if (NodeDataImplementation != null || SimulationPortImplementation != null)
+                CreateSimulationStorageTraitsOverride(d);
+
+            if (KernelDataImplementation != null && KernelPortImplementation != null && GraphKernelImplementation != null)
+                CreateKernelStorageTraitsOverride(d);
         }
     }
 }

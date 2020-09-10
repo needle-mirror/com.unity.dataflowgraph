@@ -10,7 +10,7 @@ namespace Unity.DataFlowGraph
     /// <summary>
     /// A simple handle structure identifying a tap point in the graph.
     /// </summary>
-    /// <seealso cref="NodeSet.CreateGraphValue{T, TDefinition}(NodeHandle{TDefinition}, DataOutput{TDefinition, T})"/>
+    /// <seealso cref="NodeSetAPI.CreateGraphValue{T, TDefinition}(NodeHandle{TDefinition}, DataOutput{TDefinition, T})"/>
     /// <remarks>
     /// Note that a graph value never represents a copy of the value, it is simply a reference. Using
     /// <see cref="GraphValueResolver"/> you can directly read memory from inside the rendering without
@@ -22,43 +22,25 @@ namespace Unity.DataFlowGraph
         internal VersionedHandle Handle;
     }
 
-    unsafe struct DataOutputValue : IVersionedNode
+    unsafe struct DataOutputValue : IVersionedItem
     {
-        public bool Valid => m_IsCreated != 0;
-        public bool IsLinkedToGraph => FutureMemory != null;
+        public bool Valid => Source != default;
 
-        public VersionedHandle VHandle { get; set; }
+        public ValidatedHandle Handle { get; set; }
 
-        public void* FutureMemory;
         public JobHandle Dependency;
 
-        public OutputPair Source;
-        byte m_IsCreated;
+        public ValidatedHandle Source;
+        public DataPortDeclarations.OutputDeclaration* OutputDeclaration;
 
-        public void Emplace<T>(in OutputPair source)
+        public void Emplace<T>(in OutputPair source, in DataPortDeclarations.OutputDeclaration* outputDeclaration)
             where T : struct
         {
-            Source = source;
-            m_IsCreated = 1;
+            Source = source.Handle;
+            OutputDeclaration = outputDeclaration;
         }
 
-        public /*ref readonly*/ T UnsafeRead<T>()
-            where T : struct
-        {
-            // TODO: Could also throw an exception here.
-            if (FutureMemory == null)
-                return new T();
-
-            return Utility.AsRef<T>(FutureMemory);
-        }
-
-        internal void Clear()
-        {
-            FutureMemory = null;
-            Dependency = default;
-            Source = default;
-            m_IsCreated = 0;
-        }
+        public void Dispose() => this = default;
     }
 
     /// <summary>
@@ -68,7 +50,7 @@ namespace Unity.DataFlowGraph
     ///
     /// API on this object is a subset of what is available on <see cref="RenderContext"/>
     /// </summary>
-    /// <see cref="NodeSet.GetGraphValueResolver(out JobHandle)"/>
+    /// <see cref="NodeSetAPI.GetGraphValueResolver(out JobHandle)"/>
     public struct GraphValueResolver
     {
         [NativeDisableUnsafePtrRestriction]
@@ -91,32 +73,32 @@ namespace Unity.DataFlowGraph
         /// <summary>
         /// Returns the contents of the output port the graph value was originally specified to point to.
         /// </summary>
-        /// <seealso cref="NodeSet.CreateGraphValue{T, TDefinition}(NodeHandle{TDefinition}, DataOutput{TDefinition, T})"/>
+        /// <seealso cref="NodeSetAPI.CreateGraphValue{T, TDefinition}(NodeHandle{TDefinition}, DataOutput{TDefinition, T})"/>
         /// <seealso cref="RenderContext"/>
         /// <exception cref="ObjectDisposedException">Thrown if either the graph value or the pointed-to node is no longer valid.</exception>
-        public /*ref readonly*/ T Resolve<T>(GraphValue<T> handle)
+        public T Resolve<T>(GraphValue<T> handle)
             where T : struct
         {
             // TODO: Change return value to ref readonly when Burst supports it
             ReadBuffersScope.CheckReadAccess();
 
             // Primary invalidation check
-            if (handle.Handle.Index >= Values.Length || handle.Handle.Version != Values[handle.Handle.Index].VHandle.Version)
+            if (handle.Handle.Index >= Values.Length || handle.Handle.Version != Values[handle.Handle.Index].Handle.Versioned.Version)
             {
-                throw new ObjectDisposedException("GraphValue is disposed or invalid");
+                throw new ObjectDisposedException("GraphValue is either disposed, invalid or hasn't yet roundtripped through the render graph");
             }
 
             var value = Values[handle.Handle.Index];
 
             // Secondary invalidation check
-            if (!RenderGraph.StillExists(ref KernelNodes, value.Source.Handle))
+            if (!RenderGraph.StillExists(ref KernelNodes, value.Source))
             {
                 throw new ObjectDisposedException("GraphValue's target node handle is disposed or invalid");
             }
 
             unsafe
             {
-                return Utility.AsRef<T>(value.FutureMemory);
+                return Utility.AsRef<T>(value.OutputDeclaration->Resolve(KernelNodes[value.Source.Versioned.Index].Instance.Ports));
             }
         }
 
@@ -153,7 +135,7 @@ namespace Unity.DataFlowGraph
         internal unsafe bool IsValid => Manager != null;
     }
 
-    public partial class NodeSet
+    public partial class NodeSetAPI
     {
         VersionedList<DataOutputValue> m_GraphValues;
 
@@ -191,10 +173,7 @@ namespace Unity.DataFlowGraph
             // To ensure the port actually exists.
             GetFormalPort(source);
 
-            ref var value = ref m_GraphValues.Allocate();
-            value.Emplace<T>(source);
-
-            return new GraphValue<T> { Handle = value.VHandle };
+            return CreateGraphValue<T>(source);
         }
 
         /// <summary>
@@ -208,7 +187,6 @@ namespace Unity.DataFlowGraph
             where T : struct
         {
             var source = new OutputPair(this, handle, new OutputPortArrayID(output));
-
             var sourcePortDef = GetFormalPort(source);
 
             if (sourcePortDef.Category != PortDescription.Category.Data)
@@ -217,49 +195,52 @@ namespace Unity.DataFlowGraph
             if (sourcePortDef.Type != typeof(T))
                 throw new InvalidOperationException($"Cannot create a graph value of type {typeof(T)} pointing to a data output of type {sourcePortDef.Type}");
 
-            ref var value = ref m_GraphValues.Allocate();
-            value.Emplace<T>(source);
-
-            return new GraphValue<T> { Handle = value.VHandle };
+            return CreateGraphValue<T>(source);
         }
 
         /// <summary>
         /// Releases a graph value previously created with <see cref="CreateGraphValue{T,TDefinition}"/>.
         /// </summary>
-        /// <exception cref="ObjectDisposedException">Thrown if the graph value is invalid or disposed</exception>
+        /// <exception cref="ArgumentException">Thrown if the graph value is invalid or disposed</exception>
         public void ReleaseGraphValue<T>(GraphValue<T> graphValue)
-        {
-            ValueVersionCheck(graphValue.Handle);
-            DestroyValue(ref m_GraphValues[graphValue.Handle.Index]);
-        }
+            => m_GraphValues.Release(graphValue.Handle);
 
         /// <summary>
         /// Fetches the last value from a node's <see cref="DataOutput{TDefinition,TType}"/> via a previously created graph
         /// value (see <see cref="CreateGraphValue{T,TDefinition}"/>).
         /// </summary>
-        /// <exception cref="ObjectDisposedException">Thrown if the graph value is invalid or disposed, or the referenced node has been destroyed</exception>
+        /// <exception cref="ArgumentException">Thrown if the graph value is invalid or disposed</exception>
+        /// <exception cref="ObjectDisposedException">Thrown if the referenced node has been destroyed</exception>
         /// <remarks>
         /// This blocks execution in the calling thread until the last rendering of the given node has finished.
         /// If non-blocking behavior is desired, consider using a job in combination with a
         /// <see cref="GraphValueResolver"/>.
+        /// Default value of <typeparamref name="T"/> is returned if an <see cref="Update"/> has not been issued since the
+        /// the <paramref name="graphValue"/> was created.
         /// </remarks>
         public T GetValueBlocking<T>(GraphValue<T> graphValue)
             where T : struct
         {
-            ValueVersionCheck(graphValue.Handle);
-            ref var value = ref m_GraphValues[graphValue.Handle.Index];
+            ref readonly var value = ref m_GraphValues[graphValue.Handle];
 
-            if (!StillExists(value.Source.Handle))
+            if (!Nodes.StillExists(value.Source))
                 throw new ObjectDisposedException("The node that the graph value refers to is destroyed");
 
-            if (value.IsLinkedToGraph)
-                value.Dependency.Complete();
+            // Check whether the graph value did roundtrip - if it didn't, return a default value.
+            // Note that in the similar situation, the GraphValueResolver will throw an exception (it can't disambiguate).
+            if (value.Handle.Versioned.Index >= m_PostRenderValues.Length || value.Handle.Versioned != m_PostRenderValues[value.Handle.Versioned.Index].Handle.Versioned)
+                return default;
 
-            return value.UnsafeRead<T>();
+            value.Dependency.Complete();
+
+            unsafe
+            {
+                return Utility.AsRef<T>(value.OutputDeclaration->Resolve(DataGraph.GetInternalData()[value.Source.Versioned.Index].Instance.Ports));
+            }
         }
 
         /// <summary>
-        /// Tests whether the supplied graph value exists.
+        /// Tests whether <paramref name="graphValue"/> exists.
         /// </summary>
         public bool ValueExists<T>(GraphValue<T> graphValue)
         {
@@ -267,37 +248,28 @@ namespace Unity.DataFlowGraph
         }
 
         /// <summary>
-        /// Injects external dependencies into this node set, so the next <see cref="Update()"/>
-        /// synchronizes against consumers of any data from this node set.
+        /// Tests whether <paramref name="graphValue"/>'s target still exists.
         /// </summary>
-        /// <seealso cref="GetGraphValueResolver(out JobHandle)"/>
-        public void InjectDependencyFromConsumer(JobHandle handle)
+        /// <exception cref="ArgumentException">
+        /// If the <paramref name="graphValue"/> is invalid, or comes from another <see cref="NodeSet"/>
+        /// </exception>
+        /// <exception cref="ObjectDisposedException">
+        /// If the <paramref name="graphValue"/> no longer exists.
+        /// <see cref="ValueExists{T}(GraphValue{T})"/>
+        /// </exception>
+        public bool ValueTargetExists<T>(GraphValue<T> graphValue)
+        {
+            return Nodes.StillExists(m_GraphValues[graphValue.Handle].Source);
+        }
+
+        protected void InjectDependencyFromConsumerInternal(JobHandle handle)
         {
             // TODO: Could immediately try to schedule a dependent job here (MarkBuffersAsUsed)
             // to make deferred errors immediate here in case of bad job handles.
             m_ReaderFences.Add(handle);
         }
 
-        /// <summary>
-        /// Returns a <see cref="GraphValueResolver"/> that can be used to asynchronously
-        /// read back graph state and buffers in a job. Put the resolver on a job ("consumer"),
-        /// and schedule it against the parameter <paramref name="resultDependency"/>.
-        ///
-        /// Any job handles referencing the resolver must to be submitted back to the node
-        /// set through <see cref="InjectDependencyFromConsumer(JobHandle)"/>.
-        ///
-        /// </summary>
-        /// <param name="resultDependency">
-        /// Contains an aggregation of dependencies from the last <see cref="Update()"/>
-        /// for any created graph values.
-        /// </param>
-        /// <remarks>
-        /// The returned resolver is only valid until the next <see cref="Update()"/> is
-        /// issued, so call this function after every <see cref="Update()"/>.
-        ///
-        /// The resolver does not need to be cleaned up from the user's side.
-        /// </remarks>
-        public GraphValueResolver GetGraphValueResolver(out JobHandle resultDependency)
+        protected GraphValueResolver GetGraphValueResolverInternal(out JobHandle resultDependency)
         {
             // TODO: Here we take dependency on every graph value in the graph.
             // We could make a "filter" or similar.
@@ -307,32 +279,31 @@ namespace Unity.DataFlowGraph
             return m_CurrentGraphValueResolver.Resolver;
         }
 
-        internal void ValueVersionCheck(VersionedHandle handle)
+        unsafe GraphValue<T> CreateGraphValue<T>(OutputPair source)
+            where T : struct
         {
-            if (!m_GraphValues.Exists(handle))
-            {
-                throw new ObjectDisposedException("GraphValue is disposed or invalid");
-            }
-        }
+            ref readonly var traits = ref m_Traits[Nodes[source.Handle].TraitsIndex].Resolve();
+            ref readonly var outputDeclaration = ref traits.DataPorts.FindOutputDataPort(source.Port.PortID);
 
-        void DestroyValue(ref DataOutputValue value)
-        {
-            value.Clear();
-            m_GraphValues.Release(value);
+            ref var value = ref m_GraphValues.Allocate();
+            value.Emplace<T>(source, (DataPortDeclarations.OutputDeclaration*)Utility.AsPointer(outputDeclaration));
+
+            m_Diff.GraphValueCreated(value.Handle);
+            return new GraphValue<T> { Handle = value.Handle.Versioned };
         }
 
         unsafe void FenceOutputConsumers()
         {
             var readerJobs = JobHandleUnsafeUtility.CombineDependencies(m_ReaderFences.Pointer, m_ReaderFences.Count);
             readerJobs.Complete();
-            m_ReaderFences.Resize(0);
+            m_ReaderFences.Clear();
             // TODO: Maybe have an early check for writability on m_PostRenderValues here.
         }
 
         unsafe void SwapGraphValues()
         {
             // If this throws, then any input job handles were bad.
-            m_GraphValues.CopyTo(m_PostRenderValues);
+            m_GraphValues.CopyUnvalidatedTo(m_PostRenderValues);
             m_CurrentGraphValueResolver = default;
         }
 

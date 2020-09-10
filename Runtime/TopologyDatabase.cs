@@ -182,7 +182,7 @@ namespace Unity.DataFlowGraph
             /// Connect two vertices together.
             /// </summary>
             /// <exception cref="ArgumentException">Thrown if the connection already exists.</exception>
-            public void Connect<TTopologyFromVertex>(
+            public ref readonly Connection Connect<TTopologyFromVertex>(
                 ref TTopologyFromVertex topologyResolver,
                 uint traversalFlags,
                 TVertex source,
@@ -218,6 +218,8 @@ namespace Unity.DataFlowGraph
 
                 topologyResolver[source] = sourceTopology;
                 topologyResolver[dest] = destTopology;
+
+                return ref newConnection;
             }
 
             /// <summary>

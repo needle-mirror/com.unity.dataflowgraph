@@ -1,19 +1,38 @@
 ﻿using Unity.Burst;
 using Unity.Mathematics;
+using UnityEngine;
 
 namespace Unity.DataFlowGraph.Examples.RenderGraph
 {
-    public class PositionAnimator 
-        : NodeDefinition<PositionAnimator.NodeData, PositionAnimator.SimPorts, PositionAnimator.KernelData, PositionAnimator.KernelDefs, PositionAnimator.GraphKernel>
-        , IMsgHandler<float>
-        , IMsgHandler<float3>
+    public class PositionAnimator : SimulationKernelNodeDefinition<PositionAnimator.SimPorts, PositionAnimator.KernelDefs>
     {
-        public struct NodeData : INodeData
+        public struct NodeData : INodeData, IUpdate, IMsgHandler<float>, IMsgHandler<float3>
         {
             public float Speed;
+            KernelData m_Data;
+
+            public void Update(in UpdateContext ctx)
+            {
+                m_Data.Time += Time.deltaTime * Speed;
+                ctx.UpdateKernelData(m_Data);
+            }
+
+            public void HandleMessage(in MessageContext ctx, in float msg)
+            {
+                if (ctx.Port == SimulationPorts.Speed)
+                    Speed = msg;
+                else if (ctx.Port == SimulationPorts.Time)
+                    m_Data.Time = msg;
+            }
+
+            public void HandleMessage(in MessageContext ctx, in float3 msg)
+            {
+                m_Data.Translation = msg;
+                m_Data.Mask = math.normalize(msg);
+            }
         }
 
-        public struct KernelData : IKernelData
+        struct KernelData : IKernelData
         {
             public float Time;
             public float3 Mask, Translation;
@@ -32,7 +51,7 @@ namespace Unity.DataFlowGraph.Examples.RenderGraph
         }
 
         [BurstCompile]
-        public struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
+        struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
         {
             public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
             {
@@ -41,31 +60,6 @@ namespace Unity.DataFlowGraph.Examples.RenderGraph
             }
         }
 
-        protected override void OnUpdate(in UpdateContext ctx)
-        {
-            GetKernelData(ctx.Handle).Time += UnityEngine.Time.deltaTime * GetNodeData(ctx.Handle).Speed;
-        }
 
-        public void HandleMessage(in MessageContext ctx, in float msg)
-        {
-            if (ctx.Port == SimulationPorts.Speed)
-            {
-                GetNodeData(ctx.Handle).Speed = msg;
-            }
-            else if (ctx.Port == SimulationPorts.Time)
-            {
-                GetKernelData(ctx.Handle).Time = msg;
-            }
-        }
-
-        public void HandleMessage(in MessageContext ctx, in float3 msg)
-        {
-            if (ctx.Port == SimulationPorts.Movement)
-            {
-                ref var kernelData = ref GetKernelData(ctx.Handle);
-                kernelData.Translation = msg;
-                kernelData.Mask = math.normalize(msg);
-            }
-        }
     }
 }

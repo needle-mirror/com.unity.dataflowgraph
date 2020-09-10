@@ -98,25 +98,25 @@ namespace Unity.DataFlowGraph.Tests
 
                 NodeHandle untypedA = a, untypedB = b;
 
-                Assert.AreEqual(0, set.GetTopologyDatabase().CountEstablishedConnections(), "There are valid connections in a new set with zero connections");
+                Assert.AreEqual(0, set.GetTopologyDatabase_ForTesting().CountEstablishedConnections(), "There are valid connections in a new set with zero connections");
 
                 if (meansOfConnection == ConnectionAPI.StronglyTyped)
                     set.Connect(a, NodeWithAllTypesOfPorts.SimulationPorts.MessageOut, b, NodeWithAllTypesOfPorts.SimulationPorts.MessageIn);
                 else
                     set.Connect(a, set.GetDefinition(a).GetPortDescription(a).Outputs[0], b, set.GetDefinition(b).GetPortDescription(b).Inputs[0]);
 
-                Assert.AreEqual(1, set.GetTopologyDatabase().CountEstablishedConnections(), "There isn't exactly one valid edge in a new set with one connection");
+                Assert.AreEqual(1, set.GetTopologyDatabase_ForTesting().CountEstablishedConnections(), "There isn't exactly one valid edge in a new set with one connection");
 
                 var madeConnection = new Topology.Connection();
 
                 Assert.IsFalse(madeConnection.Valid, "Default constructed connection is valid");
 
                 int indexHandleCounter = 0, foundIndexHandle = 0;
-                for(int i = 0; i < set.GetTopologyDatabase().TotalConnections; ++i)
+                for(int i = 0; i < set.GetTopologyDatabase_ForTesting().TotalConnections; ++i)
                 {
-                    if (set.GetTopologyDatabase()[i].Valid)
+                    if (set.GetTopologyDatabase_ForTesting()[i].Valid)
                     {
-                        madeConnection = set.GetTopologyDatabase()[i];
+                        madeConnection = set.GetTopologyDatabase_ForTesting()[i];
                         foundIndexHandle = indexHandleCounter;
                     }
                     indexHandleCounter++;
@@ -138,7 +138,7 @@ namespace Unity.DataFlowGraph.Tests
                 else
                     set.Disconnect(a, set.GetDefinition(a).GetPortDescription(a).Outputs[0], b, set.GetDefinition(b).GetPortDescription(b).Inputs[0]);
 
-                Assert.AreEqual(0, set.GetTopologyDatabase().CountEstablishedConnections(), "There are valid connections in a new set with zero connections");
+                Assert.AreEqual(0, set.GetTopologyDatabase_ForTesting().CountEstablishedConnections(), "There are valid connections in a new set with zero connections");
 
                 set.Destroy(a, b);
             }
@@ -156,25 +156,25 @@ namespace Unity.DataFlowGraph.Tests
 
                 NodeHandle untypedA = a, untypedB = b;
 
-                Assert.AreEqual(0, set.GetTopologyDatabase().CountEstablishedConnections(), "There are valid connections in a new set with zero connections");
+                Assert.AreEqual(0, set.GetTopologyDatabase_ForTesting().CountEstablishedConnections(), "There are valid connections in a new set with zero connections");
 
                 if (meansOfConnection == ConnectionAPI.StronglyTyped)
                     set.Connect(a, NodeWithAllTypesOfPorts.SimulationPorts.DSLOut, b, NodeWithAllTypesOfPorts.SimulationPorts.DSLIn);
                 else
                     set.Connect(a, set.GetDefinition(a).GetPortDescription(a).Outputs[2], b, set.GetDefinition(b).GetPortDescription(b).Inputs[2]);
 
-                Assert.AreEqual(1, set.GetTopologyDatabase().CountEstablishedConnections(), "There isn't exactly one valid edge in a new set with one connection");
+                Assert.AreEqual(1, set.GetTopologyDatabase_ForTesting().CountEstablishedConnections(), "There isn't exactly one valid edge in a new set with one connection");
 
                 var madeConnection = new Topology.Connection();
 
                 Assert.IsFalse(madeConnection.Valid, "Default constructed connection is valid");
 
                 int indexHandleCounter = 0, foundIndexHandle = 0;
-                for (int i = 0; i < set.GetTopologyDatabase().TotalConnections; ++i)
+                for (int i = 0; i < set.GetTopologyDatabase_ForTesting().TotalConnections; ++i)
                 {
-                    if (set.GetTopologyDatabase()[i].Valid)
+                    if (set.GetTopologyDatabase_ForTesting()[i].Valid)
                     {
-                        madeConnection = set.GetTopologyDatabase()[i];
+                        madeConnection = set.GetTopologyDatabase_ForTesting()[i];
                         foundIndexHandle = indexHandleCounter;
                     }
                     indexHandleCounter++;
@@ -198,7 +198,7 @@ namespace Unity.DataFlowGraph.Tests
                 else
                     set.Disconnect(a, set.GetDefinition(a).GetPortDescription(a).Outputs[2], b, set.GetDefinition(b).GetPortDescription(b).Inputs[2]);
 
-                Assert.AreEqual(0, set.GetTopologyDatabase().CountEstablishedConnections(), "There are valid connections in a new set with zero connections");
+                Assert.AreEqual(0, set.GetTopologyDatabase_ForTesting().CountEstablishedConnections(), "There are valid connections in a new set with zero connections");
 
                 set.Destroy(a, b);
             }
@@ -216,25 +216,25 @@ namespace Unity.DataFlowGraph.Tests
 
                 NodeHandle untypedA = a, untypedB = b;
 
-                Assert.AreEqual(0, set.GetTopologyDatabase().CountEstablishedConnections(), "There are valid connections in a new set with zero connections");
+                Assert.AreEqual(0, set.GetTopologyDatabase_ForTesting().CountEstablishedConnections(), "There are valid connections in a new set with zero connections");
 
                 if (meansOfConnection == ConnectionAPI.StronglyTyped)
                     set.Connect(a, NodeWithAllTypesOfPorts.KernelPorts.OutputScalar, b, NodeWithAllTypesOfPorts.KernelPorts.InputScalar);
                 else
                     set.Connect(a, set.GetDefinition(a).GetPortDescription(a).Outputs[4], b, set.GetDefinition(b).GetPortDescription(b).Inputs[5]);
 
-                Assert.AreEqual(1, set.GetTopologyDatabase().CountEstablishedConnections(), "There isn't exactly one valid edge in a new set with one connection");
+                Assert.AreEqual(1, set.GetTopologyDatabase_ForTesting().CountEstablishedConnections(), "There isn't exactly one valid edge in a new set with one connection");
 
                 var madeConnection = new Topology.Connection();
 
                 Assert.IsFalse(madeConnection.Valid, "Default constructed connection is valid");
 
                 int indexHandleCounter = 0, foundIndexHandle = 0;
-                for (int i = 0; i < set.GetTopologyDatabase().TotalConnections; ++i)
+                for (int i = 0; i < set.GetTopologyDatabase_ForTesting().TotalConnections; ++i)
                 {
-                    if (set.GetTopologyDatabase()[i].Valid)
+                    if (set.GetTopologyDatabase_ForTesting()[i].Valid)
                     {
-                        madeConnection = set.GetTopologyDatabase()[i];
+                        madeConnection = set.GetTopologyDatabase_ForTesting()[i];
                         foundIndexHandle = indexHandleCounter;
                     }
                     indexHandleCounter++;
@@ -259,7 +259,7 @@ namespace Unity.DataFlowGraph.Tests
                 else
                     set.Disconnect(a, set.GetDefinition(a).GetPortDescription(a).Outputs[4], b, set.GetDefinition(b).GetPortDescription(b).Inputs[5]);
 
-                Assert.AreEqual(0, set.GetTopologyDatabase().CountEstablishedConnections(), "There are valid connections in a new set with zero connections");
+                Assert.AreEqual(0, set.GetTopologyDatabase_ForTesting().CountEstablishedConnections(), "There are valid connections in a new set with zero connections");
 
                 set.Destroy(a, b);
             }
@@ -283,7 +283,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 for (int i = 0; i < k_Nodes; ++i)
                 {
-                    var handle = ValidatedHandle.Create(i, 0);
+                    var handle = ValidatedHandle.Create_ForTesting(VersionedHandle.Create_ForTesting(i, 0, 0));
                     RenderGraph.KernelNode knode = default;
                     knode.Instance = new KernelLayout().VirtualReconstruct((void*)0xDEADBEEF);
                     knode.Handle = handle;

@@ -7,7 +7,7 @@ namespace Unity.DataFlowGraph.Tour
     {
         /*
          * In this sample we'll explore sending a message to a node.
-         * A message is any kind of data that will be delivered to a node and handled by it's IMessageHandler<T>.OnMessage()
+         * A message is any kind of data that will be delivered to a node and handled by it's IMsgHandler<T>.HandleMessage()
          * function.
          * 
          * Direct messaging can be used to inject events or transfer data into the simulation of a node set.
@@ -16,17 +16,7 @@ namespace Unity.DataFlowGraph.Tour
          * 1) Our node needs to implement a typed message port 
          * 2) Our node needs to implement a message handler for that type
          */
-        public class MyNode 
-            /*
-             * Notice that we derive from an extended node definition here, since we need a "simulation port definition" 
-             * as well. More on that below.
-             */
-            : NodeDefinition<MyNode.MyInstanceData, MyNode.SimPorts>
-            /*
-             * For any kind of message that our node can receive, we need to implement the message handler interface
-             * for that type.
-             */
-            , IMsgHandler<double>
+        public class MyNode : SimulationNodeDefinition<MyNode.SimPorts>
         {
             /*
              * The simulation port definition is a struct containing declarations of all of the simulation-type ports
@@ -46,22 +36,29 @@ namespace Unity.DataFlowGraph.Tour
                 public MessageInput<MyNode, double> MySecondInput;
             }
 
-            public struct MyInstanceData : INodeData { }
-
-            /*
-             * Here is our implementation of the message handler for float types. The actual message comes in as a 
-             * readonly reference (the last argument). The context provides additional information, like which
-             * port it arrived on which is useful if you have multiple port declarations of the same type.
-             */
-            public void HandleMessage(in MessageContext ctx, in double msg)
+            struct MyInstanceData :
+                INodeData
+                /*
+                 * For any kind of message that our node can receive, we need to implement the message handler interface
+                 * for that type. This needs to be done on our nested INodeData struct type.
+                 */
+                , IMsgHandler<double>
             {
-                if(ctx.Port == SimulationPorts.MyFirstInput)
+                /*
+                 * Here is our implementation of the message handler for float types. The actual message comes in as a 
+                 * readonly in parameter (the last argument). The context provides additional information, like which
+                 * port it arrived on, which is useful if you have multiple port declarations of the same type.
+                 */
+                public void HandleMessage(in MessageContext ctx, in double msg)
                 {
-                    Debug.Log($"{nameof(MyNode)} recieved a float message of value on the first input: {msg}");
-                }
-                else if(ctx.Port == SimulationPorts.MySecondInput)
-                {
-                    Debug.Log($"{nameof(MyNode)} recieved a float message of value on the second input: {msg}");
+                    if(ctx.Port == SimulationPorts.MyFirstInput)
+                    {
+                        Debug.Log($"{nameof(MyNode)} received a float message of value {msg} on the first input");
+                    }
+                    else if(ctx.Port == SimulationPorts.MySecondInput)
+                    {
+                        Debug.Log($"{nameof(MyNode)} received a float message of value {msg} on the second input");
+                    }
                 }
             }
         }

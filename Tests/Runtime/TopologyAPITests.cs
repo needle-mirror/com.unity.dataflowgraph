@@ -119,10 +119,10 @@ namespace Unity.DataFlowGraph.Tests
                 NodeHandle a = set.Create<InOutTestNode>(), b = set.Create<InOutTestNode>();
 
                 var e = Assert.Throws<ArgumentException>(() => set.Connect(a, (OutputPortID) InOutTestNode.SimulationPorts.Output, new NodeHandle(), (InputPortID)InOutTestNode.SimulationPorts.Input));
-                StringAssert.Contains("Node is invalid", e.Message);
+                StringAssert.Contains(Collections.VersionedList<InternalNodeData>.ValidationFail_InvalidMessage, e.Message);
 
                 e = Assert.Throws<ArgumentException>(() => set.Connect(new NodeHandle(), (OutputPortID) InOutTestNode.SimulationPorts.Output, b, (InputPortID)InOutTestNode.SimulationPorts.Input));
-                StringAssert.Contains("Node is invalid", e.Message);
+                StringAssert.Contains(Collections.VersionedList<InternalNodeData>.ValidationFail_InvalidMessage, e.Message);
 
                 set.Destroy(a, b);
             }
@@ -153,10 +153,10 @@ namespace Unity.DataFlowGraph.Tests
                 NodeHandle node = set.Create<InOutTestNode>();
 
                 var e = Assert.Throws<ArgumentException>(() => set.Disconnect(new NodeHandle(), (OutputPortID) InOutTestNode.SimulationPorts.Output, node, (InputPortID)InOutTestNode.SimulationPorts.Input));
-                StringAssert.Contains("Node is invalid", e.Message);
+                StringAssert.Contains(Collections.VersionedList<InternalNodeData>.ValidationFail_InvalidMessage, e.Message);
 
                 e = Assert.Throws<ArgumentException>(() => set.Disconnect(node, (OutputPortID) InOutTestNode.SimulationPorts.Output, new NodeHandle(), (InputPortID)InOutTestNode.SimulationPorts.Input));
-                StringAssert.Contains("Node is invalid", e.Message);
+                StringAssert.Contains(Collections.VersionedList<InternalNodeData>.ValidationFail_InvalidMessage, e.Message);
 
                 set.Destroy(node);
             }
@@ -190,7 +190,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 set.Connect(a, InOutTestNode.SimulationPorts.Output, b, InOutTestNode.SimulationPorts.Input);
 
-                var otherNodePortDef = set.GetDefinition<TwoInOutTestNode>().GetStaticPortDescription();
+                var otherNodePortDef = set.GetStaticPortDescription<TwoInOutTestNode>();
 
                 Assert.Throws<ArgumentOutOfRangeException>(() => set.Connect(a, otherNodePortDef.Outputs[1], b, otherNodePortDef.Inputs[0]));
                 Assert.Throws<ArgumentOutOfRangeException>(() => set.Connect(a, otherNodePortDef.Outputs[0], b, otherNodePortDef.Inputs[1]));

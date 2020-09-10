@@ -9,57 +9,50 @@ namespace Unity.DataFlowGraph.Tour
          * The node definition can define a "data instance description", a structure implementing INodeData.
          * This particular structure is what is actually being instantiated, when you create a node from a node definition.
          */
-        class MyNode : NodeDefinition<MyNode.MyInstanceData, MyNode.MyPorts>
+        class MyNode : SimulationNodeDefinition<MyNode.MyPorts>
         {
-            /*
-             * This is our per-node instance data. 
-             * Members we have here exist for every node.
-             * You can retrieve the contents of the data using a node handle, as shown below.
-             */
-            public struct MyInstanceData : INodeData
-            {
-                /// <summary>
-                /// The number of this node.
-                /// </summary>
-                public int NodeNumber;
-            }
-
             public struct MyPorts : ISimulationPortDefinition { }
 
             /// <summary>
             /// A counter to identify created nodes.
             /// </summary>
-            public int NodeCounter;
+            static int NodeCounter;
 
             public MyNode() => Debug.Log("My node's definition just got created");
 
             /*
-             * Overriding Init() allows you to do custom initialization for your node data,
-             * whenever a user creates a new node of your kind.
+             * This is our per-node instance data. 
+             * Note that the presence of this INodeData nested struct is automatically detected for you, therefore you
+             * can keep it declared private.
+             * Members we have here exist for every node.
+             * You can access contents of the data in handlers as shown below.
              */
-            protected override void Init(InitContext ctx)
+            struct MyInstanceData : INodeData, IInit, IDestroy
             {
+                /// <summary>
+                /// The number of this node.
+                /// </summary>
+                int NodeNumber;
+
                 /*
-                 * You can retrieve the contents of the node that was just created using GetNodeData + the initialization 
-                 * context's .Handle.
-                 * 
-                 * Notice the usage of "ref". GetNodeData returns a reference to the node data, so you can modify it.
+                 * Implementing IInit.Init() allows you to do custom initialization for your node data,
+                 * whenever a user creates a new node of your kind.
                  */
-                ref var myData = ref GetNodeData(ctx.Handle);
+                public void Init(InitContext ctx)
+                {
+                    // Let's uniquely identify and store some data in this node:
+                    var nodeNumber = ++NodeCounter;
+                    NodeNumber = nodeNumber;
+                    Debug.Log($"Created node number {nodeNumber}");
+                }
 
-                // Let's uniquely identify and store some data in this node:
-                var nodeNumber = ++NodeCounter;
-                myData.NodeNumber = nodeNumber;
-                Debug.Log($"Created node number {nodeNumber}");
-            }
-
-            /*
-             * Similarly, we can do custom destruction for a node by overriding Destroy().
-             */
-            protected override void Destroy(DestroyContext ctx)
-            {
-                var data = GetNodeData(ctx.Handle);
-                Debug.Log($"Destroyed node number: {data.NodeNumber}");
+                /*
+                 * Similarly, we can do custom destruction for a node by implementing IDestroy.Destroy().
+                 */
+                public void Destroy(DestroyContext ctx)
+                {
+                    Debug.Log($"Destroyed node number: {NodeNumber}");
+                }
             }
 
             protected override void Dispose() => Debug.Log("My node's definition just got disposed");

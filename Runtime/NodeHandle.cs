@@ -4,36 +4,44 @@ using Unity.Collections;
 
 namespace Unity.DataFlowGraph
 {
-    unsafe struct InternalNodeData
+    unsafe struct InternalNodeData : IVersionedItem
     {
         public bool HasKernelData => KernelData != null;
-        public bool IsCreated => UserData != null;
+        public bool Valid => UserData != null;
+
         public void* UserData;
         // TODO: Can fold with allocation above
         // TODO: Ideally we wouldn't have a conditionally null field here (does node have kernel data?)
         public RenderKernelFunction.BaseData* KernelData;
         // TODO: Could live only with the version?
-        public ValidatedHandle Self;
+        public ValidatedHandle Handle { get; set; }
         public int TraitsIndex;
         // Head of linked list.
         public ForwardPortHandle ForwardedPortHead;
         public ArraySizeEntryHandle PortArraySizesHead;
+        public int UpdateIndex;
+
+        public void Dispose()
+        {
+            UserData = null;
+            KernelData = null;
+        }
     }
 
     /// <summary>
     /// An untyped handle to any type of node instance.
     /// A handle can be thought of as a reference or an ID to an instance,
-    /// and you can use with the various APIs in <see cref="NodeSet"/> to 
+    /// and you can use with the various APIs in <see cref="NodeSet"/> to
     /// interact with the node.
-    /// 
+    ///
     /// A valid handle is guaranteed to not be equal to a default initialized
-    /// node handle. After a handle is destroyed, any handle with this value 
+    /// node handle. After a handle is destroyed, any handle with this value
     /// will be invalid.
-    /// 
-    /// Use <see cref="NodeSet.Exists(NodeHandle)"/> to test whether the handle
+    ///
+    /// Use <see cref="NodeSetAPI.Exists(NodeHandle)"/> to test whether the handle
     /// (still) refers to a valid instance.
-    /// <seealso cref="NodeSet.Create{TDefinition}"/>
-    /// <seealso cref="NodeSet.Destroy(NodeHandle)"/>
+    /// <seealso cref="NodeSetAPI.Create{TDefinition}"/>
+    /// <seealso cref="NodeSetAPI.Destroy(NodeHandle)"/>
     /// </summary>
     [DebuggerDisplay("{DebugDisplay(), nq}")]
     [DebuggerTypeProxy(typeof(NodeHandleDebugView))]
@@ -79,20 +87,20 @@ namespace Unity.DataFlowGraph
             return $"Index: {VHandle.Index}, Version: {VHandle.Version}, NodeSetID: {NodeSetID}";
         }
 
-        string DebugDisplay() => NodeHandleDebugView.DebugDisplay(this);
+        internal string DebugDisplay() => NodeHandleDebugView.DebugDisplay(this);
     }
 
     /// <summary>
     /// A strongly typed version of a <see cref="NodeHandle"/>.
-    /// 
+    ///
     /// A strongly typed version can automatically decay to an untyped
     /// <see cref="NodeHandle"/>, but the other way around requires a cast.
-    /// 
-    /// Strongly typed handles are pre-verified and subsequently can be a lot 
+    ///
+    /// Strongly typed handles are pre-verified and subsequently can be a lot
     /// more efficient in usage, as no type checks need to be performed
     /// internally.
-    /// 
-    /// <seealso cref="NodeSet.CastHandle{TDefinition}(NodeHandle)"/>
+    ///
+    /// <seealso cref="NodeSetAPI.CastHandle{TDefinition}(NodeHandle)"/>
     /// </summary>
     [DebuggerDisplay("{DebugDisplay(), nq}")]
     [DebuggerTypeProxy(typeof(NodeHandleDebugView<>))]
@@ -137,78 +145,12 @@ namespace Unity.DataFlowGraph
             return left.m_UntypedHandle != right.m_UntypedHandle;
         }
 
-        string DebugDisplay() => NodeHandleDebugView.DebugDisplay(this);
+        internal string DebugDisplay() => NodeHandleDebugView.DebugDisplay(this);
     }
 
-    /// <summary>
-    /// An internal handle always exists (unless destructive APIs are called),
-    /// and can only be obtained together with a check (or from a checked place).
-    /// A NodeHandle is assumed to not be checked.
-    /// You automatically get a <see cref="ValidatedHandle"/> out when resolving
-    /// public node handle + port id pair. 
-    /// 
-    /// <seealso cref="NodeSet.ResolvePublicDestination(NodeHandle, ref InputPortID, out InternalHandle)"/>
-    /// <seealso cref="NodeSet.ResolvePublicSource(NodeHandle, ref InputPortID, out InternalHandle)"/>
-    /// 
-    /// Additionally, you can convert a <see cref="NodeHandle"/> to an <see cref="ValidatedHandle"/> through
-    /// <see cref="NodeSet.Validate(NodeHandle)"/>
-    /// </summary>
-    [DebuggerDisplay("{m_UntypedHandle, nq}")]
-    #pragma warning disable 660, 661 // We do not want Equals(object) nor GetHashCode()"
-    readonly struct ValidatedHandle : IEquatable<ValidatedHandle>
+    static class HelperExtensions
     {
-        readonly NodeHandle m_UntypedHandle;
-
-        internal VersionedHandle VHandle => m_UntypedHandle.VHandle;
-        internal ushort NodeSetID => m_UntypedHandle.NodeSetID;
-
-        public static bool operator ==(ValidatedHandle left, ValidatedHandle right)
-        {
-            return left.m_UntypedHandle == right.m_UntypedHandle;
-        }
-
-        public static bool operator !=(ValidatedHandle left, ValidatedHandle right)
-        {
-            return left.m_UntypedHandle != right.m_UntypedHandle;
-        }
-
-        public static ValidatedHandle CheckAndConvert(NodeSet set, NodeHandle handle)
-        {
-            if (set.Exists(handle))
-                return new ValidatedHandle(handle.VHandle);
-
-            if (handle == default)
-                throw new ArgumentException("Node is invalid");
-
-            if (set.NodeSetID != handle.NodeSetID)
-                throw new ArgumentException("Node was created in another NodeSet");
-
-            throw new ArgumentException("Node is disposed or invalid");
-        }
-
-        public static void Bump(ref ValidatedHandle handle)
-        {
-            var v = handle.m_UntypedHandle.VHandle;
-            v.Version++;
-            handle = new ValidatedHandle(v);
-        }
-
-        public static ValidatedHandle Create(int index, ushort nodeSetID)
-        {
-            return new ValidatedHandle(new VersionedHandle(index, 1, nodeSetID));
-        }
-
-        public NodeHandle ToPublicHandle() => m_UntypedHandle;
-
-        public bool Equals(ValidatedHandle other)
-        {
-            return this == other;
-        }
-
-        ValidatedHandle(VersionedHandle vHandle)
-        {
-            m_UntypedHandle = new NodeHandle(vHandle);
-        }
+        public static NodeHandle ToPublicHandle(this ValidatedHandle handle)
+            => new NodeHandle(handle.Versioned);
     }
-    #pragma warning restore 660, 661
 }

@@ -92,7 +92,7 @@ namespace Unity.DataFlowGraph
 
         /// <summary>
         /// Treating <paramref name="source"/> and <paramref name="destination"/> as if
-        /// they come from the same <see cref="KernelLayout"/>, copy the memory from the 
+        /// they come from the same <see cref="KernelLayout"/>, copy the memory from the
         /// <paramref name="source"/> to the <paramref name="destination"/>.
         /// </summary>
         public unsafe void Blit(in Pointers source, ref Pointers destination)
@@ -106,9 +106,7 @@ namespace Unity.DataFlowGraph
         }
     }
 
-    struct LowLevelTraitsFactory<TNodeData, TSimPorts, TKernelData, TKernelPortDefinition, TUserKernel>
-       where TNodeData : struct, INodeData
-       where TSimPorts : struct, ISimulationPortDefinition
+    struct LowLevelTraitsFactory<TKernelData, TKernelPortDefinition, TUserKernel>
        where TKernelData : struct, IKernelData
        where TKernelPortDefinition : struct, IKernelPortDefinition
        where TUserKernel : struct, IGraphKernel<TKernelData, TKernelPortDefinition>
@@ -116,11 +114,8 @@ namespace Unity.DataFlowGraph
         /// <param name="hostNodeType">
         /// Specifically the type which has the TKernelPortDefinition as a field (can be the whole node definition).
         /// </param>
-        internal static LLTraitsHandle Create(Type hostNodeType)
+        internal static LLTraitsHandle Create(Type hostNodeType, SimulationStorageDefinition simStorage, KernelStorageDefinition kernelStorage)
         {
-            bool nodeDataIsManaged = typeof(TNodeData).GetCustomAttributes().Any(a => a is ManagedAttribute);
-            ValidateRulesForStorage(hostNodeType, nodeDataIsManaged);
-
             var vtable = LowLevelNodeTraits.VirtualTable.Create();
 
 #if DFG_PER_NODE_PROFILING
@@ -133,7 +128,8 @@ namespace Unity.DataFlowGraph
                 vtable.KernelFunction = RenderKernelFunction.GetManagedFunction<TKernelData, TKernelPortDefinition, TUserKernel>();
 
             var traits = new LowLevelNodeTraits(
-               CreateStorage(nodeDataIsManaged, isComponentNode: hostNodeType == typeof(InternalComponentNode)),
+               simStorage,
+               kernelStorage,
                vtable,
                new DataPortDeclarations(hostNodeType, typeof(TKernelPortDefinition)),
                KernelLayout.Calculate<TUserKernel, TKernelData, TKernelPortDefinition>()
@@ -143,72 +139,20 @@ namespace Unity.DataFlowGraph
             handle.Resolve() = traits;
             return handle;
         }
-
-        static LowLevelNodeTraits.StorageDefinition CreateStorage(bool nodeDataIsManaged, bool isComponentNode)
-        {
-            var kernelBuffers = new BlitList<LowLevelNodeTraits.StorageDefinition.BufferInfo>(0);
-            foreach (var field in  WalkTypeInstanceFields(typeof(TUserKernel), BindingFlags.Public | BindingFlags.NonPublic, IsBufferDefinition))
-            {
-                kernelBuffers.Add(new LowLevelNodeTraits.StorageDefinition.BufferInfo(UnsafeUtility.GetFieldOffset(field), new SimpleType(field.FieldType.GetGenericArguments()[0])));
-            }
-            return new LowLevelNodeTraits.StorageDefinition(
-                nodeDataIsManaged,
-                isComponentNode: isComponentNode,
-                SimpleType.Create<TNodeData>(),
-                SimpleType.Create<TSimPorts>(),
-                SimpleType.Create<TKernelData>(),
-                SimpleType.Create<TKernelPortDefinition>(),
-                SimpleType.Create<TUserKernel>(),
-                typeof(TUserKernel),
-                kernelBuffers
-            );
-        }
-
-        static void ValidateRulesForStorage(Type hostNodeType, bool nodeDataIsManaged)
-        {
-            LowLevelTraitsFactory<TNodeData, TSimPorts>.ValidateRulesForStorage(hostNodeType, nodeDataIsManaged);
-
-            if (!UnsafeUtility.IsUnmanaged<TKernelData>())
-                throw new InvalidNodeDefinitionException($"Kernel data type {typeof(TKernelData)} on node definition {hostNodeType} is not unmanaged");
-
-            if (!UnsafeUtility.IsUnmanaged<TUserKernel>())
-                throw new InvalidNodeDefinitionException($"Kernel type {typeof(TUserKernel)} on node definition {hostNodeType} is not unmanaged");
-        }
     }
 
-    struct LowLevelTraitsFactory<TNodeData, TSimPorts>
-       where TNodeData : struct, INodeData
-       where TSimPorts : struct, ISimulationPortDefinition
+    struct LowLevelTraitsFactory
     {
 
         /// <param name="hostNodeType">
         /// Specifically the type which has the TKernelPortDefinition as a field (can be the whole node definition).
         /// </param>
-        internal static LLTraitsHandle Create(Type hostNodeType)
+        internal static LLTraitsHandle Create(SimulationStorageDefinition simStorage)
         {
-            bool nodeDataIsManaged = typeof(TNodeData).GetCustomAttributes().Any(a => a is ManagedAttribute);
-            ValidateRulesForStorage(hostNodeType, nodeDataIsManaged);
-            var traits = new LowLevelNodeTraits(CreateStorage(nodeDataIsManaged), LowLevelNodeTraits.VirtualTable.Create());
+            var traits = new LowLevelNodeTraits(simStorage, LowLevelNodeTraits.VirtualTable.Create());
             var handle = LLTraitsHandle.Create();
             handle.Resolve() = traits;
             return handle;
-        }
-
-        static LowLevelNodeTraits.StorageDefinition CreateStorage(bool nodeDataIsManaged)
-        {
-            return new LowLevelNodeTraits.StorageDefinition(
-                nodeDataIsManaged, 
-                isComponentNode: false,
-                SimpleType.Create<TNodeData>(), 
-                SimpleType.Create<TSimPorts>()
-            );
-        }
-
-        internal static void ValidateRulesForStorage(Type hostNodeType, bool nodeDataIsManaged)
-        {
-            if (!nodeDataIsManaged && !UnsafeUtility.IsUnmanaged<TNodeData>())
-                throw new InvalidNodeDefinitionException($"Node data type {typeof(TNodeData)} on node definition {hostNodeType} is not unmanaged, " +
-                    $"add the attribute [Managed] to the type if you need to store references in your data");
         }
     }
 }

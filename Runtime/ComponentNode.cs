@@ -38,18 +38,18 @@ namespace Unity.DataFlowGraph
     ///
     /// Using <see cref="Input{ComponentType}"/> and <see cref="Output{ComponentType}"/> you can create ports
     /// that can be connected to normal nodes, and the data will be readable and writable as usual in the rendering graph.
-    /// <seealso cref="NodeSet.Connect(NodeHandle, OutputPortID, NodeHandle, InputPortID, NodeSet.ConnectionType)"/>.
+    /// <seealso cref="NodeSetAPI.Connect(NodeHandle, OutputPortID, NodeHandle, InputPortID, NodeSetAPI.ConnectionType)"/>.
     ///
     /// The data will be committed after the returned <see cref="JobHandle"/> from <see cref="NodeSet.Update(Jobs.JobHandle)"/>
     /// is completed.
     ///
-    /// <see cref="ComponentNode"/>s behave as normal nodes and thus any normal API on the <see cref="NodeSet"/> is accessible to
+    /// <see cref="ComponentNode"/>s behave as normal nodes and thus any normal API on the <see cref="NodeSetAPI"/> is accessible to
     /// them, with the exception that a <see cref="ComponentNode"/> does not have any ports predefined.
     ///
     /// <seealso cref="NodeDefinition.GetPortDescription(NodeHandle)"/>
     ///
-    /// <see cref="ComponentNode"/>s have to be created through <see cref="NodeSet.CreateComponentNode(Entity)"/>, and cannot
-    /// be instantiated through <see cref="NodeSet.Create{TDefinition}"/>.
+    /// <see cref="ComponentNode"/>s have to be created through <see cref="NodeSetAPI.CreateComponentNode(Entity)"/>, and cannot
+    /// be instantiated through <see cref="NodeSetAPI.Create{TDefinition}"/>.
     ///
     /// A <see cref="ComponentNode"/> doesn't do anything itself and cannot be extended - it merely offers a topological
     /// dynamic read/write interface through ports to ECS.
@@ -57,7 +57,7 @@ namespace Unity.DataFlowGraph
     /// <remarks>
     /// If the target <see cref="Entity"/> is destroyed, or if any referenced component data is missing, any I/O to this
     /// particular node or port is defaulted (but still continues to work). It's the user's responsibility to destroy the
-    /// <see cref="ComponentNode"/> through <see cref="NodeSet.Destroy(NodeHandle)"/> (like any normal node), regardless of
+    /// <see cref="ComponentNode"/> through <see cref="NodeSetAPI.Destroy(NodeHandle)"/> (like any normal node), regardless of
     /// whether the target <see cref="Entity"/> exists or not.
     ///
     /// This API is only available if the hosting <see cref="NodeSet"/> was created with a companion <see cref="ComponentSystemBase"/>.
@@ -69,17 +69,17 @@ namespace Unity.DataFlowGraph
     /// <see cref="PortArray{TInputPort}"/> have no equivalent on <see cref="ComponentNode"/>s.
     ///
     /// In order to implement in place read-modify-write systems of ECS data, connections with
-    /// <see cref="NodeSet.ConnectionType.Feedback"/> need to be used in the following fashion.
+    /// <see cref="NodeSetAPI.ConnectionType.Feedback"/> need to be used in the following fashion.
     ///
     /// <see cref="ComponentNode"/>s appearing downstream in a graph and connected back to parent node(s) via
-    /// <see cref="NodeSet.ConnectionType.Feedback"/> connections can be understood to feed their "previous" component data
+    /// <see cref="NodeSetAPI.ConnectionType.Feedback"/> connections can be understood to feed their "previous" component data
     /// to those parent nodes, and, update their component data at the end of any given <see cref="NodeSet.Update(Jobs.JobHandle)"/>.
     /// The "previous" component data will be the most current value from the ECS point of view, so this does not represent
     /// a frame delay.
     ///
     /// Therefore, if the desire is to model a graph that will read information from an <see cref="Entity"/>'s component data,
     /// modify it, and then write it back to ECS, <see cref="ComponentNode"/>s should appear downstream in the graph and have
-    /// <see cref="NodeSet.ConnectionType.Feedback"/> connections to the upstream nodes.
+    /// <see cref="NodeSetAPI.ConnectionType.Feedback"/> connections to the upstream nodes.
     /// </remarks>
     public abstract class ComponentNode : NodeDefinition
     {
@@ -91,7 +91,7 @@ namespace Unity.DataFlowGraph
         /// <remarks>
         /// This is the untyped version of <see cref="Input{TType}"/>.
         /// Untyped port ids from <see cref="ComponentNode"/>s have overhead in usage together with
-        /// <see cref="NodeSet.Connect(NodeHandle, OutputPortID, NodeHandle, InputPortID, NodeSet.ConnectionType)"/>.
+        /// <see cref="NodeSetAPI.Connect(NodeHandle, OutputPortID, NodeHandle, InputPortID, NodeSetAPI.ConnectionType)"/>.
         /// To implement in-place read-modify-write of ECS data, see documentation of <see cref="ComponentNode"/>.
         /// </remarks>
         /// </summary>
@@ -120,7 +120,7 @@ namespace Unity.DataFlowGraph
         /// <remarks>
         /// This is the untyped version of <see cref="Output{TType}"/>.
         /// Untyped port ids from <see cref="ComponentNode"/>s have overhead in usage together with
-        /// <see cref="NodeSet.Connect(NodeHandle, OutputPortID, NodeHandle, InputPortID, NodeSet.ConnectionType)"/>.
+        /// <see cref="NodeSetAPI.Connect(NodeHandle, OutputPortID, NodeHandle, InputPortID, NodeSetAPI.ConnectionType)"/>.
         /// To implement in-place read-modify-write of ECS data, see documentation of <see cref="ComponentNode"/>.
         /// </remarks>
         /// </summary>
@@ -279,7 +279,7 @@ namespace Unity.DataFlowGraph
         {
             public const int InvalidDynamicPort = -1;
 
-            public OutputFromECS(void** dfgPatch, int type)
+            public OutputFromECS(DataInputStorage* dfgPatch, int type)
             {
 #if DFG_ASSERTIONS
                 if (TypeManager.IsBuffer(type))
@@ -295,7 +295,7 @@ namespace Unity.DataFlowGraph
             /// </summary>
             /// <param name="dfgPatch"></param>
             /// <param name="type"></param>
-            public OutputFromECS(void** dfgPatch, int type, int dynamicDFGPort)
+            public OutputFromECS(DataInputStorage* dfgPatch, int type, int dynamicDFGPort)
             {
 #if DFG_ASSERTIONS
                 if (!TypeManager.IsBuffer(type))
@@ -306,7 +306,7 @@ namespace Unity.DataFlowGraph
                 JITPortIndex = dynamicDFGPort;
             }
 
-            public readonly void** DFGPatch;
+            public readonly DataInputStorage* DFGPatch;
             public readonly int ComponentType;
             public readonly int JITPortIndex;
         }
@@ -319,8 +319,6 @@ namespace Unity.DataFlowGraph
         }
 
         internal struct KernelDefs : IKernelPortDefinition { }
-
-        internal struct NodeData : INodeData { }
 
         [BurstCompile]
         internal unsafe struct GraphKernel : IGraphKernel<KernelData, KernelDefs>, IDisposable
@@ -421,9 +419,9 @@ namespace Unity.DataFlowGraph
 
             internal void Clear()
             {
-                Inputs.Resize(0);
-                Outputs.Resize(0);
-                JITPorts.Resize(0);
+                Inputs.Clear();
+                Outputs.Clear();
+                JITPorts.Clear();
             }
         }
 
@@ -432,9 +430,6 @@ namespace Unity.DataFlowGraph
             Inputs = new List<PortDescription.InputPort>(),
             Outputs = new List<PortDescription.OutputPort>()
         };
-
-        // Needed for reflection pick-up.
-        public static readonly KernelDefs KernelPorts;
 
         // TODO: Use API on KernelLayout
         internal static unsafe ref KernelData GetEntityData(RenderKernelFunction.BaseData* data)
@@ -451,7 +446,7 @@ namespace Unity.DataFlowGraph
             if(ecsType.IsBuffer)
                 managedType = typeof(Buffer<>).MakeGenericType(managedType);
 
-            return PortDescription.InputPort.Data(managedType, 0, hasBuffers: false, isPortArray: false, name: null /* #52 */);
+            return PortDescription.InputPort.Data(managedType, 0, hasBuffers: false, isPortArray: false, isPublic: true, name: null /* #52 */);
         }
 
         internal override PortDescription.OutputPort GetVirtualOutput(ValidatedHandle h, OutputPortArrayID port)
@@ -462,7 +457,7 @@ namespace Unity.DataFlowGraph
             if (ecsType.IsBuffer)
                 managedType = typeof(Buffer<>).MakeGenericType(managedType);
 
-            return PortDescription.OutputPort.Data(managedType, 0, null, name: null /* #52 */);
+            return PortDescription.OutputPort.Data(managedType, 0, null, isPublic: true, name: null /* #52 */);
         }
 
         internal override PortDescription.InputPort GetFormalInput(ValidatedHandle h, InputPortArrayID port)
@@ -478,35 +473,38 @@ namespace Unity.DataFlowGraph
             return ZeroPorts;
         }
 
-        unsafe protected internal override void Destroy(DestroyContext ctx)
+        internal struct NodeData : INodeData, IDestroy
         {
-            var contents = Set.GetKernelData<KernelData>(ctx.Handle);
+            public unsafe void Destroy(DestroyContext ctx)
+            {
+                var contents = ctx.Set.GetKernelData<KernelData>(ctx.Handle);
 
 #if DFG_ASSERTIONS
-            if (contents.Entity == default || contents.EntityStore == default)
-                throw new AssertionException($"{nameof(ComponentNode)} was not properly initialized");
+                if (contents.Entity == default || contents.EntityStore == default)
+                    throw new AssertionException($"{nameof(ComponentNode)} was not properly initialized");
 #endif
-            var em = Set.HostSystem.World.EntityManager;
+                var em = ctx.Set.HostSystem.World.EntityManager;
 
-            // TODO: This fences due to how GetBuffer works.
-            // Can potentially be redone with a hash map.
-            var attachments = em.GetBuffer<NodeSetAttachment>(contents.Entity);
+                // TODO: This fences due to how GetBuffer works.
+                // Can potentially be redone with a hash map.
+                var attachments = em.GetBuffer<NodeSetAttachment>(contents.Entity);
 
-            for (int i = 0; i < attachments.Length; ++i)
-            {
-                if (attachments[i].NodeSetID == Set.NodeSetID)
+                for (int i = 0; i < attachments.Length; ++i)
                 {
-                    attachments.RemoveAt(i);
+                    if (attachments[i].NodeSetID == ctx.Set.NodeSetID)
+                    {
+                        attachments.RemoveAt(i);
 
-                    if (attachments.Length == 0)
-                        em.RemoveComponent(contents.Entity, ComponentType.ReadWrite<NodeSetAttachment>());
+                        if (attachments.Length == 0)
+                            em.RemoveComponent(contents.Entity, ComponentType.ReadWrite<NodeSetAttachment>());
 
-                    return;
+                        return;
+                    }
                 }
-            }
 
-            // TODO: Test
-            throw new InvalidOperationException("Internal inconsistency error");
+                // TODO: Test
+                throw new InvalidOperationException("Internal inconsistency error");
+            }
         }
     }
 
@@ -517,13 +515,10 @@ namespace Unity.DataFlowGraph
     struct NodeSetAttachment : ISystemStateBufferElementData
     {
         public ValidatedHandle Node;
-        /// <summary>
-        /// <see cref="NodeSet.NodeSetID"/>
-        /// </summary>
-        public int NodeSetID;
+        public int NodeSetID => Node.Versioned.ContainerID;
     }
 
-    public partial class NodeSet
+    public partial class NodeSetAPI
     {
         /// <summary>
         /// Instantiate an <see cref="ComponentNode"/>.
@@ -567,13 +562,9 @@ namespace Unity.DataFlowGraph
                         );
                 }
 
-                var node = Create<InternalComponentNode>();
+                var node = CreateInternal<InternalComponentNode>();
 
-                var attachment = new NodeSetAttachment {
-                    // TODO: Double validation
-                    Node = Validate(node),
-                    NodeSetID = NodeSetID
-                };
+                var attachment = new NodeSetAttachment { Node = node };
                 attachments.Add(attachment);
 
                 ref var kernelData = ref GetSimulationSide_KernelData(node);
@@ -582,7 +573,7 @@ namespace Unity.DataFlowGraph
                 kernelData.EntityStore = world.EntityManager.EntityComponentStore;
 #pragma warning restore 618
 
-                return new NodeHandle<ComponentNode>(node.VHandle);
+                return new NodeHandle<ComponentNode>(node.Versioned);
             }
 
         }
@@ -591,8 +582,7 @@ namespace Unity.DataFlowGraph
         /// Returns the simulation side version of the kernel data for a <see cref="ComponentNode"/>.
         /// This is the only version that can be mutated, as the kernel version is being replaced every frame.
         /// </summary>
-        internal ref InternalComponentNode.KernelData GetSimulationSide_KernelData(NodeHandle<InternalComponentNode> node)
-            => ref GetKernelData<InternalComponentNode.KernelData>(node);
+        internal unsafe ref InternalComponentNode.KernelData GetSimulationSide_KernelData(ValidatedHandle node)
+            => ref Utility.AsRef<InternalComponentNode.KernelData>(Nodes[node].KernelData);
     }
 }
-

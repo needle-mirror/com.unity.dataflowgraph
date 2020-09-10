@@ -8,8 +8,8 @@ namespace Unity.DataFlowGraph
     struct FlatTopologyMap : Topology.Database.ITopologyFromVertex, IDisposable
     {
         public const int InvalidConnection = Topology.Database.InvalidConnection;
-        public TopologyIndex this[ValidatedHandle vertex] { get => m_Indexes[vertex.VHandle.Index]; set => m_Indexes[vertex.VHandle.Index] = value; }
-        public ref TopologyIndex GetRef(ValidatedHandle vertex) => ref m_Indexes[vertex.VHandle.Index];
+        public TopologyIndex this[ValidatedHandle vertex] { get => m_Indexes[vertex.Versioned.Index]; set => m_Indexes[vertex.Versioned.Index] = value; }
+        public ref TopologyIndex GetRef(ValidatedHandle vertex) => ref m_Indexes[vertex.Versioned.Index];
         BlitList<TopologyIndex> m_Indexes;
 
         public bool IsCreated => m_Indexes.IsCreated;
@@ -30,7 +30,7 @@ namespace Unity.DataFlowGraph
         }
     }
 
-    public partial class NodeSet : IDisposable
+    public partial class NodeSetAPI
     {
         internal const int InvalidConnection = Topology.Database.InvalidConnection;
 
@@ -166,7 +166,7 @@ namespace Unity.DataFlowGraph
             DisconnectAndRetainValue(sourceHandle, new OutputPortArrayID(sourcePort), destHandle, new InputPortArrayID(destPortArray, index));
         }
 
-        internal void DisconnectAll(NodeHandle handle) => UncheckedDisconnectAll(ref GetNodeChecked(handle));
+        internal void DisconnectAll(NodeHandle handle) => UncheckedDisconnectAll(ref Nodes[handle.VHandle]);
 
         void Connect(NodeHandle sourceHandle, OutputPortArrayID sourcePort, NodeHandle destHandle, InputPortArrayID destinationPort, ConnectionType dataConnectionType)
         {
@@ -256,13 +256,17 @@ namespace Unity.DataFlowGraph
                 throw new ArgumentException("Connection doesn't exist!");
             }
 
-            DisconnectConnection(connection, ref GetNode(source.Handle));
+            DisconnectConnection(connection, ref Nodes[source.Handle]);
+
 
             if (connection.TraversalFlags == (uint)PortDescription.Category.Data << (int)PortDescription.CategoryShift.FeedbackConnection)
             {
                 // Disconnect the backwards dependency.
                 ref readonly var backConnection =
                     ref m_Database.FindConnection(ref m_Topology, dest.Handle, default, source.Handle, default);
+
+                m_Diff.DisconnectData(backConnection);
+
 
                 m_Database.DisconnectAndRelease(ref m_Topology, backConnection);
             }
@@ -281,10 +285,10 @@ namespace Unity.DataFlowGraph
 
 #if DFG_ASSERTIONS
                 if (source.Port.PortID.Storage.IsECSPort && !HasReaderOrWriter(source.Port.PortID.ECSType))
-                    throw new AssertionException($"Unregistrered {source.Port.PortID.Storage} for source");
+                    throw new AssertionException($"Unregistered {source.Port.PortID.Storage} for source");
 
                 if (dest.Port.PortID.Storage.IsECSPort && !HasReaderOrWriter(dest.Port.PortID.ECSType))
-                    throw new AssertionException($"Unregistrered {dest.Port.PortID.Storage} for dest");
+                    throw new AssertionException($"Unregistered {dest.Port.PortID.Storage} for dest");
 #endif
             }
 
@@ -318,16 +322,25 @@ namespace Unity.DataFlowGraph
 
             if (semantics.ConnType != ConnectionType.Feedback)
             {
-                m_Database.Connect(ref m_Topology, semantics.Category, source.Handle, source.Port, dest.Handle, dest.Port);
+                ref readonly var newC = ref m_Database.Connect(ref m_Topology, semantics.Category, source.Handle, source.Port, dest.Handle, dest.Port);
+
+                if (semantics.Category == (uint)PortDescription.Category.Data)
+                    m_Diff.ConnectData(newC);
             }
             else
             {
-                m_Database.Connect(ref m_Topology, semantics.Category << (int)PortDescription.CategoryShift.FeedbackConnection, source.Handle, source.Port, dest.Handle, dest.Port);
+                ref readonly var newC = ref m_Database.Connect(ref m_Topology, semantics.Category << (int)PortDescription.CategoryShift.FeedbackConnection, source.Handle, source.Port, dest.Handle, dest.Port);
+
+                // Feedback connections are always data connections.
+                m_Diff.ConnectData(newC);
+
                 // Create the backwards dependency so that traversal order is correct.
-                m_Database.Connect(
+                newC = ref m_Database.Connect(
                     ref m_Topology, semantics.Category << (int)PortDescription.CategoryShift.BackConnection,
                     dest.Handle, default,
                     source.Handle, default);
+
+                m_Diff.ConnectData(newC);
             }
 
             // everything good
@@ -346,31 +359,31 @@ namespace Unity.DataFlowGraph
 
                 handler.Disconnect(this, connection.Source.ToPublicHandle(), connection.SourceOutputPort.PortID, connection.Destination.ToPublicHandle(), connection.DestinationInputPort.PortID);
             }
+            else if((connection.TraversalFlags & PortDescription.k_MaskForAnyData) != 0)
+            {
+                m_Diff.DisconnectData(connection);
+            }
 
             m_Database.DisconnectAndRelease(ref m_Topology, connection);
         }
 
         void UncheckedDisconnectAll(ref InternalNodeData node)
         {
-            // TODO: This is code duplication from TopologyDatabase, reason is
-            // calling DisconnectAll() on topology database disregards DSL callbacks.
-            // So we iterate manually here.
-
-            var index = m_Topology[node.Self];
+            var index = m_Topology[node.Handle];
 
             bool topologyChanged = false;
 
             for(var it = index.InputHeadConnection; it != InvalidConnection; it = m_Database[it].NextInputConnection)
             {
                 ref readonly var connection = ref m_Database[it];
-                DisconnectConnection(connection, ref GetNode(connection.Source));
+                DisconnectConnection(connection, ref Nodes[connection.Source]);
                 topologyChanged = true;
             }
 
             for (var it = index.OutputHeadConnection; it != InvalidConnection; it = m_Database[it].NextOutputConnection)
             {
                 ref readonly var connection = ref m_Database[it];
-                DisconnectConnection(connection, ref GetNode(connection.Source));
+                DisconnectConnection(connection, ref Nodes[connection.Source]);
                 topologyChanged = true;
             }
 
@@ -400,8 +413,8 @@ namespace Unity.DataFlowGraph
         }
 
         // TODO: Fix these to return .ReadOnly when blitlist supports generic enumeration on readonlys
-        internal BlitList<InternalNodeData> GetInternalData() => m_Nodes;
-        internal Topology.Database GetTopologyDatabase() => m_Database;
-        internal FlatTopologyMap GetTopologyMap() => m_Topology;
+        internal VersionedList<InternalNodeData> GetInternalData() => Nodes;
+        internal Topology.Database GetTopologyDatabase_ForTesting() => m_Database;
+        internal FlatTopologyMap GetTopologyMap_ForTesting() => m_Topology;
     }
 }

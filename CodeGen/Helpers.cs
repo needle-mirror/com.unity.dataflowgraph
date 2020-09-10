@@ -20,7 +20,7 @@ namespace Unity.DataFlowGraph.CodeGen
             m_Name = markerName;
             m_Watch.Start();
         }
-        
+
         public void Dispose()
         {
             m_Watch.Stop();
@@ -33,7 +33,7 @@ namespace Unity.DataFlowGraph.CodeGen
     {
         /// <summary>
         /// Traverses instance fields and <see cref="IEnumerable"/> collections marked <see cref="NSymbolAttribute"/>
-        /// to see if they are null, in which case a <see cref="Diag.DFG_IE_01"/> error is produced in the 
+        /// to see if they are null, in which case a <see cref="Diag.DFG_IE_01"/> error is produced in the
         /// <paramref name="d"/>.
         /// </summary>
         static public void DiagnoseNullSymbolFields(this Diag d, IDefinitionContext parent)
@@ -46,16 +46,16 @@ namespace Unity.DataFlowGraph.CodeGen
             foreach (var field in fieldsAnnotatedWithSymbols)
             {
                 var value = field.GetValue(parent);
-                if(value == null)
+                if (value == null)
                 {
                     d.DFG_IE_01(parent, field);
                 }
                 // Is it a collection of not null things?
-                else if(typeof(IEnumerable).IsAssignableFrom(value.GetType()))
+                else if (typeof(IEnumerable).IsAssignableFrom(value.GetType()))
                 {
-                    foreach(var subValue in (IEnumerable)value)
+                    foreach (var subValue in (IEnumerable)value)
                     {
-                        if(subValue == null)
+                        if (subValue == null)
                             d.DFG_IE_01(parent, field);
                     }
                 }
@@ -64,7 +64,7 @@ namespace Unity.DataFlowGraph.CodeGen
 
         static public bool Overrides(this TypeDefinition type, MethodReference baseFunction)
         {
-            foreach(var method in type.GetMethods().Where(m => m.Name == baseFunction.Name))
+            foreach (var method in type.GetMethods().Where(m => m.Name == baseFunction.Name))
             {
                 if (!method.IsVirtual || method.IsNewSlot)
                     continue;
@@ -72,7 +72,7 @@ namespace Unity.DataFlowGraph.CodeGen
                 if (method.Parameters.Count != baseFunction.Parameters.Count)
                     continue;
 
-                for(int i = 0; i < method.Parameters.Count; ++i)
+                for (int i = 0; i < method.Parameters.Count; ++i)
                 {
                     if (!method.Parameters[i].ParameterType.RefersToSame(baseFunction.Parameters[i].ParameterType))
                         continue;
@@ -95,7 +95,7 @@ namespace Unity.DataFlowGraph.CodeGen
             var def1 = type.Resolve();
 
             // Check interface hierachy
-            foreach(var iface in def1.Interfaces)
+            foreach (var iface in def1.Interfaces)
             {
                 if (IsOrImplements(iface.InterfaceType, subtype))
                     return true;
@@ -104,7 +104,7 @@ namespace Unity.DataFlowGraph.CodeGen
             // Check inheritance hierarchy
             if (def1 != null && def1.BaseType != null && def1.BaseType.IsOrImplements(subtype))
                 return true;
-            
+
             return false;
         }
 
@@ -160,19 +160,30 @@ namespace Unity.DataFlowGraph.CodeGen
         /// <returns>
         /// A new <see cref="GenericInstanceType"/> if <paramref name="partial"/> is itself a <see cref="GenericInstanceType"/>,
         /// otherwise <paramref name="partial"/> directly.
-        /// 
+        ///
         /// Produces SomeType{int, SomethingElse{A}, B} for the examples given.
         /// </returns>
         /// <remarks>
         /// If you want to instantiate a generic type that is not a <see cref="GenericInstanceType"/> (eg. <code>typeof(MyGeneric{,,}</code>), you need to instantiate it firstly
         /// using <see cref="TypeReferenceRocks.MakeGenericInstanceType(TypeReference, TypeReference[])"/>.
         /// </remarks>
-        static TypeReference InstantiateOpenTemplate(this TypeReference partial, Collection<TypeReference> substitutionList)
+        internal static TypeReference InstantiateOpenTemplate(this TypeReference partial, Collection<TypeReference> substitutionList)
         {
             var unsubstituted = partial as GenericInstanceType;
 
             if (unsubstituted == null)
+            {
+                // Need to special case here, or we go into infinite recursion.
+                var singleGeneric = partial as GenericParameter;
+
+                if (singleGeneric != null)
+                {
+                    if (singleGeneric.Position < substitutionList.Count)
+                        return substitutionList[singleGeneric.Position];
+                }
+
                 return partial;
+            }
 
             var substituted = new GenericInstanceType(partial.Resolve());
 
@@ -228,7 +239,7 @@ namespace Unity.DataFlowGraph.CodeGen
         /// </summary>
         static public bool IsCompletelyClosed(this (TypeDefinition Definition, TypeReference Instantiated) genericPair)
         {
-            if(genericPair.Instantiated is GenericInstanceType genericType)
+            if (genericPair.Instantiated is GenericInstanceType genericType)
             {
                 if (genericPair.Definition.GenericParameters.Count != genericType.GenericArguments.Count)
                     return false;
@@ -268,7 +279,80 @@ namespace Unity.DataFlowGraph.CodeGen
                 yield return (nested, potentiallyInstantiatedType);
             }
         }
+
+        public static IEnumerable<(FieldDefinition Definition, FieldReference Instantiated, TypeReference SubstitutedType)> InstantiatedFields(this TypeReference declaringType)
+        {
+            var resolvedClass = declaringType.Resolve();
+
+            var declaringGeneric = declaringType as GenericInstanceType;
+
+            // Non-generic path
+            if (declaringGeneric == null)
+            {
+                foreach (var normal in resolvedClass.Fields.Select(f => (f, f as FieldReference, f.FieldType)))
+                    yield return normal;
+
+                yield break;
+            }
+
+            // Generic path
+            foreach (var field in resolvedClass.Fields)
+            {
+                var substituted = field.FieldType.InstantiateOpenTemplate(declaringGeneric.GenericArguments);
+
+                // The instantiatedFieldType does *not* go into the field reference.
+                // A general field reference *does* refer to the generic declaration, not the "resolved" one.
+                // That does not mean it *isn't* useful to know the final substituted type.
+                var instantiatedField = new FieldReference(field.Name, field.FieldType, declaringGeneric);
+
+                yield return (field, instantiatedField, substituted);
+            }
+        }
+
+        public static IEnumerable<(TypeDefinition Definition, TypeReference Instantiated)> InstantiatedInterfaces(this TypeReference declaringType)
+        {
+            if (declaringType == null)
+                yield break;
+
+            var resolvedClass = declaringType.Resolve();
+
+            foreach(var topLevelInterface in resolvedClass.Interfaces)
+            {
+                var genericParent = declaringType as GenericInstanceType;
+                var potentiallySubstituted = topLevelInterface.InterfaceType;
+
+                if(genericParent != null)
+                {
+                    potentiallySubstituted = potentiallySubstituted.InstantiateOpenTemplate(genericParent.GenericArguments);
+                }
+
+                yield return (topLevelInterface.InterfaceType.Resolve(), potentiallySubstituted);
+            }
+
+            // Slow
+            foreach (var subLevelInterface in declaringType.InstantiatedBaseType().InstantiatedInterfaces())
+                yield return subLevelInterface;
+
+            yield break;
+        }
+
+        public static GenericInstanceMethod MakeGenericInstanceMethod(this MethodReference reference, params TypeReference[] genericArgs)
+        {
+            var method = new GenericInstanceMethod(reference);
+
+            foreach(var type in genericArgs)
+                method.GenericArguments.Add(type);
+
+            return method;
+        }
+
+        public static string PrettyName(this MemberReference type)
+        {
+            var gType = type as GenericInstanceType;
+            if (gType == null)
+                return type.Name;
+            var unmangledName = type.Name.Substring(0, type.Name.IndexOf("`"));
+            return unmangledName + "<" + String.Join(",", gType.GenericArguments.Select(PrettyName)) + ">";
+        }
     }
-
-
 }

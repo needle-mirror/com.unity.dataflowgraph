@@ -1,18 +1,18 @@
+using System;
 using NUnit.Framework;
 using Unity.Burst;
 using Unity.Collections;
-using Unity.Jobs.LowLevel.Unsafe;
 using UnityEngine;
 
 namespace Unity.DataFlowGraph.Tests
 {
     public class NodeDefinitionAPITests
     {
-        public struct KernelPorts : IKernelPortDefinition { }
-
-        class ParametricNode<T> : NodeDefinition<ParametricNode<T>.Node, EmptyPorts>
+        class ParametricNode<T> : SimulationNodeDefinition<ParametricNode<T>.EmptyPorts>
         {
-            public struct Node : INodeData
+            public struct EmptyPorts : ISimulationPortDefinition { }
+
+            struct Node : INodeData
             {
                 T m_Member;
             }
@@ -40,18 +40,18 @@ namespace Unity.DataFlowGraph.Tests
 
 
         class ParametricKernelDataNode<T>
-            : NodeDefinition<ParametricKernelDataNode<T>.Node, ParametricKernelDataNode<T>.KernelData, KernelPorts, ParametricKernelDataNode<T>.Kernel>
+            : KernelNodeDefinition<ParametricKernelDataNode<T>.EmptyPorts>
         {
-            public struct Node : INodeData { }
+            public struct EmptyPorts : IKernelPortDefinition { }
 
-            public struct KernelData : IKernelData
+            struct KernelData : IKernelData
             {
                 T m_Member;
             }
 
-            public struct Kernel : IGraphKernel<KernelData, KernelPorts>
+            struct Kernel : IGraphKernel<KernelData, EmptyPorts>
             {
-                public void Execute(RenderContext ctx, KernelData data, ref KernelPorts ports) { }
+                public void Execute(RenderContext ctx, KernelData data, ref EmptyPorts ports) { }
             }
         }
 
@@ -76,17 +76,17 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        class ParametricKernelNode<T> : NodeDefinition<ParametricKernelNode<T>.Node, ParametricKernelNode<T>.KernelData, KernelPorts, ParametricKernelNode<T>.Kernel>
+        class ParametricKernelNode<T> : KernelNodeDefinition<ParametricKernelNode<T>.EmptyPorts>
         {
-            public struct Node : INodeData { }
+            public struct EmptyPorts : IKernelPortDefinition { }
 
-            public struct KernelData : IKernelData { }
+            internal struct KernelData : IKernelData { }
 
-            public struct Kernel : IGraphKernel<KernelData, KernelPorts>
+            struct Kernel : IGraphKernel<KernelData, EmptyPorts>
             {
                 T m_Member;
 
-                public void Execute(RenderContext ctx, KernelData data, ref KernelPorts ports) { }
+                public void Execute(RenderContext ctx, KernelData data, ref EmptyPorts ports) { }
             }
         }
 
@@ -110,25 +110,29 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        class StaticKernelNode : NodeDefinition<StaticKernelNode.Node, StaticKernelNode.KernelData, KernelPorts, StaticKernelNode.Kernel>
+        class StaticKernelNode : KernelNodeDefinition<StaticKernelNode.EmptyPorts>
         {
-            public struct Node : INodeData { }
+            public struct EmptyPorts : IKernelPortDefinition { }
 
-            public struct KernelData : IKernelData { }
+            struct Node : INodeData { }
+
+            struct KernelData : IKernelData { }
 
             [BurstCompile(CompileSynchronously = true)]
-            public struct Kernel : IGraphKernel<KernelData, KernelPorts>
+            struct Kernel : IGraphKernel<KernelData, EmptyPorts>
             {
                 static int m_Member;
 
-                public void Execute(RenderContext ctx, KernelData data, ref KernelPorts ports) { }
+                public void Execute(RenderContext ctx, KernelData data, ref EmptyPorts ports) { }
             }
         }
 
-        [InvalidTestNodeDefinition]
-        class NodeWithManagedDataTypeWithoutAttribute : NodeDefinition<NodeWithManagedDataTypeWithoutAttribute.Data, EmptyPorts>
+        [IsNotInstantiable]
+        class NodeWithManagedDataTypeWithoutAttribute : SimulationNodeDefinition<NodeWithManagedDataTypeWithoutAttribute.EmptyPorts>
         {
-            public struct Data : INodeData
+            public struct EmptyPorts : ISimulationPortDefinition { }
+
+            internal struct Data : INodeData
             {
 #pragma warning disable 649  // never assigned
                 public GameObject g;
@@ -146,10 +150,12 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        class NodeWithManagedData : NodeDefinition<NodeWithManagedData.Data, EmptyPorts>
+        class NodeWithManagedData : SimulationNodeDefinition<NodeWithManagedData.EmptyPorts>
         {
+            public struct EmptyPorts : ISimulationPortDefinition { }
+
             [Managed]
-            public struct Data : INodeData
+            struct Data : INodeData
             {
 #pragma warning disable 649  // never assigned
                 public NodeWithManagedDataTypeWithoutAttribute.Data g;
@@ -173,7 +179,7 @@ namespace Unity.DataFlowGraph.Tests
 
             }
 
-            protected struct Data : INodeData
+            struct Data : INodeData
             {
                 T m_Secret;
             }
@@ -198,6 +204,39 @@ namespace Unity.DataFlowGraph.Tests
             using (var set = new NodeSet())
             {
                 set.Destroy(set.Create<Node_WithNestedGenericAspects>());
+            }
+        }
+
+        [Test]
+        public void CannotUpdate_WrongKernelData()
+        {
+            using (var set = new NodeSet())
+            {
+                var node = set.Create<GraphValueTests.RenderPipe>();
+                var @checked = set.Validate(node);
+
+                Assert.DoesNotThrow(
+                    () =>
+                    {
+                        set.UpdateKernelData(@checked, new GraphValueTests.KernelData());
+                    }
+                );
+
+                Assert.Throws<InvalidOperationException>(
+                    () =>
+                    {
+                        set.UpdateKernelData(@checked, new ParametricKernelNode<float>.KernelData());
+                    }
+                );
+
+                Assert.DoesNotThrow(
+                    () =>
+                    {
+                        set.UpdateKernelData(@checked, new GraphValueTests.KernelData());
+                    }
+                );
+
+                set.Destroy(node);
             }
         }
 

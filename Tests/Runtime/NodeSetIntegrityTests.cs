@@ -22,7 +22,10 @@ namespace Unity.DataFlowGraph.Tests
             public int Contents;
         }
 
-        class NonKernelNode : NodeDefinition<EmptyPorts> {}
+        class NonKernelNode : NodeDefinition<NonKernelNode.EmptyPorts>
+        {
+            public struct EmptyPorts : ISimulationPortDefinition { }
+        }
 
         class KernelNode : NodeDefinition<Data, KernelNode.KernelDefs, KernelNode.Kernel>
         {
@@ -48,7 +51,7 @@ namespace Unity.DataFlowGraph.Tests
             using (var set = new NodeSet())
             {
                 NodeHandle node = isKernel ? (NodeHandle)set.Create<KernelNode>() : (NodeHandle)set.Create<NonKernelNode>();
-                ref var internalData = ref set.GetNodeChecked(node);
+                ref var internalData = ref set.Nodes[node.VHandle];
 
                 Assert.NotZero(internalData.TraitsIndex);
                 Assert.IsTrue(isKernel ? set.GetDefinition(node) is KernelNode : set.GetDefinition(node) is NonKernelNode);
@@ -65,7 +68,7 @@ namespace Unity.DataFlowGraph.Tests
             using (var set = new NodeSet())
             {
                 NodeHandle node = isKernel ? (NodeHandle)set.Create<KernelNode>() : (NodeHandle)set.Create<NonKernelNode>();
-                ref var internalData = ref set.GetNodeChecked(node);
+                ref var internalData = ref set.Nodes[node.VHandle];
 
                 unsafe
                 {
@@ -87,7 +90,7 @@ namespace Unity.DataFlowGraph.Tests
                 NodeHandle node = isKernel ? (NodeHandle)set.Create<KernelNode>() : (NodeHandle)set.Create<NonKernelNode>();
 
                 // TODO: Totally safe? Might be out of bounds if set decides to defragment
-                ref readonly var internalData = ref set.GetNodeChecked(node);
+                ref readonly var internalData = ref set.Nodes[node.VHandle];
 
                 set.Destroy(node);
 
@@ -105,7 +108,7 @@ namespace Unity.DataFlowGraph.Tests
             using (var set = new NodeSet())
             {
                 NodeHandle node = set.Create<NonKernelNode>();
-                var internalData = set.GetNodeChecked(node);
+                var internalData = set.Nodes[node.VHandle];
 
                 unsafe
                 {
@@ -123,7 +126,7 @@ namespace Unity.DataFlowGraph.Tests
             using (var set = new NodeSet())
             {
                 NodeHandle node = set.Create<KernelNode>();
-                var internalData = set.GetNodeChecked(node);
+                var internalData = set.Nodes[node.VHandle];
 
                 unsafe
                 {
@@ -145,10 +148,13 @@ namespace Unity.DataFlowGraph.Tests
             Assert.IsFalse(set.GetCurrentGraphDiff().IsCreated);
             Assert.IsFalse(set.GetLLTraits().IsCreated);
             Assert.IsFalse(set.GetOutputValues().IsCreated);
-            Assert.IsFalse(set.GetTopologyMap().IsCreated);
+            Assert.IsFalse(set.GetTopologyMap_ForTesting().IsCreated);
             Assert.IsFalse(set.GetForwardingTable().IsCreated);
             Assert.IsFalse(set.GetArraySizesTable().IsCreated);
             Assert.IsFalse(set.GetActiveComponentTypes().IsCreated);
+            Assert.IsFalse(set.GetUpdateIndices().IsCreated);
+            Assert.IsFalse(set.GetUpdateQueue().IsCreated);
+
             // Add more as they come...
         }
 
@@ -158,7 +164,7 @@ namespace Unity.DataFlowGraph.Tests
             using (var set = new NodeSet())
             {
                 NodeHandle node = set.Create<NonKernelNode>();
-                var internalData = set.GetNodeChecked(node);
+                var internalData = set.Nodes[node.VHandle];
 
                 Assert.AreEqual(internalData.ForwardedPortHead, ForwardPortHandle.Invalid);
 
@@ -172,24 +178,24 @@ namespace Unity.DataFlowGraph.Tests
             using (var set = new NodeSet())
             {
                 var node = set.Create<NodeWithAllTypesOfPorts>();
-                var internalData = set.GetNodeChecked(node);
+                var internalData = set.Nodes[node.VHandle];
 
                 Assert.AreEqual(internalData.PortArraySizesHead, ArraySizeEntryHandle.Invalid);
 
                 set.SetPortArraySize(node, NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayIn, 1);
-                internalData = set.GetNodeChecked(node);
+                internalData = set.Nodes[node.VHandle];
 
                 Assert.AreNotEqual(internalData.PortArraySizesHead, ArraySizeEntryHandle.Invalid);
 
                 Assert.AreEqual(set.GetArraySizesTable()[internalData.PortArraySizesHead].Next, ArraySizeEntryHandle.Invalid);
 
                 set.SetPortArraySize(node, NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayIn, 0);
-                internalData = set.GetNodeChecked(node);
+                internalData = set.Nodes[node.VHandle];
 
                 Assert.AreEqual(internalData.PortArraySizesHead, ArraySizeEntryHandle.Invalid);
 
                 set.SetPortArraySize(node, NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayOut, 1);
-                internalData = set.GetNodeChecked(node);
+                internalData = set.Nodes[node.VHandle];
 
                 Assert.AreNotEqual(internalData.PortArraySizesHead, ArraySizeEntryHandle.Invalid);
 

@@ -112,7 +112,7 @@ namespace Unity.DataFlowGraph.Tests
                 if (MapClone.IsCreated)
                     MapClone.Dispose();
 
-                MapClone = Set.GetTopologyMap().Clone();
+                MapClone = Set.GetTopologyMap_ForTesting().Clone();
 
                 NativeList<ValidatedHandle> untypedNodes = new NativeList<ValidatedHandle>(10, Allocator.Temp);
                 for (int i = 0; i < Nodes.Length; ++i)
@@ -123,7 +123,7 @@ namespace Unity.DataFlowGraph.Tests
                 var dependency = Topology.ComputationContext<FlatTopologyMap>.InitializeContext(
                     new JobHandle(),
                     out context,
-                    Set.GetTopologyDatabase(),
+                    Set.GetTopologyDatabase_ForTesting(),
                     MapClone,
                     Cache,
                     untypedNodes.AsArray(),
@@ -894,43 +894,33 @@ namespace Unity.DataFlowGraph.Tests
                 }
 
                 set.Update();
+                set.DataGraph.SyncAnyRendering();
 
                 var cache = set.DataGraph.Cache;
 
                 // GlobalBreadthFirst == LocalDepthFirst currently.
-                /*const string kExpectedMaximallyParallelOrder =
-                    "0, 2, 5, 8, 13, 14, 16, 19, 22, 27, 28, 30, 33, 36, " +
-                    "41, 42, 44, 47, 50, 55, 56, 58, 61, 64, 69, 70, 72, 75, " +
-                    "78, 83, 84, 86, 89, 92, 97, 98, 100, 103, 106, 111, 112, 114, " +
-                    "117, 120, 125, 126, 128, 131, 134, 139, 1, 9, 15, 23, 29, 37, " +
-                    "43, 51, 57, 65, 71, 79, 85, 93, 99, 107, 113, 121, 127, " +
-                    "135, 10, 24, 38, 52, 66, 80, 94, 108, 122, 136, 6, 3, 20, " +
-                    "17, 34, 31, 48, 45, 62, 59, 76, 73, 90, 87, 104, 101, 118, " +
-                    "115, 132, 129, 7, 11, 4, 21, 25, 18, 35, 39, 32, 49, 53, " +
-                    "46, 63, 67, 60, 77, 81, 74, 91, 95, 88, 105, 109, 102, 119, " +
-                    "123, 116, 133, 137, 130, 12, 26, 40, 54, 68, 82, 96, 110, 124, 138"; */
 
                 const string kExpectedIslandOrder =
-                    "13, 27, 41, 55, 69, 83, 97, 111, 125, 139, " + // orphan group
-                    "0, 1, 2, 8, 9, 10, 5, 6, 7, 3, 11, " + // primary island
-                    "12, 4, " + // secondary island
-                    "14, 15, 16, 22, 23, 24, 19, 20, 21, 17, 25, " + // primary island 2.. etc
-                    "26, 18, " +
-                    "28, 29, 30, 36, 37, 38, 33, 34, 35, 31, 39, " +
-                    "40, 32, " +
-                    "42, 43, 44, 50, 51, 52, 47, 48, 49, 45, 53, " +
-                    "54, 46, " +
-                    "56, 57, 58, 64, 65, 66, 61, 62, 63, 59, 67, " +
-                    "68, 60, " +
-                    "70, 71, 72, 78, 79, 80, 75, 76, 77, 73, 81, " +
-                    "82, 74, " +
-                    "84, 85, 86, 92, 93, 94, 89, 90, 91, 87, 95, " +
-                    "96, 88, " +
-                    "98, 99, 100, 106, 107, 108, 103, 104, 105, 101, 109, " +
-                    "110, 102, " +
-                    "112, 113, 114, 120, 121, 122, 117, 118, 119, 115, 123, " +
-                    "124, 116, " +
-                    "126, 127, 128, 134, 135, 136, 131, 132, 133, 129, 137, 138, 130";
+                    "14, 28, 42, 56, 70, 84, 98, 112, 126, 140, " + // orphan group
+                    "1, 2, 3, 9, 10, 11, 6, 7, 8, 4, 12, " + // primary island
+                    "13, 5, " + // secondary island
+                    "15, 16, 17, 23, 24, 25, 20, 21, 22, 18, 26, " + // primary island 2.. etc
+                    "27, 19, " +
+                    "29, 30, 31, 37, 38, 39, 34, 35, 36, 32, 40, " +
+                    "41, 33, " +
+                    "43, 44, 45, 51, 52, 53, 48, 49, 50, 46, 54, " +
+                    "55, 47, " +
+                    "57, 58, 59, 65, 66, 67, 62, 63, 64, 60, 68, " +
+                    "69, 61, " +
+                    "71, 72, 73, 79, 80, 81, 76, 77, 78, 74, 82, " +
+                    "83, 75, " +
+                    "85, 86, 87, 93, 94, 95, 90, 91, 92, 88, 96, " +
+                    "97, 89, " +
+                    "99, 100, 101, 107, 108, 109, 104, 105, 106, 102, 110, " +
+                    "111, 103, " +
+                    "113, 114, 115, 121, 122, 123, 118, 119, 120, 116, 124, " +
+                    "125, 117, " +
+                    "127, 128, 129, 135, 136, 137, 132, 133, 134, 130, 138, 139, 131";
 
                 var traversalIndices = new List<string>();
 
@@ -940,7 +930,7 @@ namespace Unity.DataFlowGraph.Tests
 
                     for (int i = 0; i < group.TraversalCount; ++i)
                     {
-                        traversalIndices.Add(group.IndexTraversal(i).Vertex.VHandle.Index.ToString());
+                        traversalIndices.Add(group.IndexTraversal(i).Vertex.Versioned.Index.ToString());
                     }
                 }
 
@@ -998,12 +988,13 @@ namespace Unity.DataFlowGraph.Tests
                 );
 
                 set.Update();
+                set.DataGraph.SyncAnyRendering();
 
                 var cache = set.DataGraph.Cache;
 
                 // GlobalBreadthFirst == LocalDepthFirst currently.
                 /*const string kExpectedMaximallyParallelOrder = "0, 2, 5, 8, 13, 1, 9, 10, 6, 3, 7, 11, 4, 12"; */
-                const string kExpectedIslandOrder = "13, 0, 8, 9, 10, 5, 6, 2, 7, 3, 4, 11, 12, 1";
+                const string kExpectedIslandOrder = "14, 1, 9, 10, 11, 6, 7, 3, 8, 4, 5, 12, 13, 2";
 
                 var traversalIndices = new List<string>();
 
@@ -1013,7 +1004,7 @@ namespace Unity.DataFlowGraph.Tests
 
                     for (int i = 0; i < group.TraversalCount; ++i)
                     {
-                        traversalIndices.Add(group.IndexTraversal(i).Vertex.VHandle.Index.ToString());
+                        traversalIndices.Add(group.IndexTraversal(i).Vertex.Versioned.Index.ToString());
                     }
                 }
 
@@ -1086,6 +1077,24 @@ namespace Unity.DataFlowGraph.Tests
                 set.Update();
 
                 nodes.ForEach(n => set.Destroy(n));
+            }
+        }
+
+        [Test]
+        public void CreatedConnections_OnAlreadyDestroyedNodes_AreNotReflected_InRenderingDatabase()
+        {
+            using (var set = new NodeSet())
+            {
+                var test = new RenderGraphTests.DAGTest(set);
+                test.Dispose();
+
+                set.Update();
+                set.DataGraph.SyncAnyRendering();
+
+                var database = set.DataGraph.GetDatabase_ForTesting();
+
+                Assert.AreEqual(Topology.Database.InvalidConnection + 1, database.TotalConnections);
+                Assert.Zero(database.FreeEdges);
             }
         }
     }

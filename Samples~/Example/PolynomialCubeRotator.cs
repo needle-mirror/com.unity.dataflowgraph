@@ -12,16 +12,12 @@ namespace Unity.DataFlowGraph.PolynomialCubeRotatorExample
     /// </summary>
     public class PolynomialCubeRotator : MonoBehaviour
     {
-        public struct InstanceData : INodeData { }
-
-        public struct KernelData : IKernelData { }
-
         public struct Polynomial
         {
             public Buffer<float> Coefficients;
         }
 
-        public class AdderNode : NodeDefinition<InstanceData, KernelData, AdderNode.KernelDefs, AdderNode.GraphKernel>
+        public class AdderNode : KernelNodeDefinition<AdderNode.KernelDefs>
         {
             public struct KernelDefs : IKernelPortDefinition
             {
@@ -31,8 +27,10 @@ namespace Unity.DataFlowGraph.PolynomialCubeRotatorExample
                 public DataOutput<AdderNode, Polynomial> Output;
             }
 
+            struct KernelData : IKernelData { }
+
             [BurstCompile]
-            public struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
+            struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
             {
                 public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
                 {
@@ -53,7 +51,7 @@ namespace Unity.DataFlowGraph.PolynomialCubeRotatorExample
             }
         }
         
-        public class EvaluatorNode : NodeDefinition<InstanceData, KernelData, EvaluatorNode.KernelDefs, EvaluatorNode.GraphKernel>
+        public class EvaluatorNode : KernelNodeDefinition<EvaluatorNode.KernelDefs>
         {
             public struct KernelDefs : IKernelPortDefinition
             {
@@ -63,8 +61,10 @@ namespace Unity.DataFlowGraph.PolynomialCubeRotatorExample
                 public DataOutput<EvaluatorNode, float> Y;
             }
 
+            struct KernelData : IKernelData { }
+
             [BurstCompile]
-            public struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
+            struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
             {
                 public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
                 {
@@ -88,20 +88,32 @@ namespace Unity.DataFlowGraph.PolynomialCubeRotatorExample
             }
         }
 
-        public class ProceduralGeneratorNode : NodeDefinition<InstanceData, ProceduralGeneratorNode.KernelData, ProceduralGeneratorNode.KernelDefs, ProceduralGeneratorNode.GraphKernel>
+        public class ProceduralGeneratorNode : KernelNodeDefinition<ProceduralGeneratorNode.KernelDefs>
         {
             public struct KernelDefs : IKernelPortDefinition
             {
                 public DataOutput<ProceduralGeneratorNode, Polynomial> Polym;
             }
 
-            public struct KernelData : IKernelData
+            struct KernelData : IKernelData
             {
                 public Mathematics.Random RNG;
             }
 
+            struct NodeData : INodeData, IInit
+            {
+                public void Init(InitContext ctx)
+                {
+                    ctx.UpdateKernelData(
+                        new KernelData {
+                            RNG = new Mathematics.Random((uint)UnityEngine.Random.Range(1, 127))
+                        }
+                    );
+                }
+            }
+
             [BurstCompile]
-            public struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
+            struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
             {
                 public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
                 {
@@ -120,27 +132,36 @@ namespace Unity.DataFlowGraph.PolynomialCubeRotatorExample
                     }
                 }
             }
-
-            protected override void Init(InitContext ctx)
-            {
-                GetKernelData(ctx.Handle).RNG = new Mathematics.Random((uint)UnityEngine.Random.Range(1, 127));
-            }
         }
         
 
-        public class PhaseNode : NodeDefinition<PhaseNode.InstanceData, PhaseNode.SimPorts, PhaseNode.KernelData, PhaseNode.KernelDefs, PhaseNode.GraphKernel>, IMsgHandler<float>
+        public class PhaseNode : SimulationKernelNodeDefinition<PhaseNode.SimPorts, PhaseNode.KernelDefs>
         {
             public struct SimPorts : ISimulationPortDefinition
             {
                 public MessageInput<PhaseNode, float> Time, Scale;
             }
 
-            public struct InstanceData : INodeData
+            struct InstanceData : INodeData, IMsgHandler<float>, IUpdate
             {
-                public float Time, TimeScale;
+                float m_Time, m_TimeScale;
+
+                public void HandleMessage(in MessageContext ctx, in float msg)
+                {
+                    if (ctx.Port == SimulationPorts.Time)
+                        m_Time = msg;
+                    else if (ctx.Port == SimulationPorts.Scale)
+                        m_TimeScale = msg;
+                }
+
+                public void Update(in UpdateContext ctx)
+                {
+                    m_Time += Time.deltaTime * m_TimeScale;
+                    ctx.UpdateKernelData ( new KernelData { Time = m_Time });
+                }
             }
 
-            public struct KernelData : IKernelData
+            struct KernelData : IKernelData
             {
                 public float Time;
             }
@@ -151,27 +172,13 @@ namespace Unity.DataFlowGraph.PolynomialCubeRotatorExample
             }
 
             [BurstCompile]
-            public struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
+            struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
             {
                 public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
                     => ctx.Resolve(ref ports.X) = math.sin(data.Time);
             }
 
-            public void HandleMessage(in MessageContext ctx, in float msg)
-            {
-                ref var nodeData = ref GetNodeData(ctx.Handle);
-                if (ctx.Port == SimulationPorts.Time)
-                    nodeData.Time = msg;
-                else if (ctx.Port == SimulationPorts.Scale)
-                    nodeData.TimeScale = msg;
-            }
 
-            protected override void OnUpdate(in UpdateContext ctx)
-            {
-                ref var nodeData = ref GetNodeData(ctx.Handle);
-                nodeData.Time += Time.deltaTime * nodeData.TimeScale;
-                GetKernelData(ctx.Handle).Time = nodeData.Time;
-            }
         }
 
         struct LocalGraph : IDisposable

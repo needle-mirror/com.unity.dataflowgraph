@@ -15,12 +15,8 @@ namespace Unity.DataFlowGraph.Tour
          * Concretely, we'll connect some nodes containing data ports together, in a very similar way as to how we did
          * it in the messaging example.
          */
-        public class MyNode : NodeDefinition<MyNode.InstanceData, MyNode.KernelData, MyNode.KernelDefs, MyNode.GraphKernel>
+        public class MyNode : KernelNodeDefinition<MyNode.KernelDefs>
         {
-            public struct InstanceData : INodeData { }
-
-            public struct KernelData : IKernelData { }
-
             public struct KernelDefs : IKernelPortDefinition
             {
                 /*
@@ -31,7 +27,9 @@ namespace Unity.DataFlowGraph.Tour
                 public DataOutput<MyNode, float> Output;
             }
 
-            public struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
+            struct KernelData : IKernelData { }
+
+            struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
             {
                 public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
                 {

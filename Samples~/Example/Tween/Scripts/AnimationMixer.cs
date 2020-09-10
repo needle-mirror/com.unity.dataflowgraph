@@ -4,13 +4,15 @@ using Unity.Mathematics;
 namespace Unity.DataFlowGraph.Examples.RenderGraph
 {
     
-    public class AnimationMixer 
-        : NodeDefinition<AnimationMixer.NodeData, AnimationMixer.SimPorts, AnimationMixer.KernelData, AnimationMixer.KernelDefs, AnimationMixer.GraphKernel>
-        , IMsgHandler<float>
+    public class AnimationMixer : SimulationKernelNodeDefinition<AnimationMixer.SimPorts, AnimationMixer.KernelDefs>
     {
-        public struct NodeData : INodeData { }
+        struct NodeData : INodeData, IMsgHandler<float>
+        {
+            public void HandleMessage(in MessageContext ctx, in float msg)
+                => ctx.UpdateKernelData(new KernelData { Blend = msg });
+        }
 
-        public struct KernelData : IKernelData
+        struct KernelData : IKernelData
         {
             public float Blend;
         }
@@ -27,18 +29,12 @@ namespace Unity.DataFlowGraph.Examples.RenderGraph
         }
 
         [BurstCompile]
-        public struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
+        struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
         {
             public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
             {
                 ctx.Resolve(ref ports.Output) = math.lerp(ctx.Resolve(ports.InputA), ctx.Resolve(ports.InputB), data.Blend);
             }
-        }
-
-        public void HandleMessage(in MessageContext ctx, in float msg)
-        {
-            if (ctx.Port == SimulationPorts.Blend)
-                GetKernelData(ctx.Handle).Blend = msg;
         }
     }
 }

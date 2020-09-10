@@ -25,13 +25,26 @@ namespace Unity.DataFlowGraph.Tests
             public float Input;
         }
 
+        public enum KernelUpdateMode
+        {
+            GetKernelData,
+            UpdateKernelData
+        }
+
+        public struct FloatButWithMode
+        {
+            public KernelUpdateMode Mode;
+            public float Value;
+        }
+
         public class RenderPipe
             : NodeDefinition<Data, RenderPipe.SimPorts, KernelData, RenderPipe.Ports, RenderPipe.Kernel>
-            , IMsgHandler<float>
+            , IMsgHandler<FloatButWithMode>
         {
+
             public struct SimPorts : ISimulationPortDefinition
             {
-                public MessageInput<RenderPipe, float> Input;
+                public MessageInput<RenderPipe, FloatButWithMode> Input;
             }
 
             public struct Ports : IKernelPortDefinition
@@ -48,15 +61,17 @@ namespace Unity.DataFlowGraph.Tests
                 }
             }
 
-            public void HandleMessage(in MessageContext ctx, in float msg)
+            public void HandleMessage(in MessageContext ctx, in FloatButWithMode msg)
             {
-                GetKernelData(ctx.Handle).Input = msg;
+                if (msg.Mode == KernelUpdateMode.GetKernelData)
+                    GetKernelData(ctx.Handle).Input = msg.Value;
+                else
+                    ctx.UpdateKernelData(new KernelData { Input = msg.Value });
             }
         }
 
         public class RenderAdder
-            : NodeDefinition<Data, RenderAdder.SimPorts, KernelData, RenderAdder.Ports, RenderAdder.Kernel>
-            , IMsgHandler<float>
+            : SimulationKernelNodeDefinition<RenderAdder.SimPorts, RenderAdder.Ports>
         {
             public struct SimPorts : ISimulationPortDefinition
             {
@@ -69,8 +84,13 @@ namespace Unity.DataFlowGraph.Tests
                 public DataOutput<RenderAdder, float> Output;
             }
 
+            struct KernelData : IKernelData
+            {
+                public float Input;
+            }
+
             [BurstCompile(CompileSynchronously = true)]
-            public struct Kernel : IGraphKernel<KernelData, Ports>
+            struct Kernel : IGraphKernel<KernelData, Ports>
             {
                 public void Execute(RenderContext ctx, KernelData data, ref Ports ports)
                 {
@@ -78,11 +98,13 @@ namespace Unity.DataFlowGraph.Tests
                 }
             }
 
-            public void HandleMessage(in MessageContext ctx, in float msg)
+            struct Node : INodeData, IMsgHandler<float>
             {
-                GetKernelData(ctx.Handle).Input = msg;
+                public void HandleMessage(in MessageContext ctx, in float msg)
+                {
+                    ctx.UpdateKernelData(new KernelData {Input = msg});
+                }
             }
-
         }
 
         [Test]
@@ -119,17 +141,20 @@ namespace Unity.DataFlowGraph.Tests
             {
                 GraphValue<int> value = default;
                 Assert.IsFalse(set.ValueExists(value));
+                Assert.Throws<ArgumentException>(() => set.ValueTargetExists(value));
+
             }
         }
 
         [Test]
-        public void FreshlyCreatedGraphValue_IsReportedAsValid()
+        public void FreshlyCreatedGraphValue_IsReportedAsValidIncludingTarget()
         {
             using (var set = new NodeSet())
             {
                 var node = set.Create<RenderPipe>();
                 var value = set.CreateGraphValue(node, RenderPipe.KernelPorts.Output);
                 Assert.IsTrue(set.ValueExists(value));
+                Assert.IsTrue(set.ValueTargetExists(value));
 
                 set.Destroy(node);
                 set.ReleaseGraphValue(value);
@@ -147,6 +172,22 @@ namespace Unity.DataFlowGraph.Tests
                 set.Destroy(node);
 
                 Assert.IsTrue(set.ValueExists(value));
+
+                set.ReleaseGraphValue(value);
+            }
+        }
+
+        [Test]
+        public void GraphValueTarget_IsReportedAsInvalid_AfterNodeDestruction()
+        {
+            using (var set = new NodeSet())
+            {
+                var node = set.Create<RenderPipe>();
+                var value = set.CreateGraphValue(node, RenderPipe.KernelPorts.Output);
+
+                set.Destroy(node);
+
+                Assert.False(set.ValueTargetExists(value));
 
                 set.ReleaseGraphValue(value);
             }
@@ -174,8 +215,8 @@ namespace Unity.DataFlowGraph.Tests
             using (var set = new NodeSet())
             {
                 Assert.Throws<ArgumentException>(() => set.CreateGraphValue(new NodeHandle<RenderPipe>(), RenderPipe.KernelPorts.Output));
-                Assert.Throws<ObjectDisposedException>(() => set.ReleaseGraphValue(new GraphValue<float>()));
-                Assert.Throws<ObjectDisposedException>(() => set.GetValueBlocking(new GraphValue<float>()));
+                Assert.Throws<ArgumentException>(() => set.ReleaseGraphValue(new GraphValue<float>()));
+                Assert.Throws<ArgumentException>(() => set.GetValueBlocking(new GraphValue<float>()));
             }
         }
 
@@ -201,7 +242,7 @@ namespace Unity.DataFlowGraph.Tests
                 var value = set.CreateGraphValue(node, RenderPipe.KernelPorts.Output);
                 set.ReleaseGraphValue(value);
 
-                Assert.Throws<ObjectDisposedException>(() => set.GetValueBlocking(value));
+                Assert.Throws<ArgumentException>(() => set.GetValueBlocking(value));
 
                 set.Destroy(node);
             }
@@ -246,7 +287,48 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void CanSynchronouslyPumpValues_ThroughMessages_AndRetrieve_AfterUpdate_ThroughGraphValue([Values] NodeSet.RenderExecutionModel computeType)
+        public void CanResolveGraphValue_UsingBlockingAPI_BeforeInitialRoundtrip_AndAfter()
+        {
+            const int k_NumUpdates = 10;
+
+            using (var set = new NodeSet())
+            {
+                var node = set.Create<RenderPipe>();
+                var value = set.CreateGraphValue(node, RenderPipe.KernelPorts.Output);
+
+                for (int i = 0; i < k_NumUpdates; ++i)
+                {
+                    Assert.AreEqual(default(float), set.GetValueBlocking(value));
+                    set.Update();
+                }
+
+                set.Destroy(node);
+                set.ReleaseGraphValue(value);
+            }
+        }
+
+        [Test]
+        public void GraphValue_OnAlreadyRoundtrippedNode_DefaultsValue_UntilAnotherUpdate([Values] KernelUpdateMode mode)
+        {
+            using (var set = new NodeSet())
+            {
+                var node = set.Create<RenderPipe>();
+                set.SendMessage(node, RenderPipe.SimulationPorts.Input, new FloatButWithMode { Value = 3.14f, Mode = mode });
+                set.Update();
+
+                var value = set.CreateGraphValue(node, RenderPipe.KernelPorts.Output);
+                Assert.AreEqual(default(float), set.GetValueBlocking(value));
+                set.Update();
+
+                Assert.AreEqual(3.14f, set.GetValueBlocking(value));
+
+                set.Destroy(node);
+                set.ReleaseGraphValue(value);
+            }
+        }
+
+        [Test]
+        public void CanSynchronouslyPumpValues_ThroughMessages_AndRetrieve_AfterUpdate_ThroughGraphValue([Values] NodeSet.RenderExecutionModel computeType, [Values] KernelUpdateMode mode)
         {
             using (var set = new RenderGraphTests.PotentiallyJobifiedNodeSet(computeType))
             {
@@ -255,7 +337,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 for (int i = 1; i < 100; ++i)
                 {
-                    set.SendMessage(node, RenderPipe.SimulationPorts.Input, i);
+                    set.SendMessage(node, RenderPipe.SimulationPorts.Input, new FloatButWithMode { Value = i, Mode = mode });
 
                     set.Update();
 
@@ -272,7 +354,8 @@ namespace Unity.DataFlowGraph.Tests
         [Test]
         public void CanSynchronouslyReadValues_InTreeStructure_AndRetrieve_AfterUpdate_ThroughGraphValue(
             [Values] NodeSet.RenderExecutionModel computeType,
-            [Values] GraphValueType typedNess)
+            [Values] GraphValueType typedNess,
+            [Values] KernelUpdateMode mode)
         {
             using (var set = new RenderGraphTests.PotentiallyJobifiedNodeSet(computeType))
             {
@@ -306,7 +389,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 for (int i = 0; i < 100; ++i)
                 {
-                    set.SendMessage(root, RenderPipe.SimulationPorts.Input, i);
+                    set.SendMessage(root, RenderPipe.SimulationPorts.Input, new FloatButWithMode { Value = i, Mode = mode });
 
                     set.Update();
 

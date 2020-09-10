@@ -5,10 +5,10 @@ using NUnit.Framework;
 namespace Unity.DataFlowGraph.CodeGen.Tests
 {
     /*
-     *  Automatically detect whether a warning / error has at least one matching test case? 
-     * 
+     *  Automatically detect whether a warning / error has at least one matching test case?
+     *
      */
-     
+
     public class UserErrorTests
     {
         class NodeWithDuplicateImplementations : SimulationNodeDefinition<NodeWithDuplicateImplementations.SimPorts>
@@ -18,7 +18,7 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
 
         }
 
-        [Test] 
+        [Test]
         public void DFG_UE_01_NodeCannotHaveDuplicateImplementations()
         {
             using (var fixture = new DefinitionFixture<NodeWithDuplicateImplementations>())
@@ -215,17 +215,6 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
             }
         }
 
-        public class NodeWithNonPublicPorts : NodeDefinition<NodeWithNonPublicPorts.SimPorts>, IMsgHandler<int>
-        {
-            public struct SimPorts : ISimulationPortDefinition
-            {
-                MessageInput<NodeWithNonPublicPorts, int> Input;
-                MessageOutput<NodeWithNonPublicPorts, int> Output;
-            }
-
-            public void HandleMessage(in MessageContext ctx, in int msg) {}
-        }
-
         public class NodeWithNonPublicStaticPorts : NodeDefinition<NodeWithNonPublicStaticPorts.SimPorts>, IMsgHandler<int>
         {
             public struct SimPorts : ISimulationPortDefinition
@@ -252,7 +241,7 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
 
         [Test]
         public void DFG_UE_08_NodeWithInvalidPortDefinitions(
-            [Values(typeof(NodeWithNonPublicPorts), typeof(NodeWithNonPublicStaticPorts), typeof(NodeWithPublicStaticPorts))]Type nodeType)
+            [Values(typeof(NodeWithNonPublicStaticPorts), typeof(NodeWithPublicStaticPorts))]Type nodeType)
         {
             using (var fixture = new DefinitionFixture(nodeType))
             {
@@ -279,26 +268,8 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
             }
         }
 
-        public class KernelNodeWithNonPublicMembersOnKernelPorts : NodeDefinition<KernelNodeWithNonPublicMembersOnKernelPorts.Data, KernelNodeWithNonPublicMembersOnKernelPorts.KernelDefs, KernelNodeWithNonPublicMembersOnKernelPorts.Kernel>
-        {
-            public struct Data : IKernelData {}
-
-            public struct KernelDefs : IKernelPortDefinition
-            {
-                public DataInput<KernelNodeWithStaticMembersOnKernelPorts, int> Input1;
-                public DataOutput<KernelNodeWithStaticMembersOnKernelPorts, int> Output1;
-                int s_InvalidMember;
-            }
-
-            public struct Kernel : IGraphKernel<Data, KernelDefs>
-            {
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports) {}
-            }
-        }
-
         [Test]
-        public void DFG_UE_08_KernelNodeWithInvalidPortDefinitions(
-            [Values(typeof(KernelNodeWithStaticMembersOnKernelPorts), typeof(KernelNodeWithNonPublicMembersOnKernelPorts))]Type nodeType)
+        public void DFG_UE_08_KernelNodeWithInvalidPortDefinitions([Values(typeof(KernelNodeWithStaticMembersOnKernelPorts))]Type nodeType)
         {
             using (var fixture = new DefinitionFixture(nodeType))
             {
@@ -340,5 +311,262 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
                 fixture.ParseAnalyse();
             }
         }
+
+        public class NodeWithOldAndNewMessageHandlers : NodeDefinition<NodeWithOldAndNewMessageHandlers.NodeHandler, NodeWithOldAndNewMessageHandlers.PortDefinition>, IMsgHandler<int>
+        {
+            public void HandleMessage(in MessageContext ctx, in int msg) { }
+
+            public struct NodeHandler : INodeData, IMsgHandler<int>
+            {
+                public void HandleMessage(in MessageContext ctx, in int msg) { }
+            }
+
+            public struct PortDefinition : ISimulationPortDefinition
+            {
+                public MessageInput<NodeWithOldAndNewMessageHandlers, int> Port;
+            }
+        }
+
+        public class NodeWithOldAndNewInitHandlers : NodeDefinition<NodeWithOldAndNewInitHandlers.NodeHandler, NodeWithOldAndNewInitHandlers.PortDefinition>
+        {
+            public struct NodeHandler : INodeData, IInit
+            {
+                public void Init(InitContext ctx) { }
+            }
+
+            public struct PortDefinition : ISimulationPortDefinition { }
+
+            protected override void Init(InitContext c) { }
+        }
+
+        public class NodeWithOldAndNewDestroyHandlers : NodeDefinition<NodeWithOldAndNewDestroyHandlers.NodeHandler, NodeWithOldAndNewDestroyHandlers.PortDefinition>
+        {
+            public struct NodeHandler : INodeData, IDestroy
+            {
+                public void Destroy(DestroyContext context) { }
+            }
+
+            public struct PortDefinition : ISimulationPortDefinition { }
+
+            protected override void Destroy(DestroyContext c) { }
+        }
+
+        public class NodeWithOldAndNewUpdateHandlers : NodeDefinition<NodeWithOldAndNewUpdateHandlers.NodeHandler, NodeWithOldAndNewUpdateHandlers.PortDefinition>
+        {
+            public struct NodeHandler : INodeData, IUpdate
+            {
+                public void Update(in UpdateContext context) { }
+            }
+
+            public struct PortDefinition : ISimulationPortDefinition { }
+
+            protected override void OnUpdate(in UpdateContext ctx) { }
+        }
+
+        static Type[] s_MixedHandlers = {
+            typeof(NodeWithOldAndNewUpdateHandlers),
+            typeof(NodeWithOldAndNewMessageHandlers),
+            typeof(NodeWithOldAndNewDestroyHandlers),
+            typeof(NodeWithOldAndNewInitHandlers)
+        };
+
+        [Test]
+        public void DFG_UE_10_NodeWithOldAndNewStyleUpdateHandler([ValueSource("s_MixedHandlers")] Type nodeType)
+        {
+            using (var fixture = new DefinitionFixture(nodeType))
+            {
+                fixture.ParseSymbols();
+                fixture.ExpectError(new Regex(nameof(Diag.DFG_UE_10)));
+                fixture.AnalyseConsistency();
+            }
+        }
+
+        public class NodeWithMissingHandlers : NodeDefinition<NodeWithMissingHandlers.PortDefinition>
+        {
+            public struct PortDefinition : ISimulationPortDefinition
+            {
+                public MessageInput<NodeWithMissingHandlers, int> Port;
+            }
+        }
+
+        [Test]
+        public void DFG_UE_11_NodeWithMissingHandlers()
+        {
+            using (var fixture = new DefinitionFixture<NodeWithMissingHandlers>())
+            {
+                fixture.ParseSymbols();
+                fixture.ExpectError(new Regex(nameof(Diag.DFG_UE_11)));
+                fixture.AnalyseConsistency();
+            }
+        }
+
+        class SimulationNodeWithPortGenericMismatch : SimulationNodeDefinition<SimNodeWithKernelPorts.SimPorts>
+        {
+            public struct PortDefinition : ISimulationPortDefinition {}
+        }
+
+        class KernelNodeWithPortGenericMismatch : KernelNodeDefinition<SimNodeWithKernelPorts.KernelDefs>
+        {
+            public struct PortDefinition : IKernelPortDefinition {}
+            public struct KernelData : IKernelData {}
+            public struct GraphKernel : IGraphKernel<KernelData, PortDefinition>
+            {
+                public void Execute(RenderContext ctx, KernelData data, ref PortDefinition ports) {}
+            }
+        }
+
+        class SimulationKernelNodeWithKernelPortGenericMismatch : SimulationKernelNodeDefinition<SimulationKernelNodeWithKernelPortGenericMismatch.SimPortDefinition, SimNodeWithKernelPorts.KernelDefs>
+        {
+            public struct SimPortDefinition : ISimulationPortDefinition {}
+            public struct KernelPortDefinition : IKernelPortDefinition {}
+            public struct KernelData : IKernelData {}
+            public struct GraphKernel : IGraphKernel<KernelData, KernelPortDefinition>
+            {
+                public void Execute(RenderContext ctx, KernelData data, ref KernelPortDefinition ports) {}
+            }
+        }
+
+        class SimulationKernelNodeWithSimPortGenericMismatch : SimulationKernelNodeDefinition<SimNodeWithKernelPorts.SimPorts, SimulationKernelNodeWithSimPortGenericMismatch.KernelPortDefinition>
+        {
+            public struct SimPortDefinition : ISimulationPortDefinition {}
+            public struct KernelPortDefinition : IKernelPortDefinition {}
+            public struct KernelData : IKernelData {}
+            public struct GraphKernel : IGraphKernel<KernelData, KernelPortDefinition>
+            {
+                public void Execute(RenderContext ctx, KernelData data, ref KernelPortDefinition ports) {}
+            }
+        }
+
+        [Test]
+        public void DFG_UE_12_NodeWithMismatchingPortDefinition_AndBaseClassGenerics(
+            [Values(typeof(SimulationNodeWithPortGenericMismatch), typeof(KernelNodeWithPortGenericMismatch), typeof(SimulationKernelNodeWithKernelPortGenericMismatch), typeof(SimulationKernelNodeWithSimPortGenericMismatch))]Type nodeType)
+        {
+            using (var fixture = new DefinitionFixture(nodeType))
+            {
+                fixture.ParseSymbols();
+                fixture.ExpectError(new Regex(nameof(Diag.DFG_UE_12)));
+                fixture.AnalyseConsistency();
+            }
+        }
+
+        class NodeWithKernelDataGenericMismatch : KernelNodeDefinition<NodeWithKernelDataGenericMismatch.KernelPortDefinition>
+        {
+            public struct KernelPortDefinition : IKernelPortDefinition {}
+            public struct LocalKernelData : IKernelData {}
+            public struct GraphKernel : IGraphKernel<SimNodeWithKernelPorts.KernelData, KernelPortDefinition>
+            {
+                public void Execute(RenderContext ctx, SimNodeWithKernelPorts.KernelData data, ref KernelPortDefinition ports) {}
+            }
+        }
+
+        class NodeWithKernelPortGenericMismatch : KernelNodeDefinition<NodeWithKernelPortGenericMismatch.KernelPortDefinition>
+        {
+            public struct KernelPortDefinition : IKernelPortDefinition {}
+            public struct LocalKernelData : IKernelData {}
+            public struct GraphKernel : IGraphKernel<LocalKernelData, SimNodeWithKernelPorts.KernelDefs>
+            {
+                public void Execute(RenderContext ctx, LocalKernelData data, ref SimNodeWithKernelPorts.KernelDefs ports) {}
+            }
+        }
+
+        [Test]
+        public void DFG_UE_13_NodeWithMismatchingKernelDefinitionAspects_AndKernelGenerics(
+            [Values(typeof(NodeWithKernelDataGenericMismatch), typeof(NodeWithKernelPortGenericMismatch))]Type nodeType)
+        {
+            using (var fixture = new DefinitionFixture(nodeType))
+            {
+                fixture.ParseSymbols();
+                fixture.ExpectError(new Regex(nameof(Diag.DFG_UE_13)));
+                fixture.AnalyseConsistency();
+            }
+        }
+
+        struct ExternalSimulationPortDefinition : ISimulationPortDefinition { }
+        class NodeWithExternallyDefinedSimulationPortDefinition : SimulationNodeDefinition<ExternalSimulationPortDefinition> { }
+
+        class NodeWithExternallyDefinedSimulationPortDefinition2 : SimulationKernelNodeDefinition<ExternalSimulationPortDefinition, NodeWithExternallyDefinedSimulationPortDefinition2.KernelDefs>
+        {
+            public struct KernelDefs : IKernelPortDefinition { }
+            struct KernelData : IKernelData { }
+            struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
+            {
+                public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports) { }
+            }
+        }
+
+        struct ExternalKernelPortDefinition : IKernelPortDefinition { }
+        class NodeWithExternallyDefinedKernelPortDefinition : KernelNodeDefinition<ExternalKernelPortDefinition> { }
+
+        class NodeWithExternallyDefinedKernelPortDefinition2 : SimulationKernelNodeDefinition<NodeWithExternallyDefinedKernelPortDefinition2.SimDefs, ExternalKernelPortDefinition>
+        {
+            public struct SimDefs : ISimulationPortDefinition { }
+            struct KernelData : IKernelData { }
+            struct GraphKernel : IGraphKernel<KernelData, ExternalKernelPortDefinition>
+            {
+                public void Execute(RenderContext ctx, KernelData data, ref ExternalKernelPortDefinition ports) { }
+            }
+        }
+
+        [Test]
+        public void DFG_UE_14_NodeWithPortDefinition_DefinedOutsideNodeDefinition(
+            [Values(typeof(NodeWithExternallyDefinedSimulationPortDefinition), typeof(NodeWithExternallyDefinedSimulationPortDefinition2), typeof(NodeWithExternallyDefinedKernelPortDefinition), typeof(NodeWithExternallyDefinedKernelPortDefinition2))]Type nodeType)
+        {
+            using (var fixture = new DefinitionFixture(nodeType))
+            {
+                fixture.ParseSymbols();
+                fixture.ExpectError(new Regex(nameof(Diag.DFG_UE_14)));
+                fixture.AnalyseConsistency();
+            }
+        }
+
+        public class NewNodeWithOldMessageHandlers : SimulationNodeDefinition<NewNodeWithOldMessageHandlers.PortDefinition>, IMsgHandler<int>
+        {
+            public void HandleMessage(in MessageContext ctx, in int msg) { }
+
+            public struct PortDefinition : ISimulationPortDefinition
+            {
+                public MessageInput<NodeWithOldAndNewMessageHandlers, int> Port;
+            }
+        }
+
+        public class NewNodeWithOldInitHandlers : SimulationNodeDefinition<NewNodeWithOldInitHandlers.PortDefinition>
+        {
+            public struct PortDefinition : ISimulationPortDefinition { }
+
+            protected override void Init(InitContext c) { }
+        }
+
+        public class NewNodeWithOldDestroyHandlers : SimulationNodeDefinition<NewNodeWithOldDestroyHandlers.PortDefinition>
+        {
+            public struct PortDefinition : ISimulationPortDefinition { }
+
+            protected override void Destroy(DestroyContext c) { }
+        }
+
+        public class NewNodeWithOldUpdateHandlers : SimulationNodeDefinition<NewNodeWithOldUpdateHandlers.PortDefinition>
+        {
+            public struct PortDefinition : ISimulationPortDefinition { }
+
+            protected override void OnUpdate(in UpdateContext ctx) { }
+        }
+
+        static Type[] s_OldHandlers = {
+            typeof(NewNodeWithOldUpdateHandlers),
+            typeof(NewNodeWithOldMessageHandlers),
+            typeof(NewNodeWithOldDestroyHandlers),
+            typeof(NewNodeWithOldInitHandlers)
+        };
+
+        [Test]
+        public void DFG_UE_15_NodeWithOldAndNewStyleUpdateHandler([ValueSource("s_OldHandlers")] Type nodeType)
+        {
+            using (var fixture = new DefinitionFixture(nodeType))
+            {
+                fixture.ParseSymbols();
+                fixture.ExpectError(new Regex(nameof(Diag.DFG_UE_15)));
+                fixture.AnalyseConsistency();
+            }
+        }
+
     }
 }

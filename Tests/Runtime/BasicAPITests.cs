@@ -9,13 +9,11 @@ namespace Unity.DataFlowGraph.Tests
 {
     public class BasicAPITests
     {
-        class TestNode : NodeDefinition<EmptyPorts> {}
-
-        class TestNode2 : NodeDefinition<EmptyPorts> {}
-
-        [InvalidTestNodeDefinition]
-        class TestNode_WithThrowingConstructor : NodeDefinition<EmptyPorts>
+        [IsNotInstantiable]
+        class TestNode_WithThrowingConstructor : SimulationNodeDefinition<TestNode_WithThrowingConstructor.EmptyPorts>
         {
+            public struct EmptyPorts : ISimulationPortDefinition { }
+
             public TestNode_WithThrowingConstructor() => throw new NotImplementedException();
         }
 
@@ -32,7 +30,7 @@ namespace Unity.DataFlowGraph.Tests
         {
             using (var set = new NodeSet())
             {
-                var node = set.Create<TestNode>();
+                var node = set.Create<EmptyNode>();
                 Assert.IsTrue(set.Exists(node));
                 set.Destroy(node);
             }
@@ -43,7 +41,7 @@ namespace Unity.DataFlowGraph.Tests
         {
             using (var set = new NodeSet())
             {
-                NodeHandle node = set.Create<TestNode>();
+                NodeHandle node = set.Create<EmptyNode>();
                 Assert.IsTrue(set.Exists(node));
                 using (var altSet = new NodeSet())
                 {
@@ -58,7 +56,7 @@ namespace Unity.DataFlowGraph.Tests
         {
             using (var set = new NodeSet())
             {
-                NodeHandle node = set.Create<TestNode>();
+                NodeHandle node = set.Create<EmptyNode>();
                 Assert.DoesNotThrow(() => set.Validate(node));
                 using (var altSet = new NodeSet())
                 {
@@ -105,7 +103,7 @@ namespace Unity.DataFlowGraph.Tests
         {
             using (var set = new NodeSet())
             {
-                var node = set.Create<TestNode>();
+                var node = set.Create<EmptyNode>();
                 Assert.IsFalse(set.Exists(new NodeHandle()));
                 set.Destroy(node);
             }
@@ -116,7 +114,7 @@ namespace Unity.DataFlowGraph.Tests
         {
             using (var set = new NodeSet())
             {
-                var node = set.Create<TestNode>();
+                var node = set.Create<EmptyNode>();
                 Assert.IsTrue(set.Exists(node));
                 set.Destroy(node);
                 Assert.IsFalse(set.Exists(node));
@@ -129,23 +127,23 @@ namespace Unity.DataFlowGraph.Tests
         {
             using (var set = new NodeSet())
             {
-                var a = set.Create<TestNode2>();
-                var b = set.Create<TestNode>();
-                var c = set.Create<TestNode2>();
+                var a = set.Create<EmptyNode2>();
+                var b = set.Create<EmptyNode>();
+                var c = set.Create<EmptyNode2>();
 
                 Assert.AreEqual(
                     set.GetDefinition(a),
-                    set.LookupDefinition<TestNode2>().Definition
+                    set.LookupDefinition<EmptyNode2>().Definition
                 );
 
                 Assert.AreEqual(
                     set.GetDefinition(b),
-                    set.LookupDefinition<TestNode>().Definition
+                    set.LookupDefinition<EmptyNode>().Definition
                 );
 
                 Assert.AreEqual(
                     set.GetDefinition(c),
-                    set.LookupDefinition<TestNode2>().Definition
+                    set.LookupDefinition<EmptyNode2>().Definition
                 );
 
                 set.Destroy(a, b, c);
@@ -180,7 +178,7 @@ namespace Unity.DataFlowGraph.Tests
             using (var set = new NodeSet())
             {
                 LogAssert.Expect(LogType.Error, new Regex("NodeSet leak warnings: "));
-                set.Create<TestNode>();
+                set.Create<EmptyNode>();
             }
         }
 
@@ -189,10 +187,10 @@ namespace Unity.DataFlowGraph.Tests
         {
             using (var set = new NodeSet())
             {
-                var handle = set.Create<TestNode2>();
+                var handle = set.Create<EmptyNode2>();
 
-                Assert.IsFalse(set.Is<TestNode>(handle));
-                Assert.IsTrue(set.Is<TestNode2>(handle));
+                Assert.IsFalse(set.Is<EmptyNode>(handle));
+                Assert.IsTrue(set.Is<EmptyNode2>(handle));
 
                 set.Destroy(handle);
             }
@@ -203,12 +201,12 @@ namespace Unity.DataFlowGraph.Tests
         {
             using (var set = new NodeSet())
             {
-                Assert.Throws<ArgumentException>(() => set.Is<TestNode>(new NodeHandle()));
+                Assert.Throws<ArgumentException>(() => set.Is<EmptyNode>(new NodeHandle()));
 
-                var handle = set.Create<TestNode>();
+                var handle = set.Create<EmptyNode>();
                 set.Destroy(handle);
 
-                Assert.Throws<ArgumentException>(() => set.Is<TestNode>(handle));
+                Assert.Throws<ArgumentException>(() => set.Is<EmptyNode>(handle));
             }
         }
 
@@ -217,12 +215,12 @@ namespace Unity.DataFlowGraph.Tests
         {
             using (var set = new NodeSet())
             {
-                Assert.Throws<ArgumentException>(() => set.CastHandle<TestNode>(new NodeHandle()));
+                Assert.Throws<ArgumentException>(() => set.CastHandle<EmptyNode>(new NodeHandle()));
 
-                var handle = set.Create<TestNode>();
+                var handle = set.Create<EmptyNode>();
                 set.Destroy(handle);
 
-                Assert.Throws<ArgumentException>(() => set.CastHandle<TestNode>(handle));
+                Assert.Throws<ArgumentException>(() => set.CastHandle<EmptyNode>(handle));
             }
         }
 
@@ -231,10 +229,10 @@ namespace Unity.DataFlowGraph.Tests
         {
             using (var set = new NodeSet())
             {
-                NodeHandle handle = set.Create<TestNode2>();
+                NodeHandle handle = set.Create<EmptyNode2>();
 
-                Assert.DoesNotThrow(() => set.CastHandle<TestNode2>(handle));
-                Assert.Throws<InvalidCastException>(() => set.CastHandle<TestNode>(handle));
+                Assert.DoesNotThrow(() => set.CastHandle<EmptyNode2>(handle));
+                Assert.Throws<InvalidCastException>(() => set.CastHandle<EmptyNode>(handle));
 
                 set.Destroy(handle);
             }
@@ -245,10 +243,10 @@ namespace Unity.DataFlowGraph.Tests
         {
             using (var set = new NodeSet())
             {
-                var handle = set.Create<TestNode2>();
+                var handle = set.Create<EmptyNode2>();
 
-                Assert.IsFalse(set.As<TestNode>(handle) is NodeHandle<TestNode> unused1);
-                Assert.IsTrue(set.As<TestNode2>(handle) is NodeHandle<TestNode2> unused2);
+                Assert.IsFalse(set.As<EmptyNode>(handle) is NodeHandle<EmptyNode> unused1);
+                Assert.IsTrue(set.As<EmptyNode2>(handle) is NodeHandle<EmptyNode2> unused2);
 
                 set.Destroy(handle);
             }
@@ -259,12 +257,12 @@ namespace Unity.DataFlowGraph.Tests
         {
             using (var set = new NodeSet())
             {
-                Assert.Throws<ArgumentException>(() => set.As<TestNode>(new NodeHandle()));
+                Assert.Throws<ArgumentException>(() => set.As<EmptyNode>(new NodeHandle()));
 
-                var handle = set.Create<TestNode>();
+                var handle = set.Create<EmptyNode>();
                 set.Destroy(handle);
 
-                Assert.Throws<ArgumentException>(() => set.As<TestNode>(handle));
+                Assert.Throws<ArgumentException>(() => set.As<EmptyNode>(handle));
             }
         }
 
@@ -273,10 +271,10 @@ namespace Unity.DataFlowGraph.Tests
         {
             using (var set = new NodeSet())
             {
-                var node = set.Create<TestNode>();
+                var node = set.Create<EmptyNode>();
 
                 var supposedDefinition = set.GetDefinition(node);
-                var expectedDefinition = set.GetDefinition<TestNode>();
+                var expectedDefinition = set.GetDefinition<EmptyNode>();
 
                 Assert.AreEqual(supposedDefinition, expectedDefinition);
 
@@ -292,7 +290,7 @@ namespace Unity.DataFlowGraph.Tests
                 var node = new NodeHandle();
                 Assert.Throws<ArgumentException>(() => set.GetDefinition(node));
 
-                node = set.Create<TestNode>();
+                node = set.Create<EmptyNode>();
                 set.Destroy(node);
 
                 Assert.Throws<ArgumentException>(() => set.GetDefinition(node));
@@ -304,7 +302,7 @@ namespace Unity.DataFlowGraph.Tests
         {
             using (var set = new NodeSet())
             {
-                Assert.IsNotNull(set.GetDefinition<TestNode>());
+                Assert.IsNotNull(set.GetDefinition<EmptyNode>());
             }
         }
 
@@ -313,17 +311,23 @@ namespace Unity.DataFlowGraph.Tests
         {
             using (var set = new NodeSet())
             {
-                Assert.AreEqual(set, set.GetDefinition<TestNode>().Set);
+                Assert.AreEqual(set, set.GetDefinition<EmptyNode>().Set);
             }
         }
 
         class TestException : System.Exception { }
 
-        class ExceptionInConstructor : NodeDefinition<EmptyPorts>
+        [IsNotInstantiable]
+        class ExceptionInConstructor : SimulationNodeDefinition<ExceptionInConstructor.EmptyPorts>
         {
-            protected internal override void Init(InitContext ctx)
+            public struct EmptyPorts : ISimulationPortDefinition { }
+
+            struct Node : INodeData, IInit
             {
-                throw new TestException();
+                public void Init(InitContext ctx)
+                {
+                    throw new TestException();
+                }
             }
         }
 
@@ -347,11 +351,17 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        class ExceptionInDestructor : NodeDefinition<EmptyPorts>
+        [IsNotInstantiable]
+        class ExceptionInDestructor : SimulationNodeDefinition<ExceptionInDestructor.EmptyPorts>
         {
-            protected internal override void Destroy(DestroyContext ctx)
+            public struct EmptyPorts : ISimulationPortDefinition { }
+
+            struct Node : INodeData, IDestroy
             {
-                throw new TestException();
+                public void Destroy(DestroyContext ctx)
+                {
+                    throw new TestException();
+                }
             }
         }
 
@@ -367,6 +377,37 @@ namespace Unity.DataFlowGraph.Tests
                 LogAssert.Expect(LogType.Exception, new Regex("TestException"));
                 set.Destroy(node);
             }
+        }
+
+        public class NewStyleDestroyHandler : SimulationNodeDefinition<NewStyleDestroyHandler.MyPorts>
+        {
+            public struct MyPorts : ISimulationPortDefinition { }
+
+            internal struct NodeData : INodeData, IDestroy
+            {
+                public static bool Called;
+
+                public void Destroy(DestroyContext ctx)
+                {
+                    Called = true;
+                }
+            }
+        }
+
+        [Test]
+        public void CanCallNewStyle_CodeGenerated_DestroyHandler()
+        {
+            NewStyleDestroyHandler.NodeData.Called = false;
+
+            using (var set = new NodeSet())
+            {
+                var node = set.Create<NewStyleDestroyHandler>();
+                Assert.False(NewStyleDestroyHandler.NodeData.Called);
+                set.Destroy(node);
+                Assert.True(NewStyleDestroyHandler.NodeData.Called);
+            }
+
+            NewStyleDestroyHandler.NodeData.Called = false;
         }
     }
 }

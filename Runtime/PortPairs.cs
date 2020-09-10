@@ -1,4 +1,5 @@
 ﻿using System;
+using Unity.Collections;
 
 namespace Unity.DataFlowGraph
 {
@@ -11,7 +12,7 @@ namespace Unity.DataFlowGraph
 
         /// <remarks>
         /// Does not do node validation or port forwarding resolution as an existing connection should have had both done
-        /// during the <see cref="NodeSet.Connect"/>.
+        /// during the <see cref="NodeSetAPI.Connect"/>.
         /// </remarks>
         public InputPair(Topology.Connection connection)
         {
@@ -19,15 +20,15 @@ namespace Unity.DataFlowGraph
             Port = connection.DestinationInputPort;
         }
 
-        public InputPair(NodeSet set, NodeHandle destHandle, InputPortArrayID destinationPort)
+        public InputPair(NodeSetAPI set, NodeHandle destHandle, InputPortArrayID destinationPort)
         {
+            Handle = set.Nodes.Validate(destHandle.VHandle);
             if (destinationPort.PortID == default)
                 throw new ArgumentException("Invalid input port");
 
-            Handle = set.Validate(destHandle);
             var table = set.GetForwardingTable();
 
-            for (var fH = set.GetNode(Handle).ForwardedPortHead; fH != ForwardPortHandle.Invalid; fH = table[fH].NextIndex)
+            for (var fH = set.Nodes[Handle].ForwardedPortHead; fH != ForwardPortHandle.Invalid; fH = table[fH].NextIndex)
             {
                 ref var forwarding = ref table[fH];
 
@@ -43,7 +44,7 @@ namespace Unity.DataFlowGraph
                 if (port != destinationPort.PortID)
                     continue;
 
-                if (!set.StillExists(forwarding.Replacement))
+                if (!set.Nodes.StillExists(forwarding.Replacement))
                     throw new InvalidOperationException("Replacement node for previously registered forward doesn't exist anymore");
 
                 Handle = forwarding.Replacement;
@@ -65,7 +66,7 @@ namespace Unity.DataFlowGraph
 
         /// <remarks>
         /// Does not do node validation or port forwarding resolution as an existing connection should have had both done
-        /// during the <see cref="NodeSet.Connect"/>.
+        /// during the <see cref="NodeSetAPI.Connect"/>.
         /// </remarks>
         public OutputPair(Topology.Connection connection)
         {
@@ -73,15 +74,15 @@ namespace Unity.DataFlowGraph
             Port = connection.SourceOutputPort;
         }
 
-        public OutputPair(NodeSet set, NodeHandle sourceHandle, OutputPortArrayID sourcePort)
+        public OutputPair(NodeSetAPI set, NodeHandle sourceHandle, OutputPortArrayID sourcePort)
         {
+            Handle = set.Nodes.Validate(sourceHandle.VHandle);
             if (sourcePort.PortID == default)
                 throw new ArgumentException("Invalid output port");
 
-            Handle = set.Validate(sourceHandle);
             var table = set.GetForwardingTable();
 
-            for (var fH = set.GetNode(Handle).ForwardedPortHead; fH != ForwardPortHandle.Invalid; fH = table[fH].NextIndex)
+            for (var fH = set.Nodes[Handle].ForwardedPortHead; fH != ForwardPortHandle.Invalid; fH = table[fH].NextIndex)
             {
                 ref var forwarding = ref table[fH];
 
@@ -97,7 +98,7 @@ namespace Unity.DataFlowGraph
                 if (port != sourcePort.PortID)
                     continue;
 
-                if (!set.StillExists(forwarding.Replacement))
+                if (!set.Nodes.StillExists(forwarding.Replacement))
                     throw new InvalidOperationException("Replacement node for previously registered forward doesn't exist anymore");
 
                 Handle = forwarding.Replacement;

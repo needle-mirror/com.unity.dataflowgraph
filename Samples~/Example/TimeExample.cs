@@ -36,19 +36,14 @@ namespace Unity.DataFlowGraph.TimeExample
             public float Origin;
         }
 
-        interface ISeekable : ITaskPortMsgHandler<ISeekable, SeekMessage> { }
-        interface ISpeed : ITaskPortMsgHandler<ISpeed, SpeedMessage> { }
-        interface IPlayable : ITaskPortMsgHandler<IPlayable, PlayStateMessage> { }
-        interface IWeightable : ITaskPortMsgHandler<IWeightable, WeightMessage> { }
-        interface IOffsettable : ITaskPortMsgHandler<IOffsettable, TimeOffsetMessage> { }
+        interface ISeekable : ITaskPort<ISeekable> { }
+        interface ISpeed : ITaskPort<ISpeed> { }
+        interface IPlayable : ITaskPort<IPlayable> { }
+        interface IWeightable : ITaskPort<IWeightable> { }
+        interface IOffsettable : ITaskPort<IOffsettable> { }
     }
 
-    class Generator 
-        : NodeDefinition<Generator.Data, Generator.SimPorts, Generator.KernelData, Generator.KernelDefs, Generator.Kernel>
-        , ISeekable
-        , ISpeed
-        , IPlayable
-        , IMsgHandler<StreamType>
+    class Generator : SimulationKernelNodeDefinition<Generator.SimPorts,Generator.KernelDefs>, ISeekable, ISpeed, IPlayable
     {
         public struct SimPorts : ISimulationPortDefinition
         {
@@ -71,20 +66,40 @@ namespace Unity.DataFlowGraph.TimeExample
             #pragma warning restore 649
         }
 
-        public struct Data : INodeData
-        {
-            public float Time;
-            public float Speed;
-            public int IsPlaying;
-        }
-
-        public struct KernelData : IKernelData
+        struct KernelData : IKernelData
         {
             public float Time;
             public StreamType Mask;
         }
 
-        public struct Kernel : IGraphKernel<KernelData, KernelDefs>
+        struct Data : INodeData, IMsgHandler<SeekMessage>, IMsgHandler<SpeedMessage>, IMsgHandler<PlayStateMessage>, IMsgHandler<StreamType>, IUpdate
+        {
+            float m_Time;
+            float m_Speed;
+            bool m_IsPlaying;
+            KernelData m_KernelData;
+
+            public void HandleMessage(in MessageContext ctx, in SeekMessage msg) => m_Time = msg.Time;
+            public void HandleMessage(in MessageContext ctx, in SpeedMessage msg) => m_Speed = msg.Scale;
+            public void HandleMessage(in MessageContext ctx, in PlayStateMessage msg) => m_IsPlaying = msg.ShouldPlay;
+            public void HandleMessage(in MessageContext ctx, in StreamType msg)
+            {
+                m_KernelData.Mask = msg;
+                ctx.UpdateKernelData(m_KernelData);
+            }
+
+            public void Update(in UpdateContext ctx)
+            {
+                if (!m_IsPlaying)
+                    return;
+
+                m_Time += Time.deltaTime * m_Speed;
+                m_KernelData.Time = m_Time;
+                ctx.UpdateKernelData(m_KernelData);
+            }
+        }
+
+        struct Kernel : IGraphKernel<KernelData, KernelDefs>
         {
             public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
             {
@@ -92,28 +107,9 @@ namespace Unity.DataFlowGraph.TimeExample
                 ctx.Resolve(ref ports.Output) = data.Mask * new StreamType(x, y);
             }
         }
-
-        public void HandleMessage(in MessageContext ctx, in SeekMessage msg) => GetNodeData(ctx.Handle).Time = msg.Time;
-        public void HandleMessage(in MessageContext ctx, in SpeedMessage msg) => GetNodeData(ctx.Handle).Speed = msg.Scale;
-        public void HandleMessage(in MessageContext ctx, in PlayStateMessage msg) => GetNodeData(ctx.Handle).IsPlaying = msg.ShouldPlay ? 1 : 0;
-        public void HandleMessage(in MessageContext ctx, in StreamType msg) => GetKernelData(ctx.Handle).Mask = msg;
-
-        protected override void OnUpdate(in UpdateContext ctx)
-        {
-            ref var data = ref GetNodeData(ctx.Handle);
-
-            if (data.IsPlaying > 0)
-            {
-                data.Time += Time.deltaTime * data.Speed;
-            }
-
-            GetKernelData(ctx.Handle).Time = data.Time;
-        }
     }
 
-    class Mixer
-        : NodeDefinition<Mixer.Data, Mixer.SimPorts, Mixer.KernelData, Mixer.KernelDefs, Mixer.Kernel>
-        , IWeightable
+    class Mixer : SimulationKernelNodeDefinition<Mixer.SimPorts, Mixer.KernelDefs>, IWeightable
     {
         public struct SimPorts : ISimulationPortDefinition
         {
@@ -121,9 +117,14 @@ namespace Unity.DataFlowGraph.TimeExample
             public MessageInput<Mixer, WeightMessage> WeightPort;
             #pragma warning restore 649
         }
+
         InputPortID ITaskPort<IWeightable>.GetPort(NodeHandle handle) => (InputPortID)SimulationPorts.WeightPort;
 
-        public struct Data : INodeData {}
+        struct Data : INodeData, IMsgHandler<WeightMessage>
+        {
+            public void HandleMessage(in MessageContext ctx, in WeightMessage msg) 
+                => ctx.UpdateKernelData(new KernelData { Gradient = msg.Gradient });
+        }
 
         public struct KernelDefs : IKernelPortDefinition
         {
@@ -134,12 +135,12 @@ namespace Unity.DataFlowGraph.TimeExample
             #pragma warning restore 649
         }
 
-        public struct KernelData : IKernelData
+        struct KernelData : IKernelData
         {
             public float Gradient;
         }
 
-        public struct Kernel : IGraphKernel<KernelData, KernelDefs>
+        struct Kernel : IGraphKernel<KernelData, KernelDefs>
         {
             public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
             {
@@ -147,11 +148,10 @@ namespace Unity.DataFlowGraph.TimeExample
             }
         }
 
-        public void HandleMessage(in MessageContext ctx, in WeightMessage msg) => GetKernelData(ctx.Handle).Gradient = msg.Gradient;
     }
 
     class ClipContainer 
-        : NodeDefinition<ClipContainer.Data, ClipContainer.SimPorts>
+        : SimulationNodeDefinition<ClipContainer.SimPorts>
         , ISeekable
         , ISpeed
         , IPlayable
@@ -176,62 +176,63 @@ namespace Unity.DataFlowGraph.TimeExample
         InputPortID ITaskPort<IPlayable>.GetPort(NodeHandle handle) => (InputPortID)SimulationPorts.PlayPort;
         InputPortID ITaskPort<IOffsettable>.GetPort(NodeHandle handle) => (InputPortID)SimulationPorts.TimeOffset;
 
-        public struct Data : INodeData
+        public struct Data 
+            : INodeData
+            , IMsgHandler<SeekMessage>
+            , IMsgHandler<SpeedMessage>
+            , IMsgHandler<PlayStateMessage>
+            , IMsgHandler<TimeOffsetMessage>
+            , IUpdate
         {
-            public float Time;
-            public float Speed;
-            public float Origin;
-            public int IsPlaying;
-            public int WasPlaying;
-        }
+            float m_Time;
+            float m_Speed;
+            float m_Origin;
+            bool m_IsPlaying;
+            bool m_WasPlaying;
 
-        public void HandleMessage(in MessageContext ctx, in SeekMessage msg)
-        {
-            ref var data = ref GetNodeData(ctx.Handle);
-            data.Time = msg.Time;
-            ctx.EmitMessage(SimulationPorts.SeekOut, new SeekMessage {Time = data.Time - data.Origin});
-        }
-
-        public void HandleMessage(in MessageContext ctx, in SpeedMessage msg)
-        {
-            GetNodeData(ctx.Handle).Speed = msg.Scale;
-            ctx.EmitMessage(SimulationPorts.SpeedOut, msg);
-        }
-
-        public void HandleMessage(in MessageContext ctx, in PlayStateMessage msg) => GetNodeData(ctx.Handle).IsPlaying = msg.ShouldPlay ? 1 : 0;
-        public void HandleMessage(in MessageContext ctx, in TimeOffsetMessage msg) => GetNodeData(ctx.Handle).Origin = msg.Origin;
-
-        protected override void OnUpdate(in UpdateContext ctx)
-        {
-            ref var data = ref GetNodeData(ctx.Handle);
-
-            if (data.IsPlaying > 0)
+            public void HandleMessage(in MessageContext ctx, in SeekMessage msg)
             {
-                data.Time += Time.deltaTime * data.Speed;
-                if (data.Time >= data.Origin && data.WasPlaying == 0)
+                m_Time = msg.Time;
+                ctx.EmitMessage(SimulationPorts.SeekOut, new SeekMessage { Time = m_Time - m_Origin });
+            }
+
+            public void HandleMessage(in MessageContext ctx, in SpeedMessage msg)
+            {
+                m_Speed = msg.Scale;
+                ctx.EmitMessage(SimulationPorts.SpeedOut, msg);
+            }
+
+            public void HandleMessage(in MessageContext ctx, in PlayStateMessage msg) => m_IsPlaying = msg.ShouldPlay;
+            public void HandleMessage(in MessageContext ctx, in TimeOffsetMessage msg) => m_Origin = msg.Origin;
+
+            public void Update(in UpdateContext ctx)
+            {
+                if (m_IsPlaying)
                 {
-                    ctx.EmitMessage(SimulationPorts.PlayOut, new PlayStateMessage { ShouldPlay = true});
-                    data.WasPlaying = 1;
+                    m_Time += Time.deltaTime * m_Speed;
+                    if (m_Time >= m_Origin && !m_WasPlaying)
+                    {
+                        ctx.EmitMessage(SimulationPorts.PlayOut, new PlayStateMessage { ShouldPlay = true });
+                        m_WasPlaying = true;
+                    }
+                    else if (m_WasPlaying)
+                    {
+                        ctx.EmitMessage(SimulationPorts.PlayOut, new PlayStateMessage { ShouldPlay = false });
+                        m_WasPlaying = false;
+                    }
                 }
-                else if (data.WasPlaying == 1)
+                else if (m_WasPlaying)
                 {
                     ctx.EmitMessage(SimulationPorts.PlayOut, new PlayStateMessage { ShouldPlay = false });
-                    data.WasPlaying = 0;
+                    m_WasPlaying = false;
                 }
-            } 
-            else if (data.WasPlaying == 1)
-            {
-                ctx.EmitMessage(SimulationPorts.PlayOut, new PlayStateMessage { ShouldPlay = false });
-                data.WasPlaying = 0;
             }
         }
+
+
     }
 
-    class TimelineAnchor 
-        : NodeDefinition<TimelineAnchor.Data, TimelineAnchor.SimPorts>
-        , ISeekable
-        , ISpeed
-        , IPlayable
+    class TimelineAnchor : SimulationNodeDefinition<TimelineAnchor.SimPorts>, ISeekable, ISpeed, IPlayable
     {
         public struct SimPorts : ISimulationPortDefinition
         {
@@ -246,15 +247,16 @@ namespace Unity.DataFlowGraph.TimeExample
             #pragma warning restore 649
         }
 
-        public struct Data : INodeData { }
+        struct Data : INodeData, IMsgHandler<SeekMessage>, IMsgHandler<SpeedMessage>, IMsgHandler<PlayStateMessage>
+        {
+            public void HandleMessage(in MessageContext ctx, in SeekMessage msg) => ctx.EmitMessage(SimulationPorts.SeekOut, msg);
+            public void HandleMessage(in MessageContext ctx, in SpeedMessage msg) => ctx.EmitMessage(SimulationPorts.SpeedOut, msg);
+            public void HandleMessage(in MessageContext ctx, in PlayStateMessage msg) => ctx.EmitMessage(SimulationPorts.PlayOut, msg);
+        }
 
         InputPortID ITaskPort<ISeekable>.GetPort(NodeHandle handle) => (InputPortID)SimulationPorts.SeekPort;
         InputPortID ITaskPort<ISpeed>.GetPort(NodeHandle handle) => (InputPortID)SimulationPorts.SpeedPort;
         InputPortID ITaskPort<IPlayable>.GetPort(NodeHandle handle) => (InputPortID)SimulationPorts.PlayPort;
-
-        public void HandleMessage(in MessageContext ctx, in SeekMessage msg) => ctx.EmitMessage(SimulationPorts.SeekOut, msg);
-        public void HandleMessage(in MessageContext ctx, in SpeedMessage msg) => ctx.EmitMessage(SimulationPorts.SpeedOut, msg);
-        public void HandleMessage(in MessageContext ctx, in PlayStateMessage msg) => ctx.EmitMessage(SimulationPorts.PlayOut, msg);
     }
 
 

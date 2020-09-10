@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using Mono.Cecil;
+using Mono.Cecil.Rocks;
 
 namespace Unity.DataFlowGraph.CodeGen
 {
@@ -12,7 +14,7 @@ namespace Unity.DataFlowGraph.CodeGen
     public class NSymbolAttribute : Attribute { }
 
     /// <summary>
-    /// Base class for something that wants to parse / analyse / process Cecil ASTs 
+    /// Base class for something that wants to parse / analyse / process Cecil ASTs
     /// related to DataFlowGraph
     /// </summary>
     abstract class ASTProcessor : IDefinitionContext
@@ -137,7 +139,24 @@ namespace Unity.DataFlowGraph.CodeGen
             if (type.Module == Module)
                 return type;
 
-            return Module.ImportReference(type);
+            var generic = type as GenericInstanceType;
+            if (generic == null)
+                return Module.ImportReference(type);
+
+            var importedArgs = generic.GenericArguments.Select(a => EnsureImported(a)).ToArray();
+            return EnsureImported(generic.Resolve()).MakeGenericInstanceType(importedArgs);
+        }
+
+        /// <summary>
+        /// Ensure that the given Cecil <see cref="FieldReference"/> is imported into the current <see cref="Module"/> if
+        /// necessary.
+        /// </summary>
+        public FieldReference EnsureImported(FieldReference field)
+        {
+            if (field.Module == Module)
+                return field;
+
+            return Module.ImportReference(field);
         }
 
         /// <summary>

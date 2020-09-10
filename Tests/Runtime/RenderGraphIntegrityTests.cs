@@ -6,7 +6,7 @@ using Unity.Collections.LowLevel.Unsafe;
 
 namespace Unity.DataFlowGraph.Tests
 {
-    class RenderGraphIntegrityTests
+    public class RenderGraphIntegrityTests
     {
         // TODO tests:
         // * Check free inputs have allocated things
@@ -21,21 +21,7 @@ namespace Unity.DataFlowGraph.Tests
         // * Check RootFence m_ComputedVersion always matches render version
         // * Check RenderVersion behaves as expected.. many things depend on it
 
-        public struct Node : INodeData
-        {
-#pragma warning disable 649  // never assigned
-            public int Contents;
-#pragma warning restore 649
-        }
-
-        public struct Data : IKernelData
-        {
-#pragma warning disable 649  // never assigned
-            public int Contents;
-#pragma warning restore 649
-        }
-
-        class KernelNode : NodeDefinition<Node, Data, KernelNode.KernelDefs, KernelNode.Kernel>
+        public class KernelNode : KernelNodeDefinition<KernelNode.KernelDefs>
         {
             public struct KernelDefs : IKernelPortDefinition
             {
@@ -45,8 +31,10 @@ namespace Unity.DataFlowGraph.Tests
                 public DataOutput<KernelNode, int> Output1, Output2, Output3;
             }
 
+            struct Data : IKernelData { }
+
             [BurstCompile(CompileSynchronously = true)]
-            public struct Kernel : IGraphKernel<Data, KernelDefs>
+            struct Kernel : IGraphKernel<Data, KernelDefs>
             {
                 public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
                 {
@@ -57,8 +45,6 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        class SimpleNode : NodeDefinition<EmptyPorts> { }
-
         [Test]
         unsafe public void OnlyKernelNodes_AreMirroredIntoRenderGraph()
         {
@@ -68,8 +54,8 @@ namespace Unity.DataFlowGraph.Tests
                     a = set.Create<KernelNode>(),
                     b = set.Create<KernelNode>(),
                     c = set.Create<KernelNode>(),
-                    d = set.Create<SimpleNode>(),
-                    e = set.Create<SimpleNode>();
+                    d = set.Create<EmptyNode>(),
+                    e = set.Create<EmptyNode>();
 
                 set.Update();
 
@@ -148,25 +134,23 @@ namespace Unity.DataFlowGraph.Tests
                     Assert.IsTrue(ports.Input2.Ptr == blank);
                     Assert.IsTrue(ports.Input3.Ptr == blank);
 
-                    Assert.IsFalse(DataInputUtility.PortOwnsMemory(&ports.Input1.Ptr));
-                    Assert.IsFalse(DataInputUtility.PortOwnsMemory(&ports.Input2.Ptr));
-                    Assert.IsFalse(DataInputUtility.PortOwnsMemory(&ports.Input3.Ptr));
+                    Assert.IsFalse(DataInputStorage.PortOwnsMemory(ports.Input1));
+                    Assert.IsFalse(DataInputStorage.PortOwnsMemory(ports.Input2));
+                    Assert.IsFalse(DataInputStorage.PortOwnsMemory(ports.Input3));
 
                     Assert.IsTrue(ports.InputArray.Ptr != null);
                     Assert.IsTrue(ports.InputArray.Ptr != blank);
-                    Assert.IsTrue(ports.InputArray[0].Ptr == blank);
-                    Assert.IsTrue(ports.InputArray[1].Ptr == blank);
-                    fixed (void** p = &ports.InputArray[0].Ptr)
-                        Assert.IsFalse(DataInputUtility.PortOwnsMemory(p));
-                    fixed (void** p = &ports.InputArray[1].Ptr)
-                        Assert.IsFalse(DataInputUtility.PortOwnsMemory(p));
+                    Assert.IsTrue(ports.InputArray.GetRef(0).Ptr == blank);
+                    Assert.IsTrue(ports.InputArray.GetRef(1).Ptr == blank);
+                    Assert.IsFalse(DataInputStorage.PortOwnsMemory(ports.InputArray.GetRef(0)));
+                    Assert.IsFalse(DataInputStorage.PortOwnsMemory(ports.InputArray.GetRef(1)));
                 }
 
                 nodes.ForEach(n => set.Destroy(n));
             }
         }
 
-        class KernelBufferIONode : NodeDefinition<Node, Data, KernelBufferIONode.KernelDefs, KernelBufferIONode.Kernel>
+        public class KernelBufferIONode : KernelNodeDefinition<KernelBufferIONode.KernelDefs>
         {
             public struct KernelDefs : IKernelPortDefinition
             {
@@ -175,8 +159,10 @@ namespace Unity.DataFlowGraph.Tests
                 public DataOutput<KernelBufferIONode, int> Sum;
             }
 
+            struct Data : IKernelData { }
+
             [BurstCompile(CompileSynchronously = true)]
-            public struct Kernel : IGraphKernel<Data, KernelDefs>
+            struct Kernel : IGraphKernel<Data, KernelDefs>
             {
                 public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
                 {
@@ -250,9 +236,9 @@ namespace Unity.DataFlowGraph.Tests
                         Assert.IsTrue(*(int*)ports.Input2.Ptr == (i % 3 == 1 ? i + u / 2 * 200 : 0));
                         Assert.IsTrue(*(int*)ports.Input3.Ptr == (i % 3 == 2 ? i + u / 2 * 200 : 0));
 
-                        Assert.IsTrue((i % 3 == 0) == DataInputUtility.PortOwnsMemory(&ports.Input1.Ptr));
-                        Assert.IsTrue((i % 3 == 1) == DataInputUtility.PortOwnsMemory(&ports.Input2.Ptr));
-                        Assert.IsTrue((i % 3 == 2) == DataInputUtility.PortOwnsMemory(&ports.Input3.Ptr));
+                        Assert.IsTrue((i % 3 == 0) == DataInputStorage.PortOwnsMemory(ports.Input1));
+                        Assert.IsTrue((i % 3 == 1) == DataInputStorage.PortOwnsMemory(ports.Input2));
+                        Assert.IsTrue((i % 3 == 2) == DataInputStorage.PortOwnsMemory(ports.Input3));
                     }
                 }
 
@@ -303,9 +289,9 @@ namespace Unity.DataFlowGraph.Tests
                         Assert.IsTrue(ports.Input1.Ptr == UnsafeUtility.AddressOf(ref parentports.Output1.m_Value));
                         Assert.IsTrue(ports.Input2.Ptr == UnsafeUtility.AddressOf(ref parentports.Output2.m_Value));
                         Assert.IsTrue(ports.Input3.Ptr == UnsafeUtility.AddressOf(ref parentports.Output3.m_Value));
-                        Assert.IsFalse(DataInputUtility.PortOwnsMemory(&ports.Input1.Ptr));
-                        Assert.IsFalse(DataInputUtility.PortOwnsMemory(&ports.Input2.Ptr));
-                        Assert.IsFalse(DataInputUtility.PortOwnsMemory(&ports.Input3.Ptr));
+                        Assert.IsFalse(DataInputStorage.PortOwnsMemory(ports.Input1));
+                        Assert.IsFalse(DataInputStorage.PortOwnsMemory(ports.Input2));
+                        Assert.IsFalse(DataInputStorage.PortOwnsMemory(ports.Input3));
                         if (connectionType == NodeSet.ConnectionType.Normal)
                         {
                             Assert.IsTrue(*(int*)ports.Input1.Ptr == sourceDataValues[0]);
@@ -349,9 +335,9 @@ namespace Unity.DataFlowGraph.Tests
                         Assert.IsTrue(ports.Input1.Ptr == blank);
                         Assert.IsTrue(ports.Input2.Ptr == blank);
                         Assert.IsTrue(ports.Input3.Ptr == blank);
-                        Assert.IsFalse(DataInputUtility.PortOwnsMemory(&ports.Input1.Ptr));
-                        Assert.IsFalse(DataInputUtility.PortOwnsMemory(&ports.Input2.Ptr));
-                        Assert.IsFalse(DataInputUtility.PortOwnsMemory(&ports.Input3.Ptr));
+                        Assert.IsFalse(DataInputStorage.PortOwnsMemory(ports.Input1));
+                        Assert.IsFalse(DataInputStorage.PortOwnsMemory(ports.Input2));
+                        Assert.IsFalse(DataInputStorage.PortOwnsMemory(ports.Input3));
                     }
 
                     for (int i = 1; i < numNodes; ++i)
@@ -423,9 +409,9 @@ namespace Unity.DataFlowGraph.Tests
                             Assert.IsFalse(ports.Input2.Ptr == UnsafeUtility.AddressOf(ref parentports.Output2.m_Value));
                             Assert.IsFalse(ports.Input3.Ptr == UnsafeUtility.AddressOf(ref parentports.Output3.m_Value));
                         }
-                        Assert.IsTrue(DataInputUtility.PortOwnsMemory(&ports.Input1.Ptr));
-                        Assert.IsTrue(DataInputUtility.PortOwnsMemory(&ports.Input2.Ptr));
-                        Assert.IsTrue(DataInputUtility.PortOwnsMemory(&ports.Input3.Ptr));
+                        Assert.IsTrue(DataInputStorage.PortOwnsMemory(ports.Input1));
+                        Assert.IsTrue(DataInputStorage.PortOwnsMemory(ports.Input2));
+                        Assert.IsTrue(DataInputStorage.PortOwnsMemory(ports.Input3));
                         if (connectionType == NodeSet.ConnectionType.Normal)
                         {
                             Assert.IsTrue(*(int*)ports.Input1.Ptr == sourceDataValues[0]);
@@ -459,7 +445,7 @@ namespace Unity.DataFlowGraph.Tests
                 ref var aPorts = ref Utility.AsRef<KernelBufferIONode.KernelDefs>(aNode.Instance.Ports);
                 var bPorts = Utility.AsRef<KernelBufferIONode.KernelDefs>(bNode.Instance.Ports);
 
-                Assert.IsFalse(DataInputUtility.PortOwnsMemory(&bPorts.Input.Ptr));
+                Assert.IsFalse(DataInputStorage.PortOwnsMemory(bPorts.Input));
                 Assert.IsTrue(UnsafeUtility.AddressOf(ref aPorts.Output.m_Value) == bPorts.Input.Ptr);
 
                 Assert.Throws<InvalidOperationException>(() => set.DisconnectAndRetainValue(a, KernelBufferIONode.KernelPorts.Output, b, KernelBufferIONode.KernelPorts.Input));
@@ -469,7 +455,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 bPorts = Utility.AsRef<KernelBufferIONode.KernelDefs>(bNode.Instance.Ports);
 
-                Assert.IsFalse(DataInputUtility.PortOwnsMemory(&bPorts.Input.Ptr));
+                Assert.IsFalse(DataInputStorage.PortOwnsMemory(bPorts.Input));
                 Assert.IsTrue(UnsafeUtility.AddressOf(ref aPorts.Output.m_Value) == bPorts.Input.Ptr);
 
                 set.Disconnect(a, KernelBufferIONode.KernelPorts.Output, b, KernelBufferIONode.KernelPorts.Input);
@@ -479,7 +465,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 bPorts = Utility.AsRef<KernelBufferIONode.KernelDefs>(bNode.Instance.Ports);
 
-                Assert.IsFalse(DataInputUtility.PortOwnsMemory(&bPorts.Input.Ptr));
+                Assert.IsFalse(DataInputStorage.PortOwnsMemory(bPorts.Input));
                 Assert.IsTrue(UnsafeUtility.AddressOf(ref aPorts.Output.m_Value) != bPorts.Input.Ptr);
 
                 set.Destroy(a, b);
@@ -525,8 +511,8 @@ namespace Unity.DataFlowGraph.Tests
                     Assert.IsTrue(childPorts.Input2.Ptr == UnsafeUtility.AddressOf(ref parentPorts.Output3.m_Value));
                     Assert.IsTrue(childPorts.Input3.Ptr == UnsafeUtility.AddressOf(ref parentPorts.Output3.m_Value));
 
-                    Assert.IsTrue(childPorts.InputArray[0].Ptr == UnsafeUtility.AddressOf(ref parentPorts.Output3.m_Value));
-                    Assert.IsTrue(childPorts.InputArray[1].Ptr == UnsafeUtility.AddressOf(ref parentPorts.Output3.m_Value));
+                    Assert.IsTrue(childPorts.InputArray.GetRef(0).Ptr == UnsafeUtility.AddressOf(ref parentPorts.Output3.m_Value));
+                    Assert.IsTrue(childPorts.InputArray.GetRef(1).Ptr == UnsafeUtility.AddressOf(ref parentPorts.Output3.m_Value));
                 }
 
                 nodes.ForEach(n => set.Destroy(n));
@@ -574,8 +560,8 @@ namespace Unity.DataFlowGraph.Tests
                     Assert.IsTrue(childPorts.Input2.Ptr == UnsafeUtility.AddressOf(ref parentPorts.Output2.m_Value));
                     Assert.IsTrue(childPorts.Input3.Ptr == UnsafeUtility.AddressOf(ref parentPorts.Output3.m_Value));
 
-                    Assert.IsTrue(childPorts.InputArray[0].Ptr == UnsafeUtility.AddressOf(ref parentPorts.Output1.m_Value));
-                    Assert.IsTrue(childPorts.InputArray[1].Ptr == UnsafeUtility.AddressOf(ref parentPorts.Output2.m_Value));
+                    Assert.IsTrue(childPorts.InputArray.GetRef(0).Ptr == UnsafeUtility.AddressOf(ref parentPorts.Output1.m_Value));
+                    Assert.IsTrue(childPorts.InputArray.GetRef(1).Ptr == UnsafeUtility.AddressOf(ref parentPorts.Output2.m_Value));
                 }
 
                 nodes.ForEach(n => set.Destroy(n));
@@ -638,8 +624,8 @@ namespace Unity.DataFlowGraph.Tests
                     Assert.IsTrue(childPorts.Input2.Ptr == UnsafeUtility.AddressOf(ref parent2Ports.Output2.m_Value));
                     Assert.IsTrue(childPorts.Input3.Ptr == UnsafeUtility.AddressOf(ref parent3Ports.Output3.m_Value));
 
-                    Assert.IsTrue(childPorts.InputArray[0].Ptr == UnsafeUtility.AddressOf(ref parent4Ports.Output1.m_Value));
-                    Assert.IsTrue(childPorts.InputArray[1].Ptr == UnsafeUtility.AddressOf(ref parent5Ports.Output2.m_Value));
+                    Assert.IsTrue(childPorts.InputArray.GetRef(0).Ptr == UnsafeUtility.AddressOf(ref parent4Ports.Output1.m_Value));
+                    Assert.IsTrue(childPorts.InputArray.GetRef(1).Ptr == UnsafeUtility.AddressOf(ref parent5Ports.Output2.m_Value));
                 }
 
                 nodes.ForEach(n => set.Destroy(n));
@@ -653,7 +639,7 @@ namespace Unity.DataFlowGraph.Tests
             public Buffer<int> SubBuffer2;
         }
 
-        class KernelBufferOutputNode : NodeDefinition<Node, Data, KernelBufferOutputNode.KernelDefs, KernelBufferOutputNode.Kernel>
+        public class KernelBufferOutputNode : KernelNodeDefinition<KernelBufferOutputNode.KernelDefs>
         {
             public struct KernelDefs : IKernelPortDefinition
             {
@@ -661,8 +647,10 @@ namespace Unity.DataFlowGraph.Tests
                 public DataOutput<KernelBufferOutputNode, Aggregate> Output3;
             }
 
+            struct Data : IKernelData { }
+
             [BurstCompile(CompileSynchronously = true)]
-            public struct Kernel : IGraphKernel<Data, KernelDefs>
+            struct Kernel : IGraphKernel<Data, KernelDefs>
             {
                 public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
                 {
@@ -912,8 +900,7 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-
-        class KernelBufferInputNode : NodeDefinition<Node, Data, KernelBufferInputNode.KernelDefs, KernelBufferInputNode.Kernel>
+        public class KernelBufferInputNode : KernelNodeDefinition<KernelBufferInputNode.KernelDefs>
         {
             public struct KernelDefs : IKernelPortDefinition
             {
@@ -921,8 +908,10 @@ namespace Unity.DataFlowGraph.Tests
                 public DataInput<KernelBufferInputNode, Aggregate> Input3;
             }
 
+            struct Data : IKernelData { }
+
             [BurstCompile(CompileSynchronously = true)]
-            public struct Kernel : IGraphKernel<Data, KernelDefs>
+            struct Kernel : IGraphKernel<Data, KernelDefs>
             {
                 public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
                 {
@@ -1136,10 +1125,10 @@ namespace Unity.DataFlowGraph.Tests
                 ref var knode = ref knodes[((NodeHandle)node).VHandle.Index];
                 ref var ports = ref Utility.AsRef<NodeWithAllTypesOfPorts.KernelDefs>(knode.Instance.Ports);
 
-                Assert.AreEqual(ports.InputArrayScalar.Size, (ushort)size);
-                Assert.AreEqual(ports.InputArrayScalar.Ptr == null, size == 0);
-                Assert.AreEqual(ports.InputArrayBuffer.Size, (ushort)size);
-                Assert.AreEqual(ports.InputArrayBuffer.Ptr == null, size == 0);
+                Assert.AreEqual((ushort)size, ports.InputArrayScalar.Size);
+                Assert.AreEqual(size == 0, ports.InputArrayScalar.Ptr == null);
+                Assert.AreEqual((ushort)size, ports.InputArrayBuffer.Size);
+                Assert.AreEqual(size == 0, ports.InputArrayBuffer.Ptr == null);
 
                 set.Destroy(node);
             }
@@ -1167,14 +1156,46 @@ namespace Unity.DataFlowGraph.Tests
                 ref var knode = ref knodes[((NodeHandle)node).VHandle.Index];
                 ref var ports = ref Utility.AsRef<NodeWithAllTypesOfPorts.KernelDefs>(knode.Instance.Ports);
 
-                Assert.AreEqual(ports.InputArrayScalar.Size, (ushort)finalSize);
-                Assert.AreEqual(ports.InputArrayScalar.Ptr == null, finalSize == 0);
-                Assert.AreEqual(ports.InputArrayBuffer.Size, (ushort)finalSize);
-                Assert.AreEqual(ports.InputArrayBuffer.Ptr == null, finalSize == 0);
+                Assert.AreEqual((ushort)finalSize, ports.InputArrayScalar.Size);
+                Assert.AreEqual(finalSize == 0, ports.InputArrayScalar.Ptr == null);
+                Assert.AreEqual((ushort)finalSize, ports.InputArrayBuffer.Size);
+                Assert.AreEqual(finalSize == 0, ports.InputArrayBuffer.Ptr == null);
 
                 set.Destroy(node);
             }
         }
-    }
 
+        public struct Natural4ByteOutputAlignment
+        {
+            // float2 = sizeof 8 alignof 4, unlike doubles (align 8),
+            // leaving the next field at natural offsetof 12
+            public DataOutput<EmptyNode, Mathematics.float2> LowAlignmentOutput;
+            public DataOutput<EmptyNode, byte> PotentiallyMisalignedOutput;
+        }
+
+        public struct PotentiallyArtificiallyLowAlignment
+        {
+            public byte _;
+            public DataOutput<EmptyNode, byte> PotentiallyMisalignedOutput;
+        }
+
+        [Test]
+        public void WorstCaseDataOutput_StillHaveExpectedMinimumAlignment()
+        {
+            Assert.GreaterOrEqual(UnsafeUtility.AlignOf<DataOutput<InvalidDefinitionSlot, byte>>(), DataInputStorage.MinimumInputAlignment);
+
+            // This covers the worst case alignment you can stumble upon in allowed kernel port definitions
+            var naturalFieldName = nameof(Natural4ByteOutputAlignment.PotentiallyMisalignedOutput);
+            ulong naturalOffset = (ulong)UnsafeUtility.GetFieldOffset(typeof(Natural4ByteOutputAlignment).GetField(naturalFieldName));
+            Assert.Zero(naturalOffset % DataInputStorage.MinimumInputAlignment);
+
+            // This covers the worst case "artifical" alignment (not even possible to form that kernel port definition,
+            // as non data / port array fields is an error - currently).
+            // Currently this will still be 4, but if we were to change internals of DataOutput<>,
+            // it could change. This test will then catch it.
+            var artificialFieldName = nameof(PotentiallyArtificiallyLowAlignment.PotentiallyMisalignedOutput);
+            ulong artificalOffset = (ulong)UnsafeUtility.GetFieldOffset(typeof(PotentiallyArtificiallyLowAlignment).GetField(artificialFieldName));
+            Assert.Zero(artificalOffset % DataInputStorage.MinimumInputAlignment);
+        }
+    }
 }

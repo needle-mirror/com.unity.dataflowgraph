@@ -17,20 +17,21 @@ namespace Unity.DataFlowGraph
 
     abstract class NodeTraitsBase
     {
-        internal NodeSet Set { get; set; }
         internal abstract IManagedMemoryPoolAllocator ManagedAllocator { get; }
 
-        internal abstract LLTraitsHandle CreateNodeTraits(System.Type superType);
-        internal virtual INodeData DebugGetNodeData(NodeHandle handle) => null;
-        internal virtual IKernelData DebugGetKernelData(NodeHandle handle) => null;
+        internal abstract LLTraitsHandle CreateNodeTraits(System.Type superType, SimulationStorageDefinition simStorage, KernelStorageDefinition kernelStorage);
+        internal virtual INodeData DebugGetNodeData(NodeSetAPI set, NodeHandle handle) => null;
+        internal virtual IKernelData DebugGetKernelData(NodeSetAPI set, NodeHandle handle) => null;
+        internal virtual IKernelData DebugGetKernelData(KernelLayout.Pointers kPointers) => null;
+        internal virtual IGraphKernel DebugGetKernel(KernelLayout.Pointers kPointers) => null;
+        internal virtual IKernelPortDefinition DebugGetKernelPorts(KernelLayout.Pointers kPointers) => null;
     }
 
     sealed class NodeTraits<TSimPorts> : NodeTraitsBase
         where TSimPorts : struct, ISimulationPortDefinition
     {
-        struct EmptyData : INodeData { }
-
-        internal override LLTraitsHandle CreateNodeTraits(System.Type superType) => LowLevelTraitsFactory<EmptyData, TSimPorts>.Create(superType);
+        internal override LLTraitsHandle CreateNodeTraits(System.Type superType, SimulationStorageDefinition simStorage, KernelStorageDefinition kernelStorage)
+            => LowLevelTraitsFactory.Create(simStorage);
         internal override IManagedMemoryPoolAllocator ManagedAllocator => throw new NotImplementedException();
     }
 
@@ -40,17 +41,10 @@ namespace Unity.DataFlowGraph
     {
         DefaultManagedAllocator<TNodeData> m_Allocator = new DefaultManagedAllocator<TNodeData>();
 
-        /// <summary>
-        /// Returns a reference to a node's instance memory.
-        /// </summary>
-        /// <exception cref="System.ArgumentException">
-        /// Thrown if the <paramref name="handle"/> does not refer to a valid node.
-        /// </exception>
-        public ref TNodeData GetNodeData(NodeHandle handle) => ref Set.GetNodeData<TNodeData>(handle);
+        internal override INodeData DebugGetNodeData(NodeSetAPI set, NodeHandle handle) => set.GetNodeData<TNodeData>(handle);
 
-        internal override INodeData DebugGetNodeData(NodeHandle handle) => GetNodeData(handle);
-
-        internal override LLTraitsHandle CreateNodeTraits(System.Type superType) => LowLevelTraitsFactory<TNodeData, TSimPorts>.Create(superType);
+        internal override LLTraitsHandle CreateNodeTraits(System.Type superType, SimulationStorageDefinition simStorage, KernelStorageDefinition kernelStorage)
+            => LowLevelTraitsFactory.Create(simStorage);
         internal override IManagedMemoryPoolAllocator ManagedAllocator => m_Allocator;
     }
 
@@ -59,67 +53,36 @@ namespace Unity.DataFlowGraph
         where TKernelPortDefinition : struct, IKernelPortDefinition
         where TKernel : struct, IGraphKernel<TKernelData, TKernelPortDefinition>
     {
-        struct EmptySimPorts : ISimulationPortDefinition { }
-        struct EmptyData : INodeData { }
+        internal override IKernelData DebugGetKernelData(NodeSetAPI set, NodeHandle handle) => set.GetKernelData<TKernelData>(handle);
+        internal override unsafe IKernelData DebugGetKernelData(KernelLayout.Pointers kPointers) => Utility.AsRef<IKernelData>(kPointers.Data);
+        internal override unsafe IGraphKernel DebugGetKernel(KernelLayout.Pointers kPointers) => Utility.AsRef<IGraphKernel>(kPointers.Kernel);
+        internal override unsafe IKernelPortDefinition DebugGetKernelPorts(KernelLayout.Pointers kPointers) => Utility.AsRef<IKernelPortDefinition>(kPointers.Ports);
 
-        /// <summary>
-        /// Returns a reference to a node's <typeparamref name="TKernelData"/> memory.
-        /// Writing to this will update it into the rendering graph
-        /// after the next <see cref="NodeSet.Update"/>.
-        /// </summary>
-        /// <exception cref="System.ArgumentException">
-        /// Thrown if the <paramref name="handle"/> does not refer to a valid node.
-        /// </exception>
-        public ref TKernelData GetKernelData(NodeHandle handle) => ref Set.GetKernelData<TKernelData>(handle);
-
-        internal override IKernelData DebugGetKernelData(NodeHandle handle) => GetKernelData(handle);
-
-        internal override LLTraitsHandle CreateNodeTraits(System.Type superType) => LowLevelTraitsFactory<EmptyData, EmptySimPorts, TKernelData, TKernelPortDefinition, TKernel>.Create(superType);
+        internal override LLTraitsHandle CreateNodeTraits(System.Type superType, SimulationStorageDefinition simStorage, KernelStorageDefinition kernelStorage)
+            => LowLevelTraitsFactory<TKernelData, TKernelPortDefinition, TKernel>.Create(superType, simStorage, kernelStorage);
         internal override IManagedMemoryPoolAllocator ManagedAllocator => throw new NotImplementedException();
     }
 
-    class NodeTraits<TNodeData, TSimPorts, TKernelData, TKernelPortDefinition, TKernel> : NodeTraitsBase
+    sealed class NodeTraits<TNodeData, TKernelData, TKernelPortDefinition, TKernel> : NodeTraitsBase
         where TNodeData : struct, INodeData
-        where TSimPorts : struct, ISimulationPortDefinition
         where TKernelData : struct, IKernelData
         where TKernelPortDefinition : struct, IKernelPortDefinition
         where TKernel : struct, IGraphKernel<TKernelData, TKernelPortDefinition>
     {
         DefaultManagedAllocator<TNodeData> m_Allocator = new DefaultManagedAllocator<TNodeData>();
 
-        /// <summary>
-        /// Returns a reference to a node's <typeparamref name="TKernelData"/> memory.
-        /// Writing to this will update it into the rendering graph
-        /// after the next <see cref="NodeSet.Update"/>.
-        /// </summary>
-        /// <exception cref="System.ArgumentException">
-        /// Thrown if the <paramref name="handle"/> does not refer to a valid node.
-        /// </exception>
-        public ref TKernelData GetKernelData(NodeHandle handle) => ref Set.GetKernelData<TKernelData>(handle);
+        internal override IKernelData DebugGetKernelData(NodeSetAPI set, NodeHandle handle) => set.GetKernelData<TKernelData>(handle);
+        internal override INodeData DebugGetNodeData(NodeSetAPI set, NodeHandle handle) => set.GetNodeData<TNodeData>(handle);
+        internal override unsafe IKernelData DebugGetKernelData(KernelLayout.Pointers kPointers) => Utility.AsRef<TKernelData>(kPointers.Data);
+        internal override unsafe IGraphKernel DebugGetKernel(KernelLayout.Pointers kPointers) => Utility.AsRef<TKernel>(kPointers.Kernel);
+        internal override unsafe IKernelPortDefinition DebugGetKernelPorts(KernelLayout.Pointers kPointers) => Utility.AsRef<TKernelPortDefinition>(kPointers.Ports);
 
-        /// <summary>
-        /// See <see cref="NodeTraits{TNodeData, TSimPorts}.GetNodeData(NodeHandle)"/>
-        /// </summary>
-        public ref TNodeData GetNodeData(NodeHandle handle) => ref Set.GetNodeData<TNodeData>(handle);
-
-        internal override IKernelData DebugGetKernelData(NodeHandle handle) => GetKernelData(handle);
-        internal override INodeData DebugGetNodeData(NodeHandle handle) => GetNodeData(handle);
-
-        internal override LLTraitsHandle CreateNodeTraits(System.Type superType) => LowLevelTraitsFactory<TNodeData, TSimPorts, TKernelData, TKernelPortDefinition, TKernel>.Create(superType);
+        internal override LLTraitsHandle CreateNodeTraits(System.Type superType, SimulationStorageDefinition simStorage, KernelStorageDefinition kernelStorage)
+            => LowLevelTraitsFactory<TKernelData, TKernelPortDefinition, TKernel>.Create(superType, simStorage, kernelStorage);
         internal override IManagedMemoryPoolAllocator ManagedAllocator => m_Allocator;
     }
 
-    sealed class NodeTraits<TNodeData, TKernelData, TKernelPortDefinition, TKernel>
-        : NodeTraits<TNodeData, NodeTraits<TNodeData, TKernelData, TKernelPortDefinition, TKernel>.EmptySimPorts, TKernelData, TKernelPortDefinition, TKernel>
-            where TNodeData : struct, INodeData
-            where TKernelData : struct, IKernelData
-            where TKernelPortDefinition : struct, IKernelPortDefinition
-            where TKernel : struct, IGraphKernel<TKernelData, TKernelPortDefinition>
-    {
-        public struct EmptySimPorts : ISimulationPortDefinition { }
-    }
-
-    public partial class NodeSet
+    public partial class NodeSetAPI
     {
         const int InvalidTraitSlot = 0;
     }

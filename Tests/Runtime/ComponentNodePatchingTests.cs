@@ -156,11 +156,11 @@ namespace Unity.DataFlowGraph.Tests
             public void TestInvariants()
             {
                 Assert.True(GetComponent<DataOne>(Changed) != null);
-                var patch = GetPortPatch(Receiver, SimpleNode_WithECSTypes_OnInputs.KernelPorts.Input);
-                Assert.True(*patch == GetComponent<DataOne>(Changed));
+                var patch = GetInputStorage(Receiver, SimpleNode_WithECSTypes_OnInputs.KernelPorts.Input);
+                Assert.True(patch->Pointer == GetComponent<DataOne>(Changed));
             }
 
-            public unsafe T** GetPortPatch<T, TNode>(NodeHandle<TNode> handle, DataInput<TNode, T> id)
+            public unsafe DataInputStorage* GetInputStorage<T, TNode>(NodeHandle<TNode> handle, DataInput<TNode, T> id)
                 where TNode : NodeDefinition
                 where T : unmanaged
             {
@@ -170,7 +170,7 @@ namespace Unity.DataFlowGraph.Tests
                 var knode = graph.GetInternalData()[handle.VHandle.Index];
                 ref readonly var traits = ref knode.TraitsHandle.Resolve();
 
-                return (T**)traits.DataPorts.FindInputDataPort(id.Port).GetPointerToPatch(knode.Instance.Ports);
+                return traits.DataPorts.FindInputDataPort(id.Port).GetStorageLocation(knode.Instance.Ports);
             }
 
             public unsafe T* GetComponent<T>(Entity e)
@@ -190,7 +190,7 @@ namespace Unity.DataFlowGraph.Tests
                 f.Update();
                 f.TestInvariants();
                 // Clear it out, so we can detect repatching happened.
-                *f.GetPortPatch(f.Receiver, SimpleNode_WithECSTypes_OnInputs.KernelPorts.Input) = null;
+                *f.GetInputStorage(f.Receiver, SimpleNode_WithECSTypes_OnInputs.KernelPorts.Input) = new DataInputStorage(null);
 
                 // Mutate archetype. Component pointer might have moved now.
                 f.EM.AddBuffer<Buffer>(f.Changed);
@@ -211,7 +211,7 @@ namespace Unity.DataFlowGraph.Tests
                 f.Update();
                 f.TestInvariants();
                 // Clear it out, so we can detect repatching happened.
-                *f.GetPortPatch(f.Receiver, SimpleNode_WithECSTypes_OnInputs.KernelPorts.Input) = null;
+                *f.GetInputStorage(f.Receiver, SimpleNode_WithECSTypes_OnInputs.KernelPorts.Input) = new DataInputStorage(null);
 
                 // Mutate archetype filtering. Component pointer might have moved now.
                 f.EM.AddSharedComponentData(f.Changed, new Shared(2));
@@ -227,13 +227,13 @@ namespace Unity.DataFlowGraph.Tests
             using (var f = new PatchFixture(systemType))
             {
                 f.Update();
-                var oldMemoryPointer = *f.GetPortPatch(f.Receiver, SimpleNode_WithECSTypes_OnInputs.KernelPorts.Input);
+                var oldMemoryPointer = f.GetInputStorage(f.Receiver, SimpleNode_WithECSTypes_OnInputs.KernelPorts.Input)->Pointer;
 
                 f.EM.DestroyEntity(f.Changed);
                 f.Update();
 
                 // Memory mustn't point to a partially destroyed entity.
-                Assert.False(oldMemoryPointer == *f.GetPortPatch(f.Receiver, SimpleNode_WithECSTypes_OnInputs.KernelPorts.Input));
+                Assert.False(oldMemoryPointer == f.GetInputStorage(f.Receiver, SimpleNode_WithECSTypes_OnInputs.KernelPorts.Input)->Pointer);
                 // It's still contained in this list since NodeSetAttachment is a system state.
                 CollectionAssert.Contains(f.SystemDelegate.DequeueToList(), f.Changed);
 
@@ -242,7 +242,7 @@ namespace Unity.DataFlowGraph.Tests
                 f.Update();
 
                 // Memory mustn't point to a partially destroyed entity.
-                Assert.False(oldMemoryPointer == *f.GetPortPatch(f.Receiver, SimpleNode_WithECSTypes_OnInputs.KernelPorts.Input));
+                Assert.False(oldMemoryPointer == f.GetInputStorage(f.Receiver, SimpleNode_WithECSTypes_OnInputs.KernelPorts.Input)->Pointer);
             }
         }
 
@@ -346,7 +346,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 Assert.AreEqual(1, graphKernel.Outputs.Count);
                 Assert.AreEqual(ComponentType.ReadWrite<SimpleData>().TypeIndex, graphKernel.Outputs[0].ComponentType);
-                Assert.IsTrue(f.GetPortPatch(dfgNode, SimpleNode_WithECSTypes.KernelPorts.Input) == graphKernel.Outputs[0].DFGPatch);
+                Assert.IsTrue(f.GetInputStorage(dfgNode, SimpleNode_WithECSTypes.KernelPorts.Input) == graphKernel.Outputs[0].DFGPatch);
 
                 f.Set.Destroy(sourceEntityNode, dfgNode);
             }
@@ -485,7 +485,7 @@ namespace Unity.DataFlowGraph.Tests
                     var rg = f.Set.DataGraph;
 
                     rg.SyncAnyRendering();
-                    var map = f.Set.GetTopologyMap();
+                    var map = rg.GetMap_ForTesting();
                     var nodes = rg.GetInternalData();
                     var cache = rg.Cache;
 
@@ -527,7 +527,7 @@ namespace Unity.DataFlowGraph.Tests
                     fixed (SimpleData* outputPortLocation = &dfgOutputPorts.Output.m_Value)
                         Assert.True(inputToEcs == outputPortLocation);
 
-                    fixed (void** inputPortLocation = &dfgInputPorts.Input.Ptr)
+                    fixed (DataInputStorage* inputPortLocation = &dfgInputPorts.Input.Storage)
                         Assert.True(output.DFGPatch == inputPortLocation);
                 }
 

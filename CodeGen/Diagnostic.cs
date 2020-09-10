@@ -43,7 +43,30 @@ namespace Unity.DataFlowGraph.CodeGen
 
         public string GetLocationName()
         {
-            return m_Ref.Name;
+            return m_Ref.PrettyName();
+        }
+    }
+
+    class MemberLocationContext : ILocationContext
+    {
+        MemberReference m_Ref;
+
+        public static implicit operator MemberLocationContext(MemberReference reference)
+        {
+            return new MemberLocationContext(reference);
+        }
+
+        public MemberLocationContext(MemberReference reference)
+        {
+            if (reference == null)
+                throw new ArgumentNullException(nameof(reference));
+
+            m_Ref = reference;
+        }
+
+        public string GetLocationName()
+        {
+            return m_Ref.PrettyName();
         }
     }
 
@@ -53,12 +76,12 @@ namespace Unity.DataFlowGraph.CodeGen
 
         public AggrTypeContext(IEnumerable<TypeReference> list)
         {
-            m_Name = string.Join(", ", list.Select(n => n == null ? "<null>" : n.Name).ToArray());
+            m_Name = string.Join(", ", list.Select(n => n == null ? "<null>" : n.PrettyName()).ToArray());
         }
 
         public AggrTypeContext(IEnumerable<MemberReference> list)
         {
-            m_Name = string.Join(", ", list.Select(n => n == null ? "<null>" : n.Name).ToArray());
+            m_Name = string.Join(", ", list.Select(n => n == null ? "<null>" : n.PrettyName()).ToArray());
         }
 
         public string GetLocationName()
@@ -86,7 +109,7 @@ namespace Unity.DataFlowGraph.CodeGen
 
         public string GetLocationName()
         {
-            return m_Ref.Name + "(" + string.Join(",", m_Ref.Parameters.Select(p => p.ParameterType)) + ")";
+            return m_Ref.PrettyName() + "(" + string.Join(",", m_Ref.Parameters.Select(p => p.ParameterType)) + ")";
         }
     }
 
@@ -109,7 +132,7 @@ namespace Unity.DataFlowGraph.CodeGen
 
         public string GetLocationName()
         {
-            return m_Ref.Name;
+            return m_Ref.FullName;
         }
     }
 
@@ -121,7 +144,9 @@ namespace Unity.DataFlowGraph.CodeGen
         {
             var message = new DiagnosticMessage();
             message.DiagnosticType = DiagnosticType.Error;
-            message.MessageData = $"Error {errorName}: While processing {definition?.GetContextName()}: {contents} {location?.GetLocationName()}";
+            message.MessageData = $"Error {errorName}: While processing {definition?.GetContextName()}: {contents}";
+            if (location != null)
+                message.MessageData += $": {location.GetLocationName()}";
             Messages.Add(message);
         }
 

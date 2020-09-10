@@ -29,6 +29,11 @@ namespace Unity.DataFlowGraph.CodeGen
         {
             Error(nameof(DFG_IE_05), context, "Unexpected interface implementation");
         }
+
+        public void DFG_IE_06(IDefinitionContext context, string fieldName)
+        {
+            Error(nameof(DFG_IE_06), context, $"Could not find {fieldName} field");
+        }
     }
 
 }

@@ -2,7 +2,7 @@ using System;
 
 namespace Unity.DataFlowGraph
 {
-    public partial class NodeSet
+    public partial class NodeSetAPI
     {
         /// <summary>
         /// See <see cref="Connect(NodeHandle, OutputPortID, NodeHandle, InputPortID, ConnectionType)"/>
@@ -14,7 +14,7 @@ namespace Unity.DataFlowGraph
             MessageInput<TDestination, TMsg> destPort
         )
             where TSource : NodeDefinition
-            where TDestination : NodeDefinition, IMsgHandler<TMsg>
+            where TDestination : NodeDefinition
         {
             Connect(((uint)PortDescription.Category.Message, typeof(TMsg), ConnectionType.Normal), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePort.Port)), new InputPair(this, destHandle, new InputPortArrayID(destPort.Port)));
         }
@@ -32,9 +32,9 @@ namespace Unity.DataFlowGraph
             int destArrayIndex
         )
             where TSource : NodeDefinition
-            where TDestination : NodeDefinition, IMsgHandler<TMsg>
+            where TDestination : NodeDefinition
         {
-            Connect(((uint)PortDescription.Category.Message, typeof(TMsg), ConnectionType.Normal), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePort.Port)), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.InputPort, destArrayIndex)));
+            Connect(((uint)PortDescription.Category.Message, typeof(TMsg), ConnectionType.Normal), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePort.Port)), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.GetPortID(), destArrayIndex)));
         }
 
         /// <summary>
@@ -50,9 +50,9 @@ namespace Unity.DataFlowGraph
             MessageInput<TDestination, TMsg> destPort
         )
             where TSource : NodeDefinition
-            where TDestination : NodeDefinition, IMsgHandler<TMsg>
+            where TDestination : NodeDefinition
         {
-            Connect(((uint)PortDescription.Category.Message, typeof(TMsg), ConnectionType.Normal), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePortArray.OutputPort, sourceArrayIndex)), new InputPair(this, destHandle, new InputPortArrayID(destPort.Port)));
+            Connect(((uint)PortDescription.Category.Message, typeof(TMsg), ConnectionType.Normal), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePortArray.GetPortID(), sourceArrayIndex)), new InputPair(this, destHandle, new InputPortArrayID(destPort.Port)));
         }
 
         /// <summary>
@@ -69,9 +69,9 @@ namespace Unity.DataFlowGraph
             int destArrayIndex
         )
             where TSource : NodeDefinition
-            where TDestination : NodeDefinition, IMsgHandler<TMsg>
+            where TDestination : NodeDefinition
         {
-            Connect(((uint)PortDescription.Category.Message, typeof(TMsg), ConnectionType.Normal), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePortArray.OutputPort, sourceArrayIndex)), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.InputPort, destArrayIndex)));
+            Connect(((uint)PortDescription.Category.Message, typeof(TMsg), ConnectionType.Normal), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePortArray.GetPortID(), sourceArrayIndex)), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.GetPortID(), destArrayIndex)));
         }
 
         /// <summary>
@@ -106,7 +106,7 @@ namespace Unity.DataFlowGraph
             where TDestination : NodeDefinition
             where TMsg : struct
         {
-            Connect((PortDescription.MessageToDataConnectionCategory, typeof(TMsg), ConnectionType.Normal), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePortArray.OutputPort, sourceArrayIndex)), new InputPair(this, destHandle, new InputPortArrayID(destPort.Port)));
+            Connect((PortDescription.MessageToDataConnectionCategory, typeof(TMsg), ConnectionType.Normal), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePortArray.GetPortID(), sourceArrayIndex)), new InputPair(this, destHandle, new InputPortArrayID(destPort.Port)));
         }
 
         /// <summary>
@@ -125,7 +125,7 @@ namespace Unity.DataFlowGraph
             where TDestination : NodeDefinition
             where TMsg : struct
         {
-            Connect((PortDescription.MessageToDataConnectionCategory, typeof(TMsg), ConnectionType.Normal), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePort.Port)), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.InputPort, destArrayIndex)));
+            Connect((PortDescription.MessageToDataConnectionCategory, typeof(TMsg), ConnectionType.Normal), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePort.Port)), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.GetPortID(), destArrayIndex)));
         }
 
         /// <summary>
@@ -145,7 +145,7 @@ namespace Unity.DataFlowGraph
             where TDestination : NodeDefinition
             where TMsg : struct
         {
-            Connect((PortDescription.MessageToDataConnectionCategory, typeof(TMsg), ConnectionType.Normal), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePortArray.OutputPort, sourceArrayIndex)), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.InputPort, destArrayIndex)));
+            Connect((PortDescription.MessageToDataConnectionCategory, typeof(TMsg), ConnectionType.Normal), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePortArray.GetPortID(), sourceArrayIndex)), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.GetPortID(), destArrayIndex)));
         }
 
         /// <summary>
@@ -199,7 +199,7 @@ namespace Unity.DataFlowGraph
             where TDestination : NodeDefinition
             where TType : struct
         {
-            Connect(((uint)PortDescription.Category.Data, typeof(TType), connectionType), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePort.Port)), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.InputPort, destArrayIndex)));
+            Connect(((uint)PortDescription.Category.Data, typeof(TType), connectionType), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePort.Port)), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.GetPortID(), destArrayIndex)));
         }
 
         /// <summary>
@@ -212,7 +212,7 @@ namespace Unity.DataFlowGraph
             MessageInput<TDestination, TMsg> destPort
         )
             where TSource : NodeDefinition
-            where TDestination : NodeDefinition, IMsgHandler<TMsg>
+            where TDestination : NodeDefinition
         {
             Disconnect(new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePort.Port)), new InputPair(this, destHandle, new InputPortArrayID(destPort.Port)));
         }
@@ -230,9 +230,9 @@ namespace Unity.DataFlowGraph
             int destArrayIndex
         )
             where TSource : NodeDefinition
-            where TDestination : NodeDefinition, IMsgHandler<TMsg>
+            where TDestination : NodeDefinition
         {
-            Disconnect(new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePort.Port)), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.InputPort, destArrayIndex)));
+            Disconnect(new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePort.Port)), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.GetPortID(), destArrayIndex)));
         }
 
         /// <summary>
@@ -248,9 +248,9 @@ namespace Unity.DataFlowGraph
             MessageInput<TDestination, TMsg> destPort
         )
             where TSource : NodeDefinition
-            where TDestination : NodeDefinition, IMsgHandler<TMsg>
+            where TDestination : NodeDefinition
         {
-            Disconnect(new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePortArray.OutputPort, sourceArrayIndex)), new InputPair(this, destHandle, new InputPortArrayID(destPort.Port)));
+            Disconnect(new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePortArray.GetPortID(), sourceArrayIndex)), new InputPair(this, destHandle, new InputPortArrayID(destPort.Port)));
         }
 
         /// <summary>
@@ -267,9 +267,9 @@ namespace Unity.DataFlowGraph
             int destArrayIndex
         )
             where TSource : NodeDefinition
-            where TDestination : NodeDefinition, IMsgHandler<TMsg>
+            where TDestination : NodeDefinition
         {
-            Disconnect(new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePortArray.OutputPort, sourceArrayIndex)), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.InputPort, destArrayIndex)));
+            Disconnect(new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePortArray.GetPortID(), sourceArrayIndex)), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.GetPortID(), destArrayIndex)));
         }
 
         /// <summary>
@@ -304,7 +304,7 @@ namespace Unity.DataFlowGraph
             where TDestination : NodeDefinition
             where TMsg : struct
         {
-            Disconnect(new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePortArray.OutputPort, sourceArrayIndex)), new InputPair(this, destHandle, new InputPortArrayID(destPort.Port)));
+            Disconnect(new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePortArray.GetPortID(), sourceArrayIndex)), new InputPair(this, destHandle, new InputPortArrayID(destPort.Port)));
         }
 
         /// <summary>
@@ -323,7 +323,7 @@ namespace Unity.DataFlowGraph
             where TDestination : NodeDefinition
             where TMsg : struct
         {
-            Disconnect(new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePort.Port)), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.InputPort, destArrayIndex)));
+            Disconnect(new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePort.Port)), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.GetPortID(), destArrayIndex)));
         }
 
         /// <summary>
@@ -343,7 +343,7 @@ namespace Unity.DataFlowGraph
             where TDestination : NodeDefinition
             where TMsg : struct
         {
-            Disconnect(new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePortArray.OutputPort, sourceArrayIndex)), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.InputPort, destArrayIndex)));
+            Disconnect(new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePortArray.GetPortID(), sourceArrayIndex)), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.GetPortID(), destArrayIndex)));
         }
 
         /// <summary>
@@ -395,7 +395,7 @@ namespace Unity.DataFlowGraph
             where TDestination : NodeDefinition
             where TType : struct
         {
-            Disconnect(new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePort.Port)), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.InputPort, destArrayIndex)));
+            Disconnect(new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePort.Port)), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.GetPortID(), destArrayIndex)));
         }
 
         /// <summary>
@@ -430,7 +430,7 @@ namespace Unity.DataFlowGraph
             where TDestination : NodeDefinition, new()
             where TType : struct
         {
-            DisconnectAndRetainValue(sourceHandle, new OutputPortArrayID(sourcePort.Port), destHandle, new InputPortArrayID(destPortArray.InputPort, destArrayIndex));
+            DisconnectAndRetainValue(sourceHandle, new OutputPortArrayID(sourcePort.Port), destHandle, new InputPortArrayID(destPortArray.GetPortID(), destArrayIndex));
         }
 
         public void Connect<TTask, TDSLHandler, TDSL, TSource, TDestination>(
@@ -453,7 +453,7 @@ namespace Unity.DataFlowGraph
             NodeInterfaceLink<TTask, TDestination> destHandle
         )
             where TSource : NodeDefinition
-            where TDestination : NodeDefinition, TTask, IMsgHandler<TMsg>, new()
+            where TDestination : NodeDefinition, TTask, new()
             where TTask : ITaskPort<TTask>
         {
             Connect(sourceHandle, sourcePort.Port, destHandle, GetDefinition(destHandle.TypedHandle).GetPort(destHandle));
@@ -510,7 +510,7 @@ namespace Unity.DataFlowGraph
         )
             where TSource : NodeDefinition
             where TTask : ITaskPort<TTask>
-            where TDestination : NodeDefinition, TTask, IMsgHandler<TMsg>, new()
+            where TDestination : NodeDefinition, TTask, new()
         {
             Disconnect(sourceHandle, sourcePort.Port, destHandle, GetDefinition(destHandle.TypedHandle).GetPort(destHandle));
         }

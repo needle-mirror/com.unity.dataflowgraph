@@ -21,19 +21,22 @@ namespace Unity.DataFlowGraph
         /// A handle uniquely identifying the currently initializing node.
         /// </summary>
         public NodeHandle Handle => m_Handle.ToPublicHandle();
+        /// <summary>
+        /// The <see cref="NodeSetAPI"/> associated with this context.
+        /// </summary>
+        public readonly NodeSetAPI Set;
 
         // Exceedingly hard to pass down a stack local, but that's all this is.
         internal readonly unsafe void* m_ForwardedConnectionsMemory;
         internal readonly ValidatedHandle m_Handle;
-        readonly NodeSet m_Set;
         internal readonly int TypeIndex;
 
         /// <summary>
         /// Sets up forwarding of the given input port to another input port on a different (sub) node.
         /// </summary>
         public void ForwardInput<TDefinition, TForwardedDefinition, TMsg>(MessageInput<TDefinition, TMsg> origin, NodeHandle<TForwardedDefinition> replacedNode, MessageInput<TForwardedDefinition, TMsg> replacement)
-            where TDefinition : NodeDefinition, IMsgHandler<TMsg>, new()
-            where TForwardedDefinition : NodeDefinition, IMsgHandler<TMsg>
+            where TDefinition : NodeDefinition, new()
+            where TForwardedDefinition : NodeDefinition
         {
             CommonChecks<TDefinition>(replacedNode, (InputPortID)origin);
             GetForwardingBuffer().Add(ForwardedPort.Unchecked.Input(origin.Port, replacedNode, replacement.Port));
@@ -43,11 +46,11 @@ namespace Unity.DataFlowGraph
         /// See <see cref="ForwardInput{TDefinition,TForwardedDefinition,TMsg}(MessageInput{TDefinition,TMsg}, NodeHandle{TForwardedDefinition}, MessageInput{TForwardedDefinition,TMsg})"/>.
         /// </summary>
         public void ForwardInput<TDefinition, TForwardedDefinition, TMsg>(PortArray<MessageInput<TDefinition, TMsg>> origin, NodeHandle<TForwardedDefinition> replacedNode, PortArray<MessageInput<TForwardedDefinition, TMsg>> replacement)
-            where TDefinition : NodeDefinition, IMsgHandler<TMsg>, new()
-            where TForwardedDefinition : NodeDefinition, IMsgHandler<TMsg>
+            where TDefinition : NodeDefinition, new()
+            where TForwardedDefinition : NodeDefinition
         {
             CommonChecks<TDefinition>(replacedNode, (InputPortID)origin);
-            GetForwardingBuffer().Add(ForwardedPort.Unchecked.Input(origin.InputPort, replacedNode, replacement.InputPort));
+            GetForwardingBuffer().Add(ForwardedPort.Unchecked.Input(origin.GetPortID(), replacedNode, replacement.GetPortID()));
         }
 
         /// <summary>
@@ -71,7 +74,7 @@ namespace Unity.DataFlowGraph
             where TType : struct
         {
             CommonChecks<TDefinition>(replacedNode, (InputPortID)origin);
-            GetForwardingBuffer().Add(ForwardedPort.Unchecked.Input(origin.InputPort, replacedNode, replacement.InputPort));
+            GetForwardingBuffer().Add(ForwardedPort.Unchecked.Input(origin.GetPortID(), replacedNode, replacement.GetPortID()));
         }
 
         /// <summary>
@@ -110,7 +113,7 @@ namespace Unity.DataFlowGraph
             where TForwardedDefinition : NodeDefinition
         {
             CommonChecks<TDefinition>(replacedNode, (OutputPortID)origin);
-            GetForwardingBuffer().Add(ForwardedPort.Unchecked.Output(origin.OutputPort, replacedNode, replacement.OutputPort));
+            GetForwardingBuffer().Add(ForwardedPort.Unchecked.Output(origin.GetPortID(), replacedNode, replacement.GetPortID()));
         }
 
         /// <summary>
@@ -143,6 +146,24 @@ namespace Unity.DataFlowGraph
         }
 
         /// <summary>
+        /// Emit a message from yourself on a port. Everything connected to it will receive your message.
+        /// </summary>
+        public void EmitMessage<T, TNodeDefinition>(MessageOutput<TNodeDefinition, T> port, in T msg)
+            where TNodeDefinition : NodeDefinition
+        {
+            Set.EmitMessage(m_Handle, new OutputPortArrayID(port.Port), msg);
+        }
+
+        /// <summary>
+        /// Emit a message from yourself on a port array. Everything connected to it will receive your message.
+        /// </summary>
+        public void EmitMessage<T, TNodeDefinition>(PortArray<MessageOutput<TNodeDefinition, T>> port, int arrayIndex, in T msg)
+            where TNodeDefinition : NodeDefinition
+        {
+            Set.EmitMessage(m_Handle, new OutputPortArrayID(port.GetPortID(), arrayIndex), msg);
+        }
+
+        /// <summary>
         /// Set the size of a <see cref="Buffer{T}"/> appearing in this node's <see cref="IGraphKernel{TKernelData,TKernelPortDefinition}"/>.
         /// Pass an instance of the node's <see cref="IGraphKernel{TKernelData,TKernelPortDefinition}"/> as the <paramref name="requestedSize"/>
         /// parameter with <see cref="Buffer{T}"/> instances within it having been set using <see cref="Buffer{T}.SizeRequest(int)"/>.
@@ -152,8 +173,45 @@ namespace Unity.DataFlowGraph
         public void SetKernelBufferSize<TGraphKernel>(in TGraphKernel requestedSize)
             where TGraphKernel : IGraphKernel
         {
-            m_Set.SetKernelBufferSize(m_Handle, requestedSize);
+            Set.SetKernelBufferSize(m_Handle, requestedSize);
         }
+
+        /// <summary>
+        /// Updates the associated <typeparamref name="TKernelData"/> asynchronously,
+        /// to be available in a <see cref="IGraphKernel"/> in the next render.
+        /// </summary>
+        public void UpdateKernelData<TKernelData>(in TKernelData data)
+            where TKernelData : struct, IKernelData
+        {
+            Set.UpdateKernelData(m_Handle, data);
+        }
+
+        /// <summary>
+        /// Registers <see cref="Handle"/> for regular updates every time <see cref="NodeSet.Update"/> is called.
+        /// This only takes effect after the next <see cref="NodeSet.Update"/>.
+        /// <seealso cref="IUpdate.Update(in UpdateContext)"/>
+        /// <seealso cref="RemoveFromUpdate()"/>
+        /// </summary>
+        /// <remarks>
+        /// A node will automatically be removed from the update list when it is destroyed.
+        /// </remarks>
+        /// <exception cref="InvalidNodeDefinitionException">
+        /// Will be thrown if the <see cref="Handle"/> does not support updating.
+        /// </exception>
+        /// <exception cref="InvalidOperationException">
+        /// Thrown if <see cref="Handle"/> is already registered for updating.
+        /// </exception>
+        public void RegisterForUpdate() => Set.RegisterForUpdate(m_Handle);
+
+        /// <summary>
+        /// Deregisters <see cref="Handle"/> from updating every time <see cref="NodeSet.Update"/> is called.
+        /// This only takes effect after the next <see cref="NodeSet.Update"/>.
+        /// <seealso cref="RegisterForUpdate()"/>
+        /// </summary>
+        /// <exception cref="InvalidOperationException">
+        /// Thrown if <see cref="Handle"/> is not registered for updating.
+        /// </exception>
+        public void RemoveFromUpdate() => Set.RemoveFromUpdate(m_Handle);
 
         void CommonChecks<TDefinition>(NodeHandle replacedNode, InputPortID originPort)
             where TDefinition : NodeDefinition
@@ -201,12 +259,12 @@ namespace Unity.DataFlowGraph
                 throw new ArgumentException("Cannot forward to self");
         }
 
-        internal unsafe InitContext(ValidatedHandle handle, int typeIndex, NodeSet set, ref BlitList<ForwardedPort.Unchecked> stackList)
+        internal unsafe InitContext(ValidatedHandle handle, int typeIndex, NodeSetAPI set, ref BlitList<ForwardedPort.Unchecked> stackList)
         {
             m_Handle = handle;
             TypeIndex = typeIndex;
             m_ForwardedConnectionsMemory = UnsafeUtility.AddressOf(ref stackList);
-            m_Set = set;
+            Set = set;
         }
 
         unsafe ref BlitList<ForwardedPort.Unchecked> GetForwardingBuffer()
@@ -218,6 +276,29 @@ namespace Unity.DataFlowGraph
 
             return ref buffer;
         }
+    }
+
+    /// <summary>
+    /// Interface for receiving constructor calls on <see cref="INodeData"/>,
+    /// whenever a new node is created.
+    ///
+    /// This supersedes <see cref="NodeDefinition.Init(InitContext)"/>
+    /// </summary>
+    public interface IInit
+    {
+        /// <summary>
+        /// Constructor function, called for each instantiation of this type.
+        /// <seealso cref="NodeSetAPI.Create{TDefinition}"/>
+        /// </summary>
+        /// <remarks>
+        /// It is undefined behaviour to throw an exception from this method.
+        /// </remarks>
+        /// <param name="ctx">
+        /// Provides initialization context and do-once operations
+        /// for this particular node.
+        /// <seealso cref="Init(InitContext)"/>
+        /// </param>
+        void Init(InitContext ctx);
     }
 
 }

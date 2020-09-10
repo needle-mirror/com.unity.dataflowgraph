@@ -11,10 +11,11 @@ namespace Unity.DataFlowGraph.Tour
          * To do this, we'll have the node emitting a modified message that it receives. Using this, we will be able
          * to see a flow of messages through a constructed graph.
          */
-        public class MyNode : NodeDefinition<MyNode.MyInstanceData, MyNode.SimPorts>, IMsgHandler<int>
+        public class MyNode : SimulationNodeDefinition<MyNode.SimPorts>
         {
             public struct SimPorts : ISimulationPortDefinition
             {
+                public MessageInput<MyNode, char> SetName;
                 public MessageInput<MyNode, int> MyInput;
                 /*
                  * Here is an output - it's completely similar in usage to an input, otherwise.
@@ -22,38 +23,40 @@ namespace Unity.DataFlowGraph.Tour
                 public MessageOutput<MyNode, int> MyOutput;
             }
 
-            public struct MyInstanceData : INodeData
+            struct MyInstanceData : INodeData, IMsgHandler<int>, IMsgHandler<char>
             {
                 /*
                  * In this example, we'll store a name to make it a bit simpler to figure out what's going on.
                  */
-                public char Name;
-            }
+                char Name;
 
-            /*
-             * Similarly, define a public API to change the name of a node.
-             */
-            public void SetName(NodeHandle handle, char name) => GetNodeData(handle).Name = name;
-
-            public void HandleMessage(in MessageContext ctx, in int msg)
-            {
-                Debug.Log($"'{GetNodeData(ctx.Handle).Name}' received an int message of value: {msg}");
-
-                /*
-                 * To further emit a message from this node, we need to use the EmitMessage API.
-                 */
-                ctx.EmitMessage(
+                public void HandleMessage(in MessageContext ctx, in char msg)
+                {
                     /*
-                     * Then from what port we are emitting a message.
-                     * This means any node connected to this particular port on this instance is going to receive the
-                     * message that we are emitting.
+                     * Record the name being given.
                      */
-                    SimulationPorts.MyOutput, 
+                    Name = msg;
+                }
+
+                public void HandleMessage(in MessageContext ctx, in int msg)
+                {
+                    Debug.Log($"'{Name}' received an int message of value {msg}");
+
                     /*
-                     * Add something to the message to disambiguate the output.
+                     * To further emit a message from this node, we need to use the EmitMessage API.
                      */
-                    msg + 1
-                );
+                    ctx.EmitMessage(
+                        /*
+                         * This means any node connected to this particular port on this instance is going to receive the
+                         * message that we are emitting.
+                         */
+                        SimulationPorts.MyOutput, 
+                        /*
+                         * Add something to the message to disambiguate the output.
+                         */
+                        msg + 1
+                    );
+                }
             }
         }
 
@@ -73,10 +76,13 @@ namespace Unity.DataFlowGraph.Tour
                     e = set.Create<MyNode>();
 
                 /*
-                 * To set the name, we'll grab the node definition instance:
+                 * To set the names, we'll send the nodes messages:
                  */
-                var myNode = set.GetDefinition<MyNode>();
-                myNode.SetName(a, 'a'); myNode.SetName(b, 'b'); myNode.SetName(c, 'c'); myNode.SetName(d, 'd'); myNode.SetName(e, 'e');
+                set.SendMessage(a, MyNode.SimulationPorts.SetName, 'a');
+                set.SendMessage(b, MyNode.SimulationPorts.SetName, 'b');
+                set.SendMessage(c, MyNode.SimulationPorts.SetName, 'c');
+                set.SendMessage(d, MyNode.SimulationPorts.SetName, 'd');
+                set.SendMessage(e, MyNode.SimulationPorts.SetName, 'e');
 
                 /*
                  * Then we need to connect them together in a desired layout. Let's do it like this:

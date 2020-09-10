@@ -3,15 +3,38 @@ using Unity.Collections;
 
 namespace Unity.DataFlowGraph
 {
-    // TODO: This is not the most efficient structure of doing this.
-    // Also for reference, this is doing the same job as EntityCommandBuffer or DSPGraph.CommandBuffer
-    // TODO: Implement compression of the diff to avoid duplicating commands / creating nodes that are destroyed later in the same diff
+    using Topology = TopologyAPI<ValidatedHandle, InputPortArrayID, OutputPortArrayID>;
+
     struct GraphDiff : IDisposable
     {
+        public struct Adjacency
+        {
+            public ValidatedHandle Destination;
+            public InputPortArrayID DestinationInputPort;
+
+            public ValidatedHandle Source;
+            public OutputPortArrayID SourceOutputPort;
+            public uint TraversalFlags;
+
+            public static implicit operator Adjacency(in Topology.Connection c)
+            {
+                Adjacency ret;
+
+                ret.Destination = c.Destination;
+                ret.DestinationInputPort = c.DestinationInputPort;
+                ret.Source = c.Source;
+                ret.SourceOutputPort = c.SourceOutputPort;
+                ret.TraversalFlags = c.TraversalFlags;
+
+                return ret;
+            }
+        }
+
         public enum Command
         {
-            Create, Destroy, ResizeBuffer, ResizePortArray, MessageToData
-            //, DirtyKernel, CreatedConnection, DeletedConnection
+            Create, Destroy, ResizeBuffer, ResizePortArray, MessageToData, GraphValueCreated,
+            CreatedConnection, DeletedConnection
+            //, DirtyKernel, 
         }
 
         public bool IsCreated => CreatedNodes.IsCreated && DeletedNodes.IsCreated;
@@ -59,10 +82,12 @@ namespace Unity.DataFlowGraph
         public BlitList<BufferResizedTuple> ResizedDataBuffers;
         public BlitList<PortArrayResizedTuple> ResizedPortArrays;
         public BlitList<DataPortMessageTuple> MessagesArrivingAtDataPorts;
+        public BlitList<ValidatedHandle> CreatedGraphValues;
+        public BlitList<Adjacency> CreatedConnections;
+        public BlitList<Adjacency> DeletedConnections;
 
         //public BlitList<> DirtyKernelDatas;
-        //public BlitList<> CreatedConnections;
-        //public BlitList<> DeletedConnections;
+
 
         public GraphDiff(Allocator allocator)
         {
@@ -72,6 +97,9 @@ namespace Unity.DataFlowGraph
             ResizedDataBuffers = new BlitList<BufferResizedTuple>(0, allocator);
             ResizedPortArrays = new BlitList<PortArrayResizedTuple>(0, allocator);
             MessagesArrivingAtDataPorts = new BlitList<DataPortMessageTuple>(0, allocator);
+            CreatedGraphValues = new BlitList<ValidatedHandle>(0, allocator);
+            CreatedConnections = new BlitList<Adjacency>(0, allocator);
+            DeletedConnections = new BlitList<Adjacency>(0, allocator);
         }
 
         public void NodeCreated(ValidatedHandle handle)
@@ -110,10 +138,16 @@ namespace Unity.DataFlowGraph
             MessagesArrivingAtDataPorts.Add(new DataPortMessageTuple { Destination = dest, msg = msg });
         }
 
-        public unsafe void RetainData(in InputPair dest)
+        public void RetainData(in InputPair dest)
         {
             Commands.Add(new CommandTuple { command = Command.MessageToData, ContainerIndex = MessagesArrivingAtDataPorts.Count });
             MessagesArrivingAtDataPorts.Add(new DataPortMessageTuple { Destination = dest, msg = null });
+        }
+
+        public void GraphValueCreated(ValidatedHandle handle)
+        {
+            Commands.Add(new CommandTuple { command = Command.GraphValueCreated, ContainerIndex = CreatedGraphValues.Count });
+            CreatedGraphValues.Add(handle);
         }
 
         public void Dispose()
@@ -124,6 +158,31 @@ namespace Unity.DataFlowGraph
             ResizedDataBuffers.Dispose();
             ResizedPortArrays.Dispose();
             MessagesArrivingAtDataPorts.Dispose();
+            CreatedConnections.Dispose();
+            CreatedGraphValues.Dispose();
+            DeletedConnections.Dispose();
+        }
+
+        internal void DisconnectData(in Topology.Connection connection)
+        {
+#if DFG_ASSERTIONS
+            if ((connection.TraversalFlags & PortDescription.k_MaskForAnyData) == 0)
+                throw new AssertionException("Non-data disconnection transferred over graphdiff");
+#endif
+
+            Commands.Add(new CommandTuple { command = Command.DeletedConnection, ContainerIndex = DeletedConnections.Count });
+            DeletedConnections.Add(connection);
+        }
+
+        internal void ConnectData(in Topology.Connection connection)
+        {
+#if DFG_ASSERTIONS
+            if ((connection.TraversalFlags & PortDescription.k_MaskForAnyData) == 0)
+                throw new AssertionException("Non-data connection transferred over graphdiff");
+#endif
+
+            Commands.Add(new CommandTuple { command = Command.CreatedConnection, ContainerIndex = CreatedConnections.Count });
+            CreatedConnections.Add(connection);
         }
     }
 }

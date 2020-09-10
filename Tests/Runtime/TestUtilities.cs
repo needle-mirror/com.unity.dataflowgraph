@@ -6,7 +6,46 @@ using NUnit.Framework;
 
 namespace Unity.DataFlowGraph.Tests
 {
-    public sealed class InvalidTestNodeDefinitionAttribute : Attribute {}
+    /// <summary>
+    /// Used to tag a node as not instantiable automatically for generic tests.
+    /// Could be because it itself is an invalid node definition, tests corner cases
+    /// with exceptions or requires more contexts than a direct instantiation gives.
+    /// </summary>
+    public sealed class IsNotInstantiableAttribute : Attribute {}
+
+#pragma warning disable 618
+    // Silence warnings about old NodeDefinitions in Tests
+    public abstract class NodeDefinition<TSimulationPortDefinition>
+        : Unity.DataFlowGraph.NodeDefinition<TSimulationPortDefinition>
+            where TSimulationPortDefinition : struct, ISimulationPortDefinition
+    {}
+    public abstract class NodeDefinition<TNodeData, TSimulationPortDefinition>
+        : Unity.DataFlowGraph.NodeDefinition<TNodeData, TSimulationPortDefinition>
+            where TNodeData : struct, INodeData
+            where TSimulationPortDefinition : struct, ISimulationPortDefinition
+    {}
+    public abstract class NodeDefinition<TKernelData, TKernelPortDefinition, TKernel>
+        : Unity.DataFlowGraph.NodeDefinition<TKernelData, TKernelPortDefinition, TKernel>
+            where TKernelData : struct, IKernelData
+            where TKernelPortDefinition : struct, IKernelPortDefinition
+            where TKernel : struct, IGraphKernel<TKernelData, TKernelPortDefinition>
+    {}
+    public abstract class NodeDefinition<TNodeData, TKernelData, TKernelPortDefinition, TKernel>
+        : Unity.DataFlowGraph.NodeDefinition<TNodeData, TKernelData, TKernelPortDefinition, TKernel>
+            where TNodeData : struct, INodeData
+            where TKernelData : struct, IKernelData
+            where TKernelPortDefinition : struct, IKernelPortDefinition
+            where TKernel : struct, IGraphKernel<TKernelData, TKernelPortDefinition>
+    {}
+    public abstract class NodeDefinition<TNodeData, TSimulationPortDefinition, TKernelData, TKernelPortDefinition, TKernel>
+        : Unity.DataFlowGraph.NodeDefinition<TNodeData, TSimulationPortDefinition, TKernelData, TKernelPortDefinition, TKernel>
+            where TNodeData : struct, INodeData
+            where TSimulationPortDefinition : struct, ISimulationPortDefinition
+            where TKernelData : struct, IKernelData
+            where TKernelPortDefinition : struct, IKernelPortDefinition
+            where TKernel : struct, IGraphKernel<TKernelData, TKernelPortDefinition>
+    {}
+#pragma warning restore 618
 
     static class TestUtilities
     {
@@ -29,14 +68,16 @@ namespace Unity.DataFlowGraph.Tests
                 if (type == typeof(InternalComponentNode))
                     continue;
 
-                if (def.IsAssignableFrom(type) && !type.IsAbstract)
+                if (def.IsAssignableFrom(type) &&
+                    !type.IsAbstract &&
+                    !type.IsGenericType)
                 {
                     yield return type;
                 }
             }
         }
 
-        public static IEnumerable<Type> FindValidTestNodes()
+        public static IEnumerable<Type> FindInstantiableTestNodes()
         {
             foreach (var dfgType in FindDFGExportedNodes())
             {
@@ -50,7 +91,7 @@ namespace Unity.DataFlowGraph.Tests
             {
                 if (typeof(NodeDefinition).IsAssignableFrom(type) &&
                     !type.IsAbstract &&
-                    !type.GetCustomAttributes(true).Any(a => a is InvalidTestNodeDefinitionAttribute) &&
+                    !type.GetCustomAttributes(true).Any(a => a is IsNotInstantiableAttribute) &&
                     !type.IsGenericType &&
                     type != typeof(NodeWithAllTypesOfPorts))
                 {
@@ -65,7 +106,7 @@ namespace Unity.DataFlowGraph.Tests
             return set.Create<TNodeDefinition>();
         }
 
-        static public NodeHandle CreateNodeFromType(this NodeSet set, Type nodeType)
+        public static NodeHandle CreateNodeFromType(this NodeSet set, Type nodeType)
         {
             var method = typeof(TestUtilities).GetMethod(nameof(CreateNodeFromTypeShim), BindingFlags.Static | BindingFlags.NonPublic);
             var fn = method.MakeGenericMethod(nodeType);
@@ -75,20 +116,33 @@ namespace Unity.DataFlowGraph.Tests
         static PortDescription GetStaticPortDescriptionFromTypeShim<TNodeDefinition>(NodeSet set)
             where TNodeDefinition : NodeDefinition, new()
         {
-            return set.GetDefinition<TNodeDefinition>().GetStaticPortDescription();
+            return set.GetStaticPortDescription<TNodeDefinition>();
         }
 
-        static public PortDescription GetStaticPortDescriptionFromType(this NodeSet set, Type nodeType)
+        public static PortDescription GetStaticPortDescriptionFromType(this NodeSet set, Type nodeType)
         {
             var method = typeof(TestUtilities).GetMethod(nameof(GetStaticPortDescriptionFromTypeShim), BindingFlags.Static | BindingFlags.NonPublic);
             var fn = method.MakeGenericMethod(nodeType);
             return (PortDescription)fn.Invoke(null, new [] { set });
         }
 
+        static NodeDefinition GetDefinitionFromTypeShim<TNodeDefinition>(NodeSet set)
+            where TNodeDefinition : NodeDefinition, new()
+        {
+            return set.GetDefinition<TNodeDefinition>();
+        }
+
+        public static NodeDefinition GetDefinitionFromType(this NodeSet set, Type nodeType)
+        {
+            var method = typeof(TestUtilities).GetMethod(nameof(GetDefinitionFromTypeShim), BindingFlags.Static | BindingFlags.NonPublic);
+            var fn = method.MakeGenericMethod(nodeType);
+            return (NodeDefinition)fn.Invoke(null, new [] { set });
+        }
+
         [Test]
         public static void ExpectedNumberOfTestNodes_AreReported()
         {
-            Assert.Greater(FindValidTestNodes().Count(), 100);
+            Assert.Greater(FindInstantiableTestNodes().Count(), 100);
         }
 
         [Test]

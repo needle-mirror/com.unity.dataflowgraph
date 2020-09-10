@@ -52,7 +52,7 @@ namespace Unity.DataFlowGraph
 
         void PatchDFGInputsFor(Entity e, ValidatedHandle node)
         {
-            ref var graphKernel = ref InternalComponentNode.GetGraphKernel(KernelNodes[node.VHandle.Index].Instance.Kernel);
+            ref var graphKernel = ref InternalComponentNode.GetGraphKernel(KernelNodes[node.Versioned.Index].Instance.Kernel);
 
             for (int i = 0; i < graphKernel.Outputs.Count; ++i)
             {
@@ -66,7 +66,7 @@ namespace Unity.DataFlowGraph
                     if (TypeManager.IsBuffer(output.ComponentType))
                     {
                         var buffer = (BufferHeader*)EntityStore->GetComponentDataWithTypeRO(e, output.ComponentType);
-                        
+
 #if DFG_ASSERTIONS
                         if(output.JITPortIndex == InternalComponentNode.OutputFromECS.InvalidDynamicPort)
                             throw new AssertionException("DFG input connected to non scalar aggregate for which no jit port exists");
@@ -82,7 +82,7 @@ namespace Unity.DataFlowGraph
                     }
                 }
 
-                *output.DFGPatch = source;
+                *output.DFGPatch = new DataInputStorage(source);
             }
         }
     }
@@ -121,7 +121,7 @@ namespace Unity.DataFlowGraph
                     if (!Filter[group])
                         continue;
 
-                    ref var graphBuffers = ref InternalComponentNode.GetGraphKernel(KernelNodes[attachment.Node.VHandle.Index].Instance.Kernel);
+                    ref var graphBuffers = ref InternalComponentNode.GetGraphKernel(KernelNodes[attachment.Node.Versioned.Index].Instance.Kernel);
 
                     graphBuffers.Clear();
                     break;
@@ -133,7 +133,7 @@ namespace Unity.DataFlowGraph
     partial class InternalComponentNode
     {
         internal unsafe static void RecordInputConnections(
-            Topology.InputConnectionCacheWalker incomingConnections, 
+            Topology.InputConnectionCacheWalker incomingConnections,
             in KernelLayout.Pointers instance,
             BlitList<RenderGraph.KernelNode> nodes)
         {
@@ -153,38 +153,38 @@ namespace Unity.DataFlowGraph
                         throw new InvalidOperationException("Cannot have multiple data inputs to the same port");
                 }
 
-                ref readonly var parentKernel = ref nodes[c.Target.Vertex.VHandle.Index];
+                ref readonly var parentKernel = ref nodes[c.Target.Vertex.Versioned.Index];
                 ref readonly var parentTraits = ref parentKernel.TraitsHandle.Resolve();
 
-                if (!parentTraits.Storage.IsComponentNode)
+                if (!parentTraits.KernelStorage.IsComponentNode)
                 {
                     // DFG -> Entity
-                    ref var port = ref parentKernel
+                    ref readonly var port = ref parentKernel
                         .TraitsHandle
                         .Resolve()
                         .DataPorts
                         .FindOutputDataPort(c.OutputPort.PortID);
-                    
+
                     inputs.Add(new InputToECS(port.Resolve(parentKernel.Instance.Ports), connectionType, port.ElementOrType.Size));
                 }
                 else  // Handle entity -> entity connections..
                 {
                     ref readonly var kdata = ref GetEntityData(parentKernel.Instance.Data);
 
-                    // This is where we usually use ElementOrType. Turns out this can be 
+                    // This is where we usually use ElementOrType. Turns out this can be
                     // inferred from ECS type manager... Might revert the old PR.
                     inputs.Add(new InputToECS(kdata.Entity, connectionType, TypeManager.GetTypeInfo(connectionType).ElementSize));
                 }
             }
         }
 
-        internal unsafe static void RecordOutputConnection(void** patch, RenderKernelFunction.BaseKernel* baseKernel, OutputPortID port)
+        internal unsafe static void RecordOutputConnection(DataInputStorage* patch, RenderKernelFunction.BaseKernel* baseKernel, OutputPortID port)
         {
             ref var kernel = ref GetGraphKernel(baseKernel);
 
             if (TypeManager.IsBuffer(port.ECSType.TypeIndex))
             {
-                // For buffers / aggregates we need to allocate an intermediate "port" 
+                // For buffers / aggregates we need to allocate an intermediate "port"
                 // so it's transparent whether it points to ECS or not
                 kernel.Outputs.Add(new OutputFromECS(patch, port.ECSType.TypeIndex, kernel.AllocateJITPort()));
             }

@@ -42,7 +42,7 @@ namespace Unity.DataFlowGraph
             DebugInfo = GetDebugInfo(handle);
         }
 
-        static NodeSet GetNodeSet(NodeHandle handle)
+        static NodeSetAPI GetNodeSet(NodeHandle handle)
         {
             var set = DataFlowGraph.DebugInfo.DebugGetNodeSet(handle.NodeSetID);
             return set != null && set.Exists(handle) ? set : null;
@@ -55,11 +55,11 @@ namespace Unity.DataFlowGraph
         {
             [DebuggerBrowsable(DebuggerBrowsableState.Never)]
             public VersionedHandle VHandle;
-            public NodeSet Set;
+            public NodeSetAPI Set;
             public NodeDefinition Definition;
             public LowLevelNodeTraits Traits;
-            public INodeData NodeData => Definition?.BaseTraits.DebugGetNodeData(new NodeHandle(VHandle));
-            public IKernelData KernelData => Definition?.BaseTraits.DebugGetKernelData(new NodeHandle(VHandle));
+            public INodeData NodeData => Definition?.BaseTraits.DebugGetNodeData(Set, new NodeHandle(VHandle));
+            public IKernelData KernelData => Definition?.BaseTraits.DebugGetKernelData(Set, new NodeHandle(VHandle));
             public InputPort[] InputPorts;
             public OutputPort[] OutputPorts;
         }
@@ -154,14 +154,14 @@ namespace Unity.DataFlowGraph
             }
         }
 
-        static List<InputPort> GetInputs(NodeSet set, NodeDefinition def, NodeHandle handle)
+        static List<InputPort> GetInputs(NodeSetAPI set, NodeDefinition def, NodeHandle handle)
         {
             var ret = new List<InputPort>();
 
             foreach (var port in def.GetPortDescription(handle).Inputs)
             {
                 var cons = new List<InputConnection>();
-                foreach (var con in set.GetInputs(set.Validate(handle)))
+                foreach (var con in set.GetInputs(set.Nodes.Validate(handle.VHandle)))
                     if (con.DestinationInputPort.PortID == (InputPortID)port)
                         cons.Add(new InputConnection {
                             Node = con.Source.ToPublicHandle(),
@@ -173,14 +173,14 @@ namespace Unity.DataFlowGraph
             return ret;
         }
 
-        static List<OutputPort> GetOutputs(NodeSet set, NodeDefinition def, NodeHandle handle)
+        static List<OutputPort> GetOutputs(NodeSetAPI set, NodeDefinition def, NodeHandle handle)
         {
             var ret = new List<OutputPort>();
 
             foreach (var port in def.GetPortDescription(handle).Outputs)
             {
                 var cons = new List<OutputConnection>();
-                foreach (var con in set.GetOutputs(set.Validate(handle)))
+                foreach (var con in set.GetOutputs(set.Nodes.Validate(handle.VHandle)))
                     if (con.SourceOutputPort.PortID == (OutputPortID)port)
                         cons.Add(new OutputConnection {
                             Node = con.Destination.ToPublicHandle(),

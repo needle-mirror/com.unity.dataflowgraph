@@ -34,7 +34,7 @@ namespace Unity.DataFlowGraph
                             {
                                 foreach (var nodeCache in new Topology.RootCacheWalker(Cache.Groups[g]))
                                 {
-                                    ref var node = ref m_Nodes[nodeCache.Vertex.VHandle.Index];
+                                    ref var node = ref m_Nodes[nodeCache.Vertex.Versioned.Index];
                                     tempHandles.Add(node.Fence);
                                 }
                             }

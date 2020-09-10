@@ -1,12 +1,15 @@
 using System;
 using NUnit.Framework;
-
+using Unity.Collections;
 namespace Unity.DataFlowGraph.Tests
 {
     using Topology = TopologyAPI<ValidatedHandle, InputPortArrayID, OutputPortArrayID>;
 
     internal static class TopologyExtensions
-    { 
+    {
+        internal static ValidatedHandle Validate(this NodeSet set, NodeHandle h)
+            => set.Nodes.Validate(h.VHandle);
+
         internal static int Count<TMoveable>(this TMoveable walker)
             where TMoveable : Topology.Database.IMoveable
         {
@@ -82,10 +85,6 @@ namespace Unity.DataFlowGraph.Tests
             {
                 throw new NotImplementedException();
             }
-        }
-
-        class EmptyNode : NodeDefinition<EmptyPorts>
-        {
         }
 
         [Test]
@@ -171,7 +170,7 @@ namespace Unity.DataFlowGraph.Tests
                 set.Connect(b, OneInOutNode.SimulationPorts.Output, a, OneInOutNode.SimulationPorts.Input);
                 set.Connect(c, OneInOutNode.SimulationPorts.Output, b, OneInOutNode.SimulationPorts.Input);
 
-                Assert.AreEqual(set.Validate(a), 
+                Assert.AreEqual(set.Validate(a),
                     set.GetOutputs(
                         set.GetOutputs(set.Validate(c)).GetNthConnection(OneInOutNode.SimulationPorts.Output.Port, 0)
                     ).GetNthConnection(OneInOutNode.SimulationPorts.Output.Port, 0)

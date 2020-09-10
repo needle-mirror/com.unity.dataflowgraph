@@ -15,12 +15,7 @@ namespace Unity.DataFlowGraph.Tests
         // Here we only need to test that mutation to the topology structures happen as we expect them to.
         // There is coverage for connections and flow in general.
 
-        public struct Node : INodeData
-        {
-            public int Contents;
-        }
-
-        public class InOutTestNode : NodeDefinition<Node, InOutTestNode.SimPorts>, IMsgHandler<Message>
+        public class InOutTestNode : SimulationNodeDefinition<InOutTestNode.SimPorts>
         {
             public struct SimPorts : ISimulationPortDefinition
             {
@@ -28,19 +23,20 @@ namespace Unity.DataFlowGraph.Tests
                 public MessageOutput<InOutTestNode, Message> Output;
             }
 
-            public void HandleMessage(in MessageContext ctx, in Message msg)
+            struct Node : INodeData, IMsgHandler<Message>
             {
-                ref var data = ref GetNodeData(ctx.Handle);
+                public int Contents;
 
-                Assert.That(ctx.Port == SimulationPorts.Input);
-                data.Contents += msg.Contents;
-                ctx.EmitMessage(SimulationPorts.Output, new Message(data.Contents + 1));
+                public void HandleMessage(in MessageContext ctx, in Message msg)
+                {
+                    Assert.That(ctx.Port == SimulationPorts.Input);
+                    Contents += msg.Contents;
+                    ctx.EmitMessage(SimulationPorts.Output, new Message(Contents + 1));
+                }
             }
         }
 
-        public class StaticUberNode
-            : NodeDefinition<StaticUberNode.Data, StaticUberNode.SimPorts>
-                , IMsgHandler<Message>
+        public class StaticUberNode : SimulationNodeDefinition<StaticUberNode.SimPorts>
         {
             public struct SimPorts : ISimulationPortDefinition
             {
@@ -48,24 +44,23 @@ namespace Unity.DataFlowGraph.Tests
                 public MessageOutput<StaticUberNode, Message> ForwardedOutput;
             }
 
-            public struct Data : INodeData
+            public struct Data : INodeData, IInit, IDestroy, IMsgHandler<Message>
             {
                 public NodeHandle<InOutTestNode> ChildNode;
+
+                public void HandleMessage(in MessageContext ctx, in Message msg) => throw new NotImplementedException();
+
+                public void Init(InitContext ctx)
+                {
+                    ChildNode = ctx.Set.Create<InOutTestNode>();
+                    ctx.ForwardInput(SimulationPorts.ForwardedInput, ChildNode, InOutTestNode.SimulationPorts.Input);
+                    ctx.ForwardOutput(SimulationPorts.ForwardedOutput, ChildNode, InOutTestNode.SimulationPorts.Output);
+                }
+
+                public void Destroy(DestroyContext ctx) => ctx.Set.Destroy(ChildNode);
             }
 
-            public void HandleMessage(in MessageContext ctx, in Message msg) => throw new NotImplementedException();
-
-            protected internal override void Init(InitContext context)
-            {
-                ref var data = ref GetNodeData(context.Handle);
-                data.ChildNode = Set.Create<InOutTestNode>();
-                context.ForwardInput(SimulationPorts.ForwardedInput, data.ChildNode, InOutTestNode.SimulationPorts.Input);
-                context.ForwardOutput(SimulationPorts.ForwardedOutput, data.ChildNode, InOutTestNode.SimulationPorts.Output);
-            }
-
-            protected internal override void Destroy(DestroyContext ctx) => Set.Destroy(GetNodeData(ctx.Handle).ChildNode);
-
-            public ref Data ExposeData(NodeHandle handle) => ref GetNodeData(handle);
+            public ref Data ExposeData(NodeHandle handle) => ref Set.GetNodeData<Data>(handle);
         }
 
         [Test]
@@ -76,23 +71,23 @@ namespace Unity.DataFlowGraph.Tests
                 var msgNode = set.Create<InOutTestNode>();
                 var uberNode = set.Create<StaticUberNode>();
 
-                var initialEdgeCount = set.GetTopologyDatabase().CountEstablishedConnections();
+                var initialEdgeCount = set.GetTopologyDatabase_ForTesting().CountEstablishedConnections();
 
                 // other -> ubernode
 
                 set.Connect(msgNode, InOutTestNode.SimulationPorts.Output, uberNode, StaticUberNode.SimulationPorts.ForwardedInput);
-                Assert.AreEqual(initialEdgeCount + 1, set.GetTopologyDatabase().CountEstablishedConnections());
+                Assert.AreEqual(initialEdgeCount + 1, set.GetTopologyDatabase_ForTesting().CountEstablishedConnections());
 
                 set.Disconnect(msgNode, InOutTestNode.SimulationPorts.Output, uberNode, StaticUberNode.SimulationPorts.ForwardedInput);
-                Assert.AreEqual(1, set.GetTopologyDatabase().FreeEdges);
+                Assert.AreEqual(1, set.GetTopologyDatabase_ForTesting().FreeEdges);
 
                 // ubernode -> other
 
                 set.Connect(uberNode, StaticUberNode.SimulationPorts.ForwardedOutput, msgNode, InOutTestNode.SimulationPorts.Input);
-                Assert.AreEqual(0, set.GetTopologyDatabase().FreeEdges);
+                Assert.AreEqual(0, set.GetTopologyDatabase_ForTesting().FreeEdges);
 
                 set.Disconnect(uberNode, StaticUberNode.SimulationPorts.ForwardedOutput, msgNode, InOutTestNode.SimulationPorts.Input);
-                Assert.AreEqual(1, set.GetTopologyDatabase().FreeEdges);
+                Assert.AreEqual(1, set.GetTopologyDatabase_ForTesting().FreeEdges);
 
                 set.Destroy(msgNode, uberNode);
             }
@@ -109,7 +104,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 set.Connect(msgNode, InOutTestNode.SimulationPorts.Output, uberNode, StaticUberNode.SimulationPorts.ForwardedInput);
 
-                ref readonly var newEdge = ref set.GetTopologyDatabase()[set.GetTopologyDatabase().TotalConnections - 1];
+                ref readonly var newEdge = ref set.GetTopologyDatabase_ForTesting()[set.GetTopologyDatabase_ForTesting().TotalConnections - 1];
 
                 Assert.IsTrue(newEdge.Valid);
                 Assert.AreEqual(newEdge.Source.ToPublicHandle(), (NodeHandle)msgNode);
@@ -134,7 +129,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 set.Connect(uberNode, StaticUberNode.SimulationPorts.ForwardedOutput, msgNode, InOutTestNode.SimulationPorts.Input);
 
-                ref readonly var newEdge = ref set.GetTopologyDatabase()[set.GetTopologyDatabase().TotalConnections - 1];
+                ref readonly var newEdge = ref set.GetTopologyDatabase_ForTesting()[set.GetTopologyDatabase_ForTesting().TotalConnections - 1];
 
                 Assert.IsTrue(newEdge.Valid);
                 Assert.AreEqual(newEdge.Source.ToPublicHandle(), (NodeHandle)subGraphNode);
@@ -161,7 +156,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 set.Connect(uberNodeA, StaticUberNode.SimulationPorts.ForwardedOutput, uberNodeB, StaticUberNode.SimulationPorts.ForwardedInput);
 
-                ref readonly var newEdge = ref set.GetTopologyDatabase()[set.GetTopologyDatabase().TotalConnections - 1];
+                ref readonly var newEdge = ref set.GetTopologyDatabase_ForTesting()[set.GetTopologyDatabase_ForTesting().TotalConnections - 1];
 
                 Assert.IsTrue(newEdge.Valid);
                 Assert.AreEqual(newEdge.Source.ToPublicHandle(), (NodeHandle)childHandleA);
@@ -176,9 +171,7 @@ namespace Unity.DataFlowGraph.Tests
         }
 
 
-        public class RootNestedUberNode
-            : NodeDefinition<RootNestedUberNode.Data, RootNestedUberNode.SimPorts>
-                , IMsgHandler<Message>
+        public class RootNestedUberNode : SimulationNodeDefinition<RootNestedUberNode.SimPorts>
         {
             public struct SimPorts : ISimulationPortDefinition
             {
@@ -190,34 +183,30 @@ namespace Unity.DataFlowGraph.Tests
                 public MessageOutput<RootNestedUberNode, Message> ForwardedOutput;
             }
 
-            public struct Data : INodeData
+            public struct Data : INodeData, IInit, IDestroy, IMsgHandler<Message>
             {
                 public NodeHandle<NestedUberNodeMiddle> Child;
+
+                public void HandleMessage(in MessageContext ctx, in Message msg) => throw new NotImplementedException();
+
+                public void Init(InitContext ctx)
+                {
+                    Child = ctx.Set.Create<NestedUberNodeMiddle>();
+
+                    ctx.ForwardInput(SimulationPorts.ForwardedInput, Child, NestedUberNodeMiddle.SimulationPorts.ForwardedInput);
+                    ctx.ForwardOutput(SimulationPorts.ForwardedOutput, Child, NestedUberNodeMiddle.SimulationPorts.ForwardedOutput);
+                }
+
+                public void Destroy(DestroyContext ctx)
+                {
+                    ctx.Set.Destroy(Child);
+                }
             }
 
-            public void HandleMessage(in MessageContext ctx, in Message msg) => throw new NotImplementedException();
-
-            protected internal override void Init(InitContext ctx)
-            {
-                ref var data = ref GetNodeData(ctx.Handle);
-
-                data.Child = Set.Create<NestedUberNodeMiddle>();
-
-                ctx.ForwardInput(SimulationPorts.ForwardedInput, data.Child, NestedUberNodeMiddle.SimulationPorts.ForwardedInput);
-                ctx.ForwardOutput(SimulationPorts.ForwardedOutput, data.Child, NestedUberNodeMiddle.SimulationPorts.ForwardedOutput);
-            }
-
-            protected internal override void Destroy(DestroyContext ctx)
-            {
-                Set.Destroy(GetNodeData(ctx.Handle).Child);
-            }
-
-            public ref Data ExposeData(NodeHandle handle) => ref GetNodeData(handle);
+            public ref Data ExposeData(NodeHandle handle) => ref Set.GetNodeData<Data>(handle);
         }
 
-        public class NestedUberNodeMiddle
-            : NodeDefinition<NestedUberNodeMiddle.Data, NestedUberNodeMiddle.SimPorts>
-                , IMsgHandler<Message>
+        public class NestedUberNodeMiddle : SimulationNodeDefinition<NestedUberNodeMiddle.SimPorts>
         {
             public struct SimPorts : ISimulationPortDefinition
             {
@@ -229,28 +218,27 @@ namespace Unity.DataFlowGraph.Tests
                 public MessageOutput<NestedUberNodeMiddle, Message> ForwardedOutput;
             }
 
-            public struct Data : INodeData
+            public struct Data : INodeData, IInit, IDestroy, IMsgHandler<Message>
             {
                 public NodeHandle<InOutTestNode> Child;
+
+                public void HandleMessage(in MessageContext ctx, in Message msg) => throw new NotImplementedException();
+
+                public void Init(InitContext ctx)
+                {
+                    Child = ctx.Set.Create<InOutTestNode>();
+
+                    ctx.ForwardInput(SimulationPorts.ForwardedInput, Child, InOutTestNode.SimulationPorts.Input);
+                    ctx.ForwardOutput(SimulationPorts.ForwardedOutput, Child, InOutTestNode.SimulationPorts.Output);
+                }
+
+                public void Destroy(DestroyContext ctx)
+                {
+                    ctx.Set.Destroy(Child);
+                }
             }
 
-            public void HandleMessage(in MessageContext ctx, in Message msg) => throw new NotImplementedException();
-
-            protected internal override void Init(InitContext ctx)
-            {
-                ref var data = ref GetNodeData(ctx.Handle);
-                data.Child = Set.Create<InOutTestNode>();
-
-                ctx.ForwardInput(SimulationPorts.ForwardedInput, data.Child, InOutTestNode.SimulationPorts.Input);
-                ctx.ForwardOutput(SimulationPorts.ForwardedOutput, data.Child, InOutTestNode.SimulationPorts.Output);
-            }
-
-            protected internal override void Destroy(DestroyContext ctx)
-            {
-                Set.Destroy(GetNodeData(ctx.Handle).Child);
-            }
-
-            public ref Data ExposeData(NodeHandle handle) => ref GetNodeData(handle);
+            public ref Data ExposeData(NodeHandle handle) => ref Set.GetNodeData<Data>(handle);
         }
 
         [Test]
@@ -269,7 +257,7 @@ namespace Unity.DataFlowGraph.Tests
                 var sourceA = set.GetDefinition(nestedMiddleA).ExposeData(nestedMiddleA).Child;
                 var sourceB = set.GetDefinition(nestedMiddleB).ExposeData(nestedMiddleB).Child;
 
-                ref readonly var newEdge = ref set.GetTopologyDatabase()[set.GetTopologyDatabase().TotalConnections - 1];
+                ref readonly var newEdge = ref set.GetTopologyDatabase_ForTesting()[set.GetTopologyDatabase_ForTesting().TotalConnections - 1];
 
                 Assert.IsTrue(newEdge.Valid);
                 Assert.AreEqual(newEdge.Source.ToPublicHandle(), (NodeHandle)sourceA);
@@ -293,7 +281,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 var forwardTable = set.GetForwardingTable();
 
-                ref var internalNestedMiddle = ref set.GetNodeChecked(nestedMiddle);
+                ref readonly var internalNestedMiddle = ref set.Nodes[nestedMiddle.VHandle];
                 Assert.AreNotEqual(internalNestedMiddle.ForwardedPortHead, ForwardPortHandle.Invalid);
 
                 // Test that middle level uber node's forward table also resolves to embedded child
@@ -328,7 +316,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 var forwardTable = set.GetForwardingTable();
 
-                ref var internalRootUberNode = ref set.GetNodeChecked(rootUberNode);
+                ref readonly var internalRootUberNode = ref set.Nodes[rootUberNode.VHandle];
 
                 Assert.AreNotEqual(internalRootUberNode.ForwardedPortHead, ForwardPortHandle.Invalid);
 
@@ -355,9 +343,7 @@ namespace Unity.DataFlowGraph.Tests
 
         public class AsExpectedException : Exception { }
 
-        public class AlienUberNode
-            : NodeDefinition<AlienUberNode.Data, AlienUberNode.SimPorts>
-                , IMsgHandler<Message>
+        public class AlienUberNode : SimulationNodeDefinition<AlienUberNode.SimPorts>
         {
             public struct SimPorts : ISimulationPortDefinition
             {
@@ -365,30 +351,29 @@ namespace Unity.DataFlowGraph.Tests
                 public MessageOutput<AlienUberNode, Message> ForwardedOutput;
             }
 
-            public struct Data : INodeData
+            struct Data : INodeData, IInit, IMsgHandler<Message>
             {
                 public NodeHandle<InOutTestNode> Child;
-            }
 
-            public void HandleMessage(in MessageContext ctx, in Message msg) => throw new NotImplementedException();
+                public void HandleMessage(in MessageContext ctx, in Message msg) => throw new NotImplementedException();
 
-            protected internal override void Init(InitContext ctx)
-            {
-                ref var data = ref GetNodeData(ctx.Handle);
-                data.Child = Set.Create<InOutTestNode>();
-
-                try
+                public void Init(InitContext ctx)
                 {
-                    ctx.ForwardInput(InOutTestNode.SimulationPorts.Input, data.Child, InOutTestNode.SimulationPorts.Input);
+                    Child = ctx.Set.Create<InOutTestNode>();
 
-                }
-                catch (ArgumentException)
-                {
-                    Debug.Log("All is good");
-                }
-                finally
-                {
-                    Set.Destroy(data.Child);
+                    try
+                    {
+                        ctx.ForwardInput(InOutTestNode.SimulationPorts.Input, Child, InOutTestNode.SimulationPorts.Input);
+
+                    }
+                    catch (ArgumentException)
+                    {
+                        Debug.Log("All is good");
+                    }
+                    finally
+                    {
+                        ctx.Set.Destroy(Child);
+                    }
                 }
             }
         }
@@ -404,9 +389,7 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        public class SelfForwardingUberNode
-            : NodeDefinition<SelfForwardingUberNode.Data, SelfForwardingUberNode.SimPorts>
-                , IMsgHandler<Message>
+        public class SelfForwardingUberNode : SimulationNodeDefinition<SelfForwardingUberNode.SimPorts>
         {
             public struct SimPorts : ISimulationPortDefinition
             {
@@ -414,19 +397,20 @@ namespace Unity.DataFlowGraph.Tests
                 public MessageOutput<SelfForwardingUberNode, Message> ForwardedOutput;
             }
 
-            public struct Data : INodeData { }
+            struct Data : INodeData, IInit, IMsgHandler<Message> {
 
-            public void HandleMessage(in MessageContext ctx, in Message msg) => throw new NotImplementedException();
+                public void HandleMessage(in MessageContext ctx, in Message msg) => throw new NotImplementedException();
 
-            protected internal override void Init(InitContext ctx)
-            {
-                try
+                public void Init(InitContext ctx)
                 {
-                    ctx.ForwardInput(SimulationPorts.ForwardedInput, Set.CastHandle<SelfForwardingUberNode>(ctx.Handle), SimulationPorts.ForwardedInput);
-                }
-                catch (ArgumentException)
-                {
-                    Debug.Log("All is good");
+                    try
+                    {
+                        ctx.ForwardInput(SimulationPorts.ForwardedInput, ctx.Set.CastHandle<SelfForwardingUberNode>(ctx.Handle), SimulationPorts.ForwardedInput);
+                    }
+                    catch (ArgumentException)
+                    {
+                        Debug.Log("All is good");
+                    }
                 }
             }
         }
@@ -454,8 +438,8 @@ namespace Unity.DataFlowGraph.Tests
 
             try
             {
-                var source = ValidatedHandle.Create(1, 3);
-                var dest = new NodeHandle<NodeWithAllTypesOfPorts>(new VersionedHandle(2, 0, 3));
+                var source = ValidatedHandle.Create_ForTesting(VersionedHandle.Create_ForTesting(1, 3, 99));
+                var dest = new NodeHandle<NodeWithAllTypesOfPorts>(VersionedHandle.Create_ForTesting(2, 0, 3));
 
                 InitContext ctx = new InitContext(source, NodeDefinitionTypeIndex<NodeWithAllTypesOfPorts>.Index, null, ref ports);
 
@@ -469,8 +453,8 @@ namespace Unity.DataFlowGraph.Tests
                     case PortTypes.Message:
                         inputPort = NodeWithAllTypesOfPorts.SimulationPorts.MessageIn.Port;
                         outputPort = NodeWithAllTypesOfPorts.SimulationPorts.MessageOut.Port;
-                        inputArrayPort = NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayIn.InputPort;
-                        outputArrayPort = NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayOut.OutputPort;
+                        inputArrayPort = NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayIn.GetPortID();
+                        outputArrayPort = NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayOut.GetPortID();
 
                         ctx.ForwardInput(NodeWithAllTypesOfPorts.SimulationPorts.MessageIn, dest, NodeWithAllTypesOfPorts.SimulationPorts.MessageIn);
                         ctx.ForwardOutput(NodeWithAllTypesOfPorts.SimulationPorts.MessageOut, dest, NodeWithAllTypesOfPorts.SimulationPorts.MessageOut);
@@ -487,7 +471,7 @@ namespace Unity.DataFlowGraph.Tests
                     case PortTypes.Data:
                         inputPort = NodeWithAllTypesOfPorts.KernelPorts.InputScalar.Port;
                         outputPort = NodeWithAllTypesOfPorts.KernelPorts.OutputScalar.Port;
-                        inputArrayPort = NodeWithAllTypesOfPorts.KernelPorts.InputArrayScalar.InputPort;
+                        inputArrayPort = NodeWithAllTypesOfPorts.KernelPorts.InputArrayScalar.GetPortID();
 
                         ctx.ForwardInput(NodeWithAllTypesOfPorts.KernelPorts.InputScalar, dest, NodeWithAllTypesOfPorts.KernelPorts.InputScalar);
                         ctx.ForwardOutput(NodeWithAllTypesOfPorts.KernelPorts.OutputScalar, dest, NodeWithAllTypesOfPorts.KernelPorts.OutputScalar);
@@ -496,7 +480,7 @@ namespace Unity.DataFlowGraph.Tests
                     case PortTypes.DataBuffer:
                         inputPort = NodeWithAllTypesOfPorts.KernelPorts.InputBuffer.Port;
                         outputPort = NodeWithAllTypesOfPorts.KernelPorts.OutputBuffer.Port;
-                        inputArrayPort = NodeWithAllTypesOfPorts.KernelPorts.InputArrayBuffer.InputPort;
+                        inputArrayPort = NodeWithAllTypesOfPorts.KernelPorts.InputArrayBuffer.GetPortID();
 
                         ctx.ForwardInput(NodeWithAllTypesOfPorts.KernelPorts.InputBuffer, dest, NodeWithAllTypesOfPorts.KernelPorts.InputBuffer);
                         ctx.ForwardOutput(NodeWithAllTypesOfPorts.KernelPorts.OutputBuffer, dest, NodeWithAllTypesOfPorts.KernelPorts.OutputBuffer);
@@ -548,8 +532,7 @@ namespace Unity.DataFlowGraph.Tests
 
 
         public class UberNodeThatSendsMessages_ThroughForwardingPorts
-            : NodeDefinition<UberNodeThatSendsMessages_ThroughForwardingPorts.Data, UberNodeThatSendsMessages_ThroughForwardingPorts.SimPorts>
-            , IMsgHandler<Message>
+            : SimulationNodeDefinition<UberNodeThatSendsMessages_ThroughForwardingPorts.SimPorts>
         {
             public struct SimPorts : ISimulationPortDefinition
             {
@@ -557,26 +540,25 @@ namespace Unity.DataFlowGraph.Tests
                 public MessageOutput<UberNodeThatSendsMessages_ThroughForwardingPorts, Message> ForwardedOutput;
             }
 
-            public struct Data : INodeData
+            struct Data : INodeData, IInit, IDestroy, IMsgHandler<Message>
             {
                 public NodeHandle<InOutTestNode> Child;
-            }
 
-            public void HandleMessage(in MessageContext ctx, in Message msg)
-            {
-                ctx.EmitMessage(SimulationPorts.ForwardedOutput, msg);
-            }
+                public void HandleMessage(in MessageContext ctx, in Message msg)
+                {
+                    ctx.EmitMessage(SimulationPorts.ForwardedOutput, msg);
+                }
 
-            protected internal override void Init(InitContext ctx)
-            {
-                ref var data = ref GetNodeData(ctx.Handle);
-                data.Child = Set.Create<InOutTestNode>();
-                ctx.ForwardOutput(SimulationPorts.ForwardedOutput, data.Child, InOutTestNode.SimulationPorts.Output);
-            }
+                public void Init(InitContext ctx)
+                {
+                    Child = ctx.Set.Create<InOutTestNode>();
+                    ctx.ForwardOutput(SimulationPorts.ForwardedOutput, Child, InOutTestNode.SimulationPorts.Output);
+                }
 
-            protected internal override void Destroy(DestroyContext ctx)
-            {
-                Set.Destroy(GetNodeData(ctx.Handle).Child);
+                public void Destroy(DestroyContext ctx)
+                {
+                    ctx.Set.Destroy(Child);
+                }
             }
         }
 
@@ -595,20 +577,21 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
+        [IsNotInstantiable]
         public class UberNodeThatForwardsToNonExistingNode
-            : NodeDefinition<UberNodeThatForwardsToNonExistingNode.Data, UberNodeThatForwardsToNonExistingNode.SimPorts>
+            : SimulationNodeDefinition<UberNodeThatForwardsToNonExistingNode.SimPorts>
         {
             public struct SimPorts : ISimulationPortDefinition
             {
                 public MessageOutput<UberNodeThatForwardsToNonExistingNode, Message> ForwardedOutput;
             }
 
-            public struct Data : INodeData { }
-
-
-            protected internal override void Init(InitContext ctx)
+            struct Data : INodeData, IInit
             {
-                ctx.ForwardOutput(SimulationPorts.ForwardedOutput, new NodeHandle<InOutTestNode>(), InOutTestNode.SimulationPorts.Output);
+                public void Init(InitContext ctx)
+                {
+                    ctx.ForwardOutput(SimulationPorts.ForwardedOutput, new NodeHandle<InOutTestNode>(), InOutTestNode.SimulationPorts.Output);
+                }
             }
         }
 
@@ -622,9 +605,9 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
+        [IsNotInstantiable]
         public class UberNodeThatPrematurely_KillsChildren
-            : NodeDefinition<UberNodeThatPrematurely_KillsChildren.Data, UberNodeThatPrematurely_KillsChildren.SimPorts>
-                , IMsgHandler<Message>
+            : SimulationNodeDefinition<UberNodeThatPrematurely_KillsChildren.SimPorts>
         {
             public struct SimPorts : ISimulationPortDefinition
             {
@@ -632,22 +615,21 @@ namespace Unity.DataFlowGraph.Tests
                 public MessageOutput<UberNodeThatPrematurely_KillsChildren, Message> ForwardedOutput;
             }
 
-            public struct Data : INodeData
+            struct Data : INodeData, IInit, IMsgHandler<Message>
             {
                 public NodeHandle<InOutTestNode> Child;
+
+                public void Init(InitContext ctx)
+                {
+                    Child = ctx.Set.Create<InOutTestNode>();
+                    ctx.ForwardOutput(SimulationPorts.ForwardedOutput, Child, InOutTestNode.SimulationPorts.Output);
+                    ctx.ForwardInput(SimulationPorts.ForwardedInput, Child, InOutTestNode.SimulationPorts.Input);
+                }
+
+                public void HandleMessage(in MessageContext ctx, in Message msg) => throw new NotImplementedException();
             }
 
-            protected internal override void Init(InitContext ctx)
-            {
-                ref var data = ref GetNodeData(ctx.Handle);
-                data.Child = Set.Create<InOutTestNode>();
-                ctx.ForwardOutput(SimulationPorts.ForwardedOutput, data.Child, InOutTestNode.SimulationPorts.Output);
-                ctx.ForwardInput(SimulationPorts.ForwardedInput, data.Child, InOutTestNode.SimulationPorts.Input);
-            }
-
-            public void KillChildren(NodeHandle handle) => Set.Destroy(GetNodeData(handle).Child);
-
-            public void HandleMessage(in MessageContext ctx, in Message msg) => throw new NotImplementedException();
+            public void KillChildren(NodeHandle handle) => Set.Destroy(Set.GetNodeData<Data>(handle).Child);
         }
 
         [Test]
@@ -674,38 +656,35 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         public class UberNode_ThatForwardsPortTwice
-            : NodeDefinition<UberNode_ThatForwardsPortTwice.Data, UberNode_ThatForwardsPortTwice.SimPorts>
-                , IMsgHandler<Message>
+            : SimulationNodeDefinition<UberNode_ThatForwardsPortTwice.SimPorts>
         {
             public struct SimPorts : ISimulationPortDefinition
             {
                 public MessageInput<UberNode_ThatForwardsPortTwice, Message> ForwardedInput;
             }
 
-            public struct Data : INodeData
+            struct Data : INodeData, IInit, IDestroy, IMsgHandler<Message>
             {
                 public NodeHandle<InOutTestNode> Child;
-            }
 
-            protected internal override void Init(InitContext ctx)
-            {
-                ref var data = ref GetNodeData(ctx.Handle);
-                data.Child = Set.Create<InOutTestNode>();
-                ctx.ForwardInput(SimulationPorts.ForwardedInput, data.Child, InOutTestNode.SimulationPorts.Input);
-
-                try
+                public void Init(InitContext ctx)
                 {
-                    ctx.ForwardInput(SimulationPorts.ForwardedInput, data.Child, InOutTestNode.SimulationPorts.Input);
-                }
-                catch
-                {
-                    Debug.Log("All is good");
+                    Child = ctx.Set.Create<InOutTestNode>();
+                    ctx.ForwardInput(SimulationPorts.ForwardedInput, Child, InOutTestNode.SimulationPorts.Input);
+
+                    try
+                    {
+                        ctx.ForwardInput(SimulationPorts.ForwardedInput, Child, InOutTestNode.SimulationPorts.Input);
+                    }
+                    catch
+                    {
+                        Debug.Log("All is good");
+                    }
                 }
 
+                public void Destroy(DestroyContext ctx) => ctx.Set.Destroy(Child);
+                public void HandleMessage(in MessageContext ctx, in Message msg) => throw new NotImplementedException();
             }
-
-            protected internal override void Destroy(DestroyContext ctx) => Set.Destroy(GetNodeData(ctx.Handle).Child);
-            public void HandleMessage(in MessageContext ctx, in Message msg) => throw new NotImplementedException();
         }
 
         [Test]
@@ -721,17 +700,20 @@ namespace Unity.DataFlowGraph.Tests
 
         public class AllIsGoodException : Exception { }
 
-        public class AllIsGoodMessageEndPoint : NodeDefinition<Node, AllIsGoodMessageEndPoint.SimPorts>, IMsgHandler<Message>
+        public class AllIsGoodMessageEndPoint : SimulationNodeDefinition<AllIsGoodMessageEndPoint.SimPorts>
         {
             public struct SimPorts : ISimulationPortDefinition
             {
                 public MessageInput<AllIsGoodMessageEndPoint, Message> Input;
             }
 
-            public void HandleMessage(in MessageContext ctx, in Message msg)
+            struct Node : INodeData, IMsgHandler<Message>
             {
-                if (ctx.Port == SimulationPorts.Input)
-                    throw new AllIsGoodException();
+                public void HandleMessage(in MessageContext ctx, in Message msg)
+                {
+                    if (ctx.Port == SimulationPorts.Input)
+                        throw new AllIsGoodException();
+                }
             }
         }
 
@@ -754,8 +736,7 @@ namespace Unity.DataFlowGraph.Tests
 
 
         public class UberNodeWithDataForwarding
-            : NodeDefinition<UberNodeWithDataForwarding.Data, UberNodeWithDataForwarding.SimPorts, UberNodeWithDataForwarding.KernelData, UberNodeWithDataForwarding.KernelDefs, UberNodeWithDataForwarding.Kernel>
-                , IMsgHandler<Message>
+            : SimulationKernelNodeDefinition<UberNodeWithDataForwarding.SimPorts, UberNodeWithDataForwarding.KernelDefs>
         {
             public struct SimPorts : ISimulationPortDefinition
             {
@@ -767,15 +748,10 @@ namespace Unity.DataFlowGraph.Tests
                 public DataOutput<UberNodeWithDataForwarding, Buffer<int>> ForwardedDataOutputBuffer;
             }
 
-            public struct Data : INodeData
-            {
-                public NodeHandle<NodeWithAllTypesOfPorts> Child;
-            }
-
-            public struct KernelData : IKernelData { }
+            struct KernelData : IKernelData { }
 
             [BurstCompile(CompileSynchronously = true)]
-            public struct Kernel : IGraphKernel<KernelData, KernelDefs>
+            struct Kernel : IGraphKernel<KernelData, KernelDefs>
             {
                 public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
                 {
@@ -783,23 +759,27 @@ namespace Unity.DataFlowGraph.Tests
                 }
             }
 
-            public void HandleMessage(in MessageContext ctx, in Message msg) => throw new NotImplementedException();
-
-            protected internal override void Init(InitContext ctx)
+            public struct Data : INodeData, IInit, IDestroy, IMsgHandler<Message>
             {
-                ref var data = ref GetNodeData(ctx.Handle);
-                data.Child = Set.Create<NodeWithAllTypesOfPorts>();
+                public NodeHandle<NodeWithAllTypesOfPorts> Child;
 
-                ctx.ForwardInput(KernelPorts.ForwardedDataInput, data.Child, NodeWithAllTypesOfPorts.KernelPorts.InputScalar);
-                ctx.ForwardOutput(KernelPorts.ForwardedDataOutputBuffer, data.Child, NodeWithAllTypesOfPorts.KernelPorts.OutputBuffer);
+                public void HandleMessage(in MessageContext ctx, in Message msg) => throw new NotImplementedException();
+
+                public void Init(InitContext ctx)
+                {
+                    Child = ctx.Set.Create<NodeWithAllTypesOfPorts>();
+
+                    ctx.ForwardInput(KernelPorts.ForwardedDataInput, Child, NodeWithAllTypesOfPorts.KernelPorts.InputScalar);
+                    ctx.ForwardOutput(KernelPorts.ForwardedDataOutputBuffer, Child, NodeWithAllTypesOfPorts.KernelPorts.OutputBuffer);
+                }
+
+                public void Destroy(DestroyContext ctx)
+                {
+                    ctx.Set.Destroy(Child);
+                }
             }
 
-            protected internal override void Destroy(DestroyContext ctx)
-            {
-                Set.Destroy(GetNodeData(ctx.Handle).Child);
-            }
-
-            public ref Data ExposeData(NodeHandle handle) => ref GetNodeData(handle);
+            public ref Data ExposeData(NodeHandle handle) => ref Set.GetNodeData<Data>(handle);
         }
 
         [Test]
@@ -875,7 +855,7 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void GraphValues_AreForwarded_AsExpected()
+        public unsafe void GraphValues_AreForwarded_AsExpected()
         {
             using (var set = new NodeSet())
             {
@@ -885,10 +865,13 @@ namespace Unity.DataFlowGraph.Tests
                 var gv = set.CreateGraphValue(uber, UberNodeWithDataForwarding.KernelPorts.ForwardedDataOutputBuffer);
                 var values = set.GetOutputValues();
 
-                var value = values[gv.Handle.Index];
+                ref readonly var value = ref values[gv.Handle];
 
-                Assert.AreEqual((NodeHandle)child, value.Source.Handle.ToPublicHandle());
-                Assert.AreEqual(NodeWithAllTypesOfPorts.KernelPorts.OutputBuffer.Port, value.Source.Port.PortID);
+                Assert.AreEqual((NodeHandle)child, value.Source.ToPublicHandle());
+
+                ref readonly var traits = ref set.GetLLTraits()[set.Nodes[value.Source.Versioned].TraitsIndex].Resolve();
+                ref readonly var outputPort = ref traits.DataPorts.FindOutputDataPort(NodeWithAllTypesOfPorts.KernelPorts.OutputBuffer.Port);
+                Assert.True(Utility.AsPointer(outputPort) == value.OutputDeclaration);
 
                 set.ReleaseGraphValue(gv);
                 set.Destroy(uber);
@@ -913,8 +896,7 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         public class UberNode_ThatForwards_NonMonotonically
-            : NodeDefinition<UberNode_ThatForwards_NonMonotonically.Data, UberNode_ThatForwards_NonMonotonically.SimPorts>
-        , IMsgHandler<Message>
+            : SimulationNodeDefinition<UberNode_ThatForwards_NonMonotonically.SimPorts>
         {
             public struct SimPorts : ISimulationPortDefinition
             {
@@ -922,30 +904,29 @@ namespace Unity.DataFlowGraph.Tests
                 public MessageInput<UberNode_ThatForwards_NonMonotonically, Message> ForwardedInput2;
             }
 
-            public struct Data : INodeData
+            struct Data : INodeData, IInit, IDestroy, IMsgHandler<Message>
             {
                 public NodeHandle<InOutTestNode> Child;
-            }
 
-            protected internal override void Init(InitContext ctx)
-            {
-                ref var data = ref GetNodeData(ctx.Handle);
-                data.Child = Set.Create<InOutTestNode>();
-                ctx.ForwardInput(SimulationPorts.ForwardedInput2, data.Child, InOutTestNode.SimulationPorts.Input);
-
-                try
+                public void Init(InitContext ctx)
                 {
-                    ctx.ForwardInput(SimulationPorts.ForwardedInput, data.Child, InOutTestNode.SimulationPorts.Input);
-                }
-                catch
-                {
-                    Debug.Log("All is good");
+                    Child = ctx.Set.Create<InOutTestNode>();
+                    ctx.ForwardInput(SimulationPorts.ForwardedInput2, Child, InOutTestNode.SimulationPorts.Input);
+
+                    try
+                    {
+                        ctx.ForwardInput(SimulationPorts.ForwardedInput, Child, InOutTestNode.SimulationPorts.Input);
+                    }
+                    catch
+                    {
+                        Debug.Log("All is good");
+                    }
+
                 }
 
+                public void Destroy(DestroyContext ctx) => ctx.Set.Destroy(Child);
+                public void HandleMessage(in MessageContext ctx, in Message msg) => throw new NotImplementedException();
             }
-
-            protected internal override void Destroy(DestroyContext ctx) => Set.Destroy(GetNodeData(ctx.Handle).Child);
-            public void HandleMessage(in MessageContext ctx, in Message msg) => throw new NotImplementedException();
         }
 
         [Test]
@@ -959,9 +940,10 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        class ForwarderECSNode : NodeDefinition<ForwarderECSNode.Data, ForwarderECSNode.KernelData, ForwarderECSNode.KernelDefs, ForwarderECSNode.GraphKernel>
+        [IsNotInstantiable]
+        class ForwarderECSNode : KernelNodeDefinition<ForwarderECSNode.KernelDefs>
         {
-            public struct KernelData : IKernelData { }
+            struct KernelData : IKernelData { }
 
             public struct KernelDefs : IKernelPortDefinition
             {
@@ -971,31 +953,30 @@ namespace Unity.DataFlowGraph.Tests
 #pragma warning restore 649
             }
 
-            public struct Data : INodeData
-            {
-                public Entity Entity;
-                public NodeHandle<ComponentNode> Child;
-            }
-
-            public struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
+            struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
             {
                 public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports) { }
             }
 
-            protected internal override void Init(InitContext ctx)
+            internal struct Data : INodeData, IInit, IDestroy
             {
-                ref var data = ref GetNodeData(ctx.Handle);
-                // API not available to normal users... In fact, it's hard to imagine how you would port forward to an entity.
-                data.Entity = Set.HostSystem.EntityManager.CreateEntity(typeof(SimpleData));
-                data.Child = Set.CreateComponentNode(data.Entity);
+                public Entity Entity;
+                public NodeHandle<ComponentNode> Child;
 
-                ctx.ForwardInput(KernelPorts.Input, data.Child, ComponentNode.Input<SimpleData>());
-                ctx.ForwardOutput(KernelPorts.Output, data.Child, ComponentNode.Output<SimpleData>());
-            }
+                public void Init(InitContext ctx)
+                {
+                    // API not available to normal users... In fact, it's hard to imagine how you would port forward to an entity.
+                    Entity = ctx.Set.HostSystem.EntityManager.CreateEntity(typeof(SimpleData));
+                    Child = ctx.Set.CreateComponentNode(Entity);
 
-            protected internal override void Destroy(DestroyContext ctx)
-            {
-                Set.Destroy(GetNodeData(ctx.Handle).Child);
+                    ctx.ForwardInput(KernelPorts.Input, Child, ComponentNode.Input<SimpleData>());
+                    ctx.ForwardOutput(KernelPorts.Output, Child, ComponentNode.Output<SimpleData>());
+                }
+
+                public void Destroy(DestroyContext ctx)
+                {
+                    ctx.Set.Destroy(Child);
+                }
             }
         }
 
