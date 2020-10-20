@@ -433,10 +433,10 @@ namespace Unity.DataFlowGraph
 
         // TODO: Use API on KernelLayout
         internal static unsafe ref KernelData GetEntityData(RenderKernelFunction.BaseData* data)
-            => ref Utility.AsRef<KernelData>(data);
+            => ref UnsafeUtility.AsRef<KernelData>(data);
 
         internal static unsafe ref GraphKernel GetGraphKernel(RenderKernelFunction.BaseKernel* kernel)
-            => ref Utility.AsRef<GraphKernel>(kernel);
+            => ref UnsafeUtility.AsRef<GraphKernel>(kernel);
 
         internal override PortDescription.InputPort GetVirtualInput(ValidatedHandle h, InputPortArrayID port)
         {
@@ -569,10 +569,8 @@ namespace Unity.DataFlowGraph
 
                 ref var kernelData = ref GetSimulationSide_KernelData(node);
                 kernelData.Entity = entity;
-#pragma warning disable 618 // 'EntityManager.EntityComponentStore' is obsolete: 'This is slow. Use The EntityDataAccess directly in new code.'
-                kernelData.EntityStore = world.EntityManager.EntityComponentStore;
-#pragma warning restore 618
-
+                kernelData.EntityStore = world.EntityManager.GetCheckedEntityDataAccess()->EntityComponentStore;
+                
                 return new NodeHandle<ComponentNode>(node.Versioned);
             }
 
@@ -583,6 +581,6 @@ namespace Unity.DataFlowGraph
         /// This is the only version that can be mutated, as the kernel version is being replaced every frame.
         /// </summary>
         internal unsafe ref InternalComponentNode.KernelData GetSimulationSide_KernelData(ValidatedHandle node)
-            => ref Utility.AsRef<InternalComponentNode.KernelData>(Nodes[node].KernelData);
+            => ref UnsafeUtility.AsRef<InternalComponentNode.KernelData>(Nodes[node].KernelData);
     }
 }

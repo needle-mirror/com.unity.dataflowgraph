@@ -1,9 +1,8 @@
 ﻿using System;
-using Unity.Burst;
 using Unity.Collections;
 using Unity.Jobs;
 using Unity.Jobs.LowLevel.Unsafe;
-using UnityEngine;
+using Unity.Mathematics;
 
 namespace Unity.DataFlowGraph
 {
@@ -18,15 +17,15 @@ namespace Unity.DataFlowGraph
         public enum SortingAlgorithm
         {
             /// <summary>
-            /// Sorts a into a single large breadth first traversal, prioritising early dependencies. As a result, only one 
+            /// Sorts a into a single large breadth first traversal, prioritising early dependencies. As a result, only one
             /// <see cref="TraversalCache.Group"/> is generated.
-            /// If a graph has many similar structures at the same depth, this provides the best opportunities for 
+            /// If a graph has many similar structures at the same depth, this provides the best opportunities for
             /// keeping similar nodes adjacent in the <see cref="TraversalCache.OrderedTraversal"/>.
             /// </summary>
             GlobalBreadthFirst,
             /// <summary>
-            /// Sorts by traversing from leaves, generating as many <see cref="TraversalCache.Group"/>s as there 
-            /// are connected components in the graph. 
+            /// Sorts by traversing from leaves, generating as many <see cref="TraversalCache.Group"/>s as there
+            /// are connected components in the graph.
             /// This allows to generate a <see cref="TraversalCache"/> with groups that can run in parallel.
             /// </summary>
             LocalDepthFirst
@@ -104,7 +103,7 @@ namespace Unity.DataFlowGraph
                     {
                         AlignGroups(ref context);
                     }
-                    
+
                     context.Cache.Version[0] = versionTracker.Version;
                 }
                 else
@@ -126,7 +125,7 @@ namespace Unity.DataFlowGraph
             {
                 if (IsCacheFresh(versionTracker, context.Cache))
                     return deps;
-                
+
                 ComputationContext<TTopologyFromVertex>.ComputeTopologyJob topologyJob;
                 topologyJob.Context = context;
                 topologyJob.NewVersion = versionTracker.Version;
@@ -182,7 +181,7 @@ namespace Unity.DataFlowGraph
                 cacheEntry.ParentTableIndex = group.ParentCount;
                 cacheEntry.ChildTableIndex = group.ChildCount;
 
- 
+
                 for (var it = index.InputHeadConnection; it != InvalidConnection; it = database[it].NextInputConnection)
                 {
                     ref readonly var connection = ref database[it];
@@ -195,7 +194,7 @@ namespace Unity.DataFlowGraph
                     // TODO: Potential race condition (if groups are computed in parallel), even though it is an error
                     if (parentTopology.GroupID != index.GroupID)
                         return TraversalCache.Error.UnrelatedHierarchy;
-                    
+
                     group.AddParent(new TraversalCache.Connection
                     {
                         TraversalIndex = parentTopology.TraversalIndex,
@@ -219,7 +218,7 @@ namespace Unity.DataFlowGraph
                     // TODO: Potential race condition (if groups are computed in parallel), even though it is an error
                     if (childTopology.GroupID != index.GroupID)
                         return TraversalCache.Error.UnrelatedHierarchy;
-                    
+
                     group.AddChild(new TraversalCache.Connection
                     {
                         TraversalIndex = childTopology.TraversalIndex,
@@ -350,7 +349,7 @@ namespace Unity.DataFlowGraph
                 }
 
                 // Just an arbitrary heuristic to avoid worst case memory usage all the time.
-                return ref context.Cache.AllocateGroup(Mathf.Max(2, minimumGroupSize / 4));
+                return ref context.Cache.AllocateGroup(math.max(2, minimumGroupSize / 4));
             }
 
             static unsafe TraversalCache.Error ConnectedComponentSearch<TTopologyFromVertex>(
@@ -458,14 +457,14 @@ namespace Unity.DataFlowGraph
                 // Detect leaves.
                 if (inputConnections == 0)
                     group.AddLeaf(traversalCacheIndex);
-                
+
                 currentIndex.TraversalIndex = traversalCacheIndex;
                 // Reflect to everyone else that this is now visited - and can be safely referenced
                 currentIndex.Resolved = true;
                 // We are not "visiting" anymore, just processing remainder nodes.
                 currentIndex.CurrentlyResolving = false;
 
-                // Update group membership. 
+                // Update group membership.
                 currentIndex.GroupID = group.HandleToSelf;
                 // write it back for simulation incremental changes
                 context.Topologies[current] = currentIndex;

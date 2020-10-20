@@ -30,8 +30,8 @@ namespace Unity.DataFlowGraph.Tests
                 RenderContext = new RenderContext()
             };
 
-            ref var burstVersion = ref Utility.AsRef<GraphKernel<DummyKernel, DummyData, DummyPorts>.Bursted>(&aliasVersion);
-            ref var managedVersion = ref Utility.AsRef<GraphKernel<DummyKernel, DummyData, DummyPorts>.Managed>(&aliasVersion);
+            ref var burstVersion = ref UnsafeUtility.AsRef<GraphKernel<DummyKernel, DummyData, DummyPorts>.Bursted>(&aliasVersion);
+            ref var managedVersion = ref UnsafeUtility.AsRef<GraphKernel<DummyKernel, DummyData, DummyPorts>.Managed>(&aliasVersion);
 
             Assert.IsTrue(aliasVersion.NodeData == burstVersion.m_Data);
             Assert.IsTrue(&data == burstVersion.m_Data);

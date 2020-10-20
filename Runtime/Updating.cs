@@ -7,16 +7,24 @@ namespace Unity.DataFlowGraph
     /// <summary>
     /// A context provided to a node's <see cref="NodeDefinition.OnUpdate"/> implementation.
     /// </summary>
-    public readonly struct UpdateContext
+    public readonly partial struct UpdateContext
     {
+        readonly CommonContext m_Ctx;
+
         /// <summary>
         /// A handle to the node being updated.
         /// </summary>
-        public NodeHandle Handle => InternalHandle.ToPublicHandle();
+        public NodeHandle Handle => m_Ctx.Handle;
+
         /// <summary>
         /// The <see cref="NodeSetAPI"/> associated with this context.
         /// </summary>
-        public readonly NodeSetAPI Set;
+        public NodeSetAPI Set => m_Ctx.Set;
+
+        /// <summary>
+        /// Conversion operator for common API shared with other contexts.
+        /// </summary>
+        public static implicit operator CommonContext(in UpdateContext ctx) => ctx.m_Ctx;
 
         /// <summary>
         /// Emit a message from yourself on a port. Everything connected to it
@@ -32,6 +40,7 @@ namespace Unity.DataFlowGraph
         /// Emit a message from yourself on a port array. Everything connected to it
         /// will receive your message.
         /// </summary>
+        /// <exception cref="IndexOutOfRangeException">Thrown if the index is out of range with respect to the port array.</exception>
         public void EmitMessage<T, TNodeDefinition>(PortArray<MessageOutput<TNodeDefinition, T>> port, int arrayIndex, in T msg)
             where TNodeDefinition : NodeDefinition
         {
@@ -39,19 +48,29 @@ namespace Unity.DataFlowGraph
         }
 
         /// <summary>
-        /// Set the size of a <see cref="Buffer{T}"/> appearing in this node's <see cref="IGraphKernel{TKernelData,TKernelPortDefinition}"/>.
-        /// Pass an instance of the node's <see cref="IGraphKernel{TKernelData,TKernelPortDefinition}"/> as the <paramref name="requestedSize"/>
-        /// parameter with <see cref="Buffer{T}"/> instances within it having been set using <see cref="Buffer{T}.SizeRequest(int)"/>.
-        /// Any <see cref="Buffer{T}"/> instances within the given struct that have not been set using
-        /// <see cref="Buffer{T}.SizeRequest(int)"/> will be unaffected by the call.
+        /// Updates the contents of <see cref="Buffer{T}"/>s appearing in this node's <see cref="IGraphKernel{TKernelData,TKernelPortDefinition}"/>.
+        /// Pass an instance of the node's <see cref="IGraphKernel{TKernelData,TKernelPortDefinition}"/> as the <paramref name="requestedContents"/>
+        /// parameter with <see cref="Buffer{T}"/> instances within it having been set using <see cref="UploadRequest"/>, or
+        /// <see cref="Buffer{T}.SizeRequest(int)"/>.
+        /// Any <see cref="Buffer{T}"/> instances within the given struct that have default values will be unaffected by the call.
         /// </summary>
-        public void SetKernelBufferSize<TGraphKernel>(in TGraphKernel requestedSize)
-            where TGraphKernel : IGraphKernel
+        public void UpdateKernelBuffers<TGraphKernel>(in TGraphKernel kernel)
+            where TGraphKernel : struct, IGraphKernel
         {
-            Set.SetKernelBufferSize(InternalHandle, requestedSize);
+            Set.UpdateKernelBuffers(InternalHandle, kernel);
         }
 
-        internal readonly ValidatedHandle InternalHandle;
+        /// <summary>
+        /// The return value should be used together with <see cref="UpdateKernelBuffers"/> to change the contents
+        /// of a kernel buffer living on a <see cref="IGraphKernel{TKernelData, TKernelPortDefinition}"/>.
+        /// </summary>
+        /// <remarks>
+        /// This will resize the affected buffer to the same size as <paramref name="inputMemory"/>.
+        /// Failing to include the return value in a call to <see cref="UpdateKernelBuffers"/> is an error and will result in a memory leak.
+        /// </remarks>
+        public Buffer<T> UploadRequest<T>(NativeArray<T> inputMemory, BufferUploadMethod method = BufferUploadMethod.Copy)
+            where T : struct
+                => Set.UploadRequest(InternalHandle, inputMemory, method);
 
         /// <summary>
         /// Updates the associated <typeparamref name="TKernelData"/> asynchronously,
@@ -87,10 +106,11 @@ namespace Unity.DataFlowGraph
         /// </exception>
         public void RemoveFromUpdate() => Set.RemoveFromUpdate(InternalHandle);
 
+        internal ValidatedHandle InternalHandle => m_Ctx.InternalHandle;
+
         internal UpdateContext(NodeSetAPI set, in ValidatedHandle handle)
         {
-            Set = set;
-            InternalHandle = handle;
+            m_Ctx = new CommonContext(set, handle);
         }
     }
 
@@ -245,8 +265,23 @@ namespace Unity.DataFlowGraph
             m_UpdateRequestQueue.Clear();
         }
 
+        void CheckForUserMemoryLeaks()
+        {
+            for(int i = 0; i < m_PendingBufferUploads.Count; ++i)
+            {
+                ref readonly var request = ref m_PendingBufferUploads[i];
+                Debug.LogWarning(
+                    $"Node {request.OwnerNode} requested a memory upload of size {request.Size} " +
+                    $"that was not committed through {nameof(InitContext.UploadRequest)} " +
+                    $"in the same {nameof(Update)} - this is potentially a memory leak"
+                );
+            }
+        }
+
         protected void UpdateInternal(JobHandle inputDependencies)
         {
+            CollectTestExceptions();
+
             m_FenceOutputConsumerProfilerMarker.Begin();
             FenceOutputConsumers();
             m_FenceOutputConsumerProfilerMarker.End();
@@ -286,6 +321,7 @@ namespace Unity.DataFlowGraph
             m_SwapGraphValuesProfilerMarker.Begin();
             SwapGraphValues();
             PlayBackUpdateCommandQueue();
+            CheckForUserMemoryLeaks();
             m_SwapGraphValuesProfilerMarker.End();
         }
     }

@@ -463,7 +463,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 var knodes = set.DataGraph.GetInternalData();
                 ref var inode = ref knodes[node.VHandle.Index];
-                var ports = Utility.AsRef<InvalidForBurstKernelNodeWithIO.KernelDefs>(inode.Instance.Ports);
+                var ports = UnsafeUtility.AsRef<InvalidForBurstKernelNodeWithIO.KernelDefs>(inode.Instance.Ports);
                 Assert.AreEqual(ports.Output1.m_Value, 11);
                 Assert.AreEqual(ports.Output2.m_Value, 12);
 

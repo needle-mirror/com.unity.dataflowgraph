@@ -51,8 +51,8 @@ namespace Unity.DataFlowGraph.Tests
 
                 for (int i = 0; i < k_UpdateCalls; ++i)
                 {
-                    ref var nodeData = ref set.GetNodeData<NewStyleUpdateHandler.NodeData>(node);
-                    Assert.AreEqual(i, nodeData.Calls);
+                    set.SendTest<NewStyleUpdateHandler.NodeData>(node, ctx =>
+                        Assert.AreEqual(i, ctx.NodeData.Calls));
                     set.Update();
                 }
 
@@ -63,8 +63,8 @@ namespace Unity.DataFlowGraph.Tests
 
                 for (int i = 0; i < k_UpdateCalls; ++i)
                 {
-                    ref var nodeData = ref set.GetNodeData<NewStyleUpdateHandler.NodeData>(node);
-                    Assert.AreEqual(k_UpdateCalls + 1, nodeData.Calls);
+                    set.SendTest(node, (NewStyleUpdateHandler.NodeData data) =>
+                        Assert.AreEqual(k_UpdateCalls + 1,data.Calls));
                     set.Update();
                 }
 
@@ -73,8 +73,8 @@ namespace Unity.DataFlowGraph.Tests
 
                 for (int i = 0; i < k_UpdateCalls; ++i)
                 {
-                    ref var nodeData = ref set.GetNodeData<NewStyleUpdateHandler.NodeData>(node);
-                    Assert.AreEqual(k_UpdateCalls + i + 1, nodeData.Calls);
+                    set.SendTest(node, (NewStyleUpdateHandler.NodeData data) =>
+                        Assert.AreEqual(k_UpdateCalls + i + 1, data.Calls));
                     set.Update();
                 }
 
@@ -107,8 +107,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 for (int i = 0; i < k_UpdateCalls; ++i)
                 {
-                    ref var nodeData = ref set.GetNodeData<OldStyleUpdateHandler.NodeData>(node);
-                    Assert.AreEqual(i, nodeData.Calls);
+                    set.SendTest(node, (OldStyleUpdateHandler.NodeData data) => Assert.AreEqual(i, data.Calls));
                     set.Update();
                 }
 

@@ -456,7 +456,7 @@ namespace Unity.DataFlowGraph
             if (((PointerWord)ownership & k_PointerMask) != 0)
                 throw new AssertionException("Ownership has out of range bits");
 #endif
-            Utility.As<InputPortID, Ownership>(ref PortID) = ownership;
+            UnsafeUtility.As<InputPortID, Ownership>(ref PortID) = ownership;
         }
 
         public void FreeIfNeeded(Allocator originalAllocator)
@@ -467,7 +467,7 @@ namespace Unity.DataFlowGraph
 
         public Ownership GetMemoryOwnership()
         {
-            return Utility.As<InputPortID, Ownership>(ref Utility.AsRef(PortID));
+            return UnsafeUtility.As<InputPortID, Ownership>(ref UnsafeUtilityExtensions.AsRef(PortID));
         }
 
         public bool OwnsMemory() => GetMemoryOwnership() == Ownership.OwnedByPort;
@@ -541,7 +541,7 @@ namespace Unity.DataFlowGraph
             return new DataInput<TDefinition, TType>(port);
         }
 
-        TType Value => Ptr != null ? Utility.AsRef<TType>(Ptr) : default;
+        TType Value => Ptr != null ? UnsafeUtility.AsRef<TType>(Ptr) : default;
     }
 
     /// <summary>
@@ -584,26 +584,61 @@ namespace Unity.DataFlowGraph
     readonly unsafe struct BufferDescription : IEquatable<BufferDescription>
     {
         internal readonly void* Ptr;
-        internal readonly int Size;
+        readonly int m_Size;
         internal readonly ValidatedHandle OwnerNode;
 
-        internal (int Size, bool IsValid) GetSizeRequest() => (-Size - 1, Size <= 0);
+        public bool HasOwnedMemoryContents => Ptr != null;
+        public bool HasSizeRequest => m_Size < 0;
+
+        public int Size
+        {
+            get
+            {
+#if DFG_ASSERTIONS
+                if (HasSizeRequest)
+                    throw new AssertionException("This description represents a size request and does not have a valid size");
+#endif
+                return m_Size;
+            }
+        }
+
+        internal int GetSizeRequest()
+        {
+#if DFG_ASSERTIONS
+            if (!HasSizeRequest)
+                throw new AssertionException("Buffer is not a size request");
+#endif
+            return -m_Size - 1;
+        }
 
         internal BufferDescription(void* ptr, int size, in ValidatedHandle ownerNode)
         {
             Ptr = ptr;
-            Size = size;
+            m_Size = size;
             OwnerNode = ownerNode;
         }
 
         public bool Equals(BufferDescription other)
         {
-            return Ptr == other.Ptr && Size == other.Size && OwnerNode == other.OwnerNode;
+            return Ptr == other.Ptr && m_Size == other.m_Size && OwnerNode == other.OwnerNode;
         }
 
         public bool Equals<T>(in Buffer<T> other)
             where T : struct
             => Equals(other.Description);
+
+        public void FreeIfNeeded(Allocator allocator)
+        {
+            if (Ptr != null)
+                UnsafeUtility.Free(Ptr, allocator);
+        }
+    }
+
+    public enum BufferUploadMethod
+    {
+        Copy,
+        // Not possible without extra API on NativeArray.
+        /* Relinquish */
     }
 
     /// <summary>
@@ -612,13 +647,13 @@ namespace Unity.DataFlowGraph
     [DebuggerTypeProxy(typeof(BufferDebugView<>))]
     [DebuggerDisplay("Size = {Size}")]
     [StructLayout(LayoutKind.Sequential)]
-    public readonly unsafe struct Buffer<T>
+    public readonly unsafe partial struct Buffer<T>
         where T : struct
     {
         internal void* Ptr => Description.Ptr;
         internal int Size => Description.Size;
         internal ValidatedHandle OwnerNode => Description.OwnerNode;
-        internal (int Size, bool IsValid) GetSizeRequest() => Description.GetSizeRequest();
+        internal int GetSizeRequest_ForTesting() => Description.GetSizeRequest();
 
         internal readonly BufferDescription Description;
         /// <summary>
@@ -629,10 +664,13 @@ namespace Unity.DataFlowGraph
         /// Gives access to the actual underlying data via a <see cref="NativeArray{T}"/>.
         /// </summary>
         public NativeArray<T> ToNative(GraphValueResolver resolver) => resolver.Resolve(this);
-
         /// <summary>
-        /// The return value should be used with <see cref="NodeSetAPI.SetBufferSize{TDefinition, TType}"/> to resize
-        /// a buffer.
+        /// Use together with <see cref="SetBufferSize"/> to resize a buffer living in an
+        /// <see cref="DataOutput{TDefinition, TType}"/>.
+        ///
+        /// You can also use this together with <see cref="InitContext.UpdateKernelBuffers"/>,
+        /// <see cref="UpdateContext.UpdateKernelBuffers"/> or <see cref="DestroyContext.UpdateKernelBuffers"/>
+        /// to resize a kernel buffer living on a <see cref="IGraphKernel{TKernelData, TKernelPortDefinition}"/>.
         /// </summary>
         public static Buffer<T> SizeRequest(int size)
         {
@@ -647,6 +685,42 @@ namespace Unity.DataFlowGraph
         }
 
         internal Buffer(BufferDescription d) => Description = d;
+    }
+
+    public partial class NodeSetAPI
+    {
+        BlitList<BufferDescription> m_PendingBufferUploads = new BlitList<BufferDescription>(0, Allocator.Persistent);
+
+        internal unsafe Buffer<T> UploadRequest<T>(ValidatedHandle owner, NativeArray<T> inputMemory, BufferUploadMethod method = BufferUploadMethod.Copy)
+            where T : struct
+        {
+            var size = inputMemory.Length;
+            if (size == 0)
+                return Buffer<T>.SizeRequest(0);
+
+            var bytes = UnsafeUtility.SizeOf<T>() * size;
+            var pointer = NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(inputMemory);
+
+            var copy = UnsafeUtility.Malloc(bytes, UnsafeUtility.AlignOf<T>(), Allocator.Persistent);
+            UnsafeUtility.MemCpy(copy, pointer, bytes);
+
+            var ret = new Buffer<T>(copy, size, owner);
+            m_PendingBufferUploads.Add(ret.Description);
+
+            return ret;
+        }
+
+        int FindPendingBufferIndex(in BufferDescription d)
+        {
+            for(int i = 0; i < m_PendingBufferUploads.Count; ++i)
+            {
+                if (m_PendingBufferUploads[i].Equals(d))
+                    return i;
+            }
+
+            return -1;
+        }
+        internal BlitList<BufferDescription> GetPendingBuffers_ForTesting() => m_PendingBufferUploads;
     }
 
     internal sealed class BufferDebugView<T> where T : struct
@@ -866,10 +940,29 @@ namespace Unity.DataFlowGraph
         /// </summary>
         public struct OutputPort : IPort<OutputPortID>, IEquatable<OutputPort>
         {
+            internal readonly struct BufferEntryInsidePort
+            {
+                public readonly int Offset;
+                public readonly SimpleType ItemType;
+
+                public unsafe ref BufferDescription AsUntyped(void* outputPort)
+                    => ref *(BufferDescription*)((byte*)outputPort + Offset);
+
+                public unsafe ref BufferDescription AsUntyped<TType>(in TType port)
+                    where TType : struct
+                        => ref *(BufferDescription*)((byte*)UnsafeUtilityExtensions.AddressOf(port) + Offset);
+
+                public BufferEntryInsidePort(int offsetFromStartOfPort, SimpleType bufferItemType)
+                {
+                    Offset = offsetFromStartOfPort;
+                    ItemType = bufferItemType;
+                }
+            }
+
             Category m_Category;
             Type m_Type;
             internal ushort m_Port;
-            internal List<(int Offset, SimpleType ItemType)> m_BufferInfos;
+            internal List<BufferEntryInsidePort> m_BufferInfos;
             internal bool m_IsPortArray, m_IsPublic;
             string m_Name;
 
@@ -906,11 +999,11 @@ namespace Unity.DataFlowGraph
 
             /// <summary>
             /// List of offsets of all <see cref="Buffer{T}"/> instances within the port relative to the beginning of
-            /// the <see cref="DataInput{TDefinition,TType}"/>
+            /// the <see cref="DataOutput{TDefinition,TType}"/>
             /// </summary>
-            internal List<(int Offset, SimpleType ItemType)> BufferInfos => m_BufferInfos;
+            internal List<BufferEntryInsidePort> BufferInfos => m_BufferInfos;
 
-            internal static OutputPort Data(Type type, ushort port, List<(int Offset, SimpleType ItemType)> bufferInfos, bool isPublic, string name)
+            internal static OutputPort Data(Type type, ushort port, List<BufferEntryInsidePort> bufferInfos, bool isPublic, string name)
             {
                 OutputPort ret;
                 ret.m_Category = Category.Data;

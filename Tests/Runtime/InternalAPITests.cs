@@ -68,7 +68,7 @@ namespace Unity.DataFlowGraph.Tests
         {
             var d = new BufferDescription((void*)0x13, 12, default);
 
-            ref var buffer = ref Utility.AsRef<Buffer<byte>>(&d);
+            ref var buffer = ref UnsafeUtility.AsRef<Buffer<byte>>(&d);
 
             Assert.True(d.Ptr == buffer.Ptr);
             Assert.AreEqual(d.Size, buffer.Size);

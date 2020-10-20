@@ -568,5 +568,32 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
             }
         }
 
+        public class NodeWithClashingMsgHandlerTypes : SimulationNodeDefinition<NodeWithClashingMsgHandlerTypes.Ports>
+        {
+            public struct Ports : ISimulationPortDefinition
+            {
+                public MessageInput<NodeWithClashingMsgHandlerTypes, int> In;
+            }
+
+            struct Handlers : INodeData, IMsgHandler<int>, IMsgHandlerGeneric<int>
+            {
+                void IMsgHandler<int>.HandleMessage(in MessageContext ctx, in int msg)
+                    => throw new NotImplementedException();
+
+                void IMsgHandlerGeneric<int>.HandleMessage(in MessageContext ctx, in int msg)
+                    => throw new NotImplementedException();
+            }
+        }
+
+        [Test]
+        public void DFG_UE_16_NodeWithClashingMsgHandlerTypes()
+        {
+            using (var fixture = new DefinitionFixture(typeof(NodeWithClashingMsgHandlerTypes)))
+            {
+                fixture.ParseSymbols();
+                fixture.ExpectError(new Regex(nameof(Diag.DFG_UE_16)));
+                fixture.AnalyseConsistency();
+            }
+        }
     }
 }

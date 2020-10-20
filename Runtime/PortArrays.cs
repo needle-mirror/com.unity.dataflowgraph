@@ -250,11 +250,11 @@ namespace Unity.DataFlowGraph
 
         public static ref TDataInput GetRef<TDataInput>(this in PortArray<TDataInput> portArray, ushort i)
             where TDataInput : struct, IDataInputPort
-                => ref Utility.AsRef<TDataInput>((byte*)portArray.Ptr + i * UnsafeUtility.SizeOf<TDataInput>());
+                => ref UnsafeUtility.AsRef<TDataInput>((byte*)portArray.Ptr + i * UnsafeUtility.SizeOf<TDataInput>());
 
         public static ref UntypedDataInputPortArray AsUntyped<TDataInput>(this ref PortArray<TDataInput> portArray)
             where TDataInput : struct, IDataInputPort
-                => ref Utility.As<PortArray<TDataInput>, UntypedDataInputPortArray>(ref portArray);
+                => ref UnsafeUtility.As<PortArray<TDataInput>, UntypedDataInputPortArray>(ref portArray);
     }
 
     /// <summary>
@@ -299,9 +299,9 @@ namespace Unity.DataFlowGraph
 
                 if (m_PortArray.Ptr != null)
                 {
-                    var untypedPortArray = Utility.As<PortArray<TPort>, UntypedDataInputPortArray>(ref m_PortArray);
+                    var untypedPortArray = UnsafeUtility.As<PortArray<TPort>, UntypedDataInputPortArray>(ref m_PortArray);
                     for (ushort i = 0; i < m_PortArray.Size; ++i)
-                        ret[i] = Utility.AsRef<TPort>(untypedPortArray.NthInputStorage(i));
+                        ret[i] = UnsafeUtility.AsRef<TPort>(untypedPortArray.NthInputStorage(i));
                 }
 
                 return ret;

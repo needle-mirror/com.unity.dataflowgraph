@@ -4,6 +4,47 @@ All notable changes to this package will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [0.18.0-preview.3] - 2020-10-20
+### Changed
+- Upgraded dependency com.unity.entities to 0.16.0-preview.21
+
+## [0.18.0-preview.2] - 2020-10-13
+### Changed
+- Upgraded dependency com.unity.entities to 0.16.0-preview.20
+- Upgraded dependency com.unity.jobs to 0.7.0-preview.17
+- Upgraded dependency com.unity.collections to 0.14.0-preview.16
+- Upgraded dependency com.unity.burst to 1.3.7
+
+## [0.18.0-preview.1] - 2020-09-10
+### Added
+- Added `InitContext.UploadRequest<T>`, `UpdateContext.UploadRequest<T>`, `MessageContext.UploadRequest<T>` and `CommonContext.UploadRequest<T>`; you can use this together with `.UpdateKernelBuffers` to upload contents of arrays from simulation to local kernel buffers inside the rendering.
+
+### Changed
+- Upgraded dependency com.unity.entities to 0.16.0-preview.18
+- Upgraded dependency com.unity.jobs to 0.7.0-preview.15
+- Upgraded dependency com.unity.collections to 0.14.0-preview.14
+- Upgraded dependency com.unity.mathematics to 1.2.1
+- Upgraded dependency com.unity.burst to 1.3.5
+- Minimum supported Unity version is now 2020.1
+- Renamed `InitContext.SetKernelBufferSize`, `UpdateContext.SetKernelBufferSize` and `MessageContext.SetKernelBufferSize` to `.UpdateKernelBuffers`
+
+## [0.17.1-preview.2] - 2020-10-02
+### Fixed
+- Regression introduced in 0.17.1-preview.1 where `MessageInput`s with identical generic messages types but different instantiations would be treated like duplicates (DFG_IE_04 would be emitted in that case)
+
+## [0.17.1-preview.1] - 2020-09-30
+### Added
+- `InitContext.SetInitialPortValue()`: Can be used for setting the initial value on a data input port
+- `InitContext`, `UpdateContext`, and `MessageContext` can now be implicitly cast to the new `CommonContext` which expresses their shared API
+- `IMsgHandlerGeneric` as a variant of `IMsgHandler` for situations in which it is necessary for implementations of `INodeData` to implement support for message handlers of different types which would otherwise be impossible due to C# language constraints (eg. a generic input type mixed with other input types)
+- `NodeSet.SendTest` and corresponding `TestContext` to allow authoring of unit tests which verify `NodeDefinition` simulation state
+
+### Fixed
+- The `EmitMessage` variants taking a port array index will now throw an exception if the given port index is out of range
+
+### Fixed
+- Samples and Tour using `IUpdate` functionality 
+
 ## [0.17.0-preview.4] - 2020-09-10
 ### Added
 - `InitContext.EmitMessage()` identical to the same function existing in `UpdateContext` and `MessageContext`

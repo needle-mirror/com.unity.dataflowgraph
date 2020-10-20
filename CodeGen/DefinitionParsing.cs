@@ -68,18 +68,18 @@ namespace Unity.DataFlowGraph.CodeGen
             return false;
         }
 
-        void TraverseNewStyle(Diag d, TypeReference node)
+        void TraverseNewStyle(Diag d, TypeReference vertex)
         {
             void Scan()
             {
                 void TestAndAssign(ref TypeReference resultLocation, TypeReference interfaceWeAreLookingFor)
                 {
-                    if (node.IsOrImplements(interfaceWeAreLookingFor))
+                    if (vertex.IsOrImplements(interfaceWeAreLookingFor))
                     {
                         if (resultLocation != null)
                             d.DFG_UE_01(this, (TypeLocationContext)interfaceWeAreLookingFor);
                         else
-                            resultLocation = node;
+                            resultLocation = vertex;
                     }
                 }
 
@@ -92,21 +92,36 @@ namespace Unity.DataFlowGraph.CodeGen
 
             Scan();
 
-            foreach (var nested in node.InstantiatedNestedTypes())
+            foreach (var nested in vertex.InstantiatedNestedTypes())
             {
                 if (!nested.IsCompletelyClosed())
                     continue;
 
                 // TODO: Warn the user about declaring inaccessible aspects?
-                if (DoesDefinitionRootHaveAccessTo(node, nested.Definition))
+                if (DoesDefinitionRootHaveAccessTo(vertex, nested.Definition))
                     TraverseNewStyle(d, nested.Instantiated);
             }
 
-            // Search base classes for more aspects.
-            var baseClass = node.InstantiatedBaseType();
+            // Short-circuit base class recursion if we trivially are looking at:
+            // - A value type
+            // - An object
+            // - A node definition base class
+            // - 
+            if (vertex.IsValueType)
+                return;
 
-            if (baseClass != null)
-                TraverseNewStyle(d, baseClass);
+            var baseClass = vertex.InstantiatedBaseType();
+            
+            if (baseClass == null)
+                return;
+
+            if (baseClass.RefersToSame(m_Lib.ValueTypeType) || baseClass.RefersToSame(Module.TypeSystem.Object))
+                return;
+
+            if (baseClass.RefersToSame(m_BaseNodeDefinitionReference))
+                return;
+
+            TraverseNewStyle(d, baseClass);
         }
 
         void TraverseOldStyle(Diag d)

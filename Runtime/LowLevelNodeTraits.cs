@@ -139,7 +139,7 @@ namespace Unity.DataFlowGraph
                 if (!IsArray)
                     throw new AssertionException("Bad cast to UntypedDataInputPortArray");
 #endif
-                return ref Utility.AsRef<UntypedDataInputPortArray>((byte*)ports + PatchOffset);
+                return ref UnsafeUtility.AsRef<UntypedDataInputPortArray>((byte*)ports + PatchOffset);
             }
         }
 
@@ -401,7 +401,7 @@ namespace Unity.DataFlowGraph
 
         internal ref LowLevelNodeTraits Resolve()
         {
-            return ref Utility.AsRef<LowLevelNodeTraits>(m_Traits);
+            return ref UnsafeUtility.AsRef<LowLevelNodeTraits>(m_Traits);
         }
 
         LowLevelNodeTraits DebugDisplay => Resolve();
@@ -504,15 +504,54 @@ namespace Unity.DataFlowGraph
 
     }
 
+    readonly struct TypeHash : IEquatable<TypeHash>
+    {
+        readonly Int32 m_TypeHash;
+
+        public static TypeHash Create<TType>() => new TypeHash(BurstRuntime.GetHashCode32<TType>());
+
+        public bool Equals(TypeHash other)
+        {
+            return m_TypeHash == other.m_TypeHash;
+        }
+
+        public override bool Equals(object obj)
+        {
+            return obj is TypeHash other && Equals(other);
+        }
+
+        public override int GetHashCode()
+        {
+            return m_TypeHash;
+        }
+
+        public static bool operator ==(TypeHash left, TypeHash right)
+        {
+            return left.m_TypeHash == right.m_TypeHash;
+        }
+
+        public static bool operator !=(TypeHash left, TypeHash right)
+        {
+            return left.m_TypeHash != right.m_TypeHash;
+        }
+
+        TypeHash(Int32 typeHash)
+        {
+            m_TypeHash = typeHash;
+        }
+    }
+
     readonly struct SimulationStorageDefinition
     {
         struct EmptyType { }
 
         public readonly SimpleType NodeData, SimPorts;
 
+        public readonly TypeHash NodeDataHash;
+
         public readonly bool NodeDataIsManaged, IsScaffolded;
 
-        internal static readonly SimulationStorageDefinition Empty = new SimulationStorageDefinition(false, false, SimpleType.Create<EmptyType>(), SimpleType.Create<EmptyType>());
+        internal static readonly SimulationStorageDefinition Empty = new SimulationStorageDefinition(false, false, default, SimpleType.Create<EmptyType>(), SimpleType.Create<EmptyType>());
 
         static internal SimulationStorageDefinition Create<TDefinition, TNodeData, TSimPorts>(bool nodeDataIsManaged, bool isScaffolded)
             where TDefinition : NodeDefinition
@@ -520,7 +559,13 @@ namespace Unity.DataFlowGraph
             where TSimPorts : struct, ISimulationPortDefinition
         {
             ValidateRulesForStorage<TDefinition, TNodeData>(nodeDataIsManaged);
-            return new SimulationStorageDefinition(nodeDataIsManaged, isScaffolded, SimpleType.Create<TNodeData>(), SimpleType.Create<TSimPorts>());
+            return new SimulationStorageDefinition(
+                nodeDataIsManaged,
+                isScaffolded,
+                TypeHash.Create<TNodeData>(),
+                SimpleType.Create<TNodeData>(),
+                SimpleType.Create<TSimPorts>()
+            );
         }
 
         static internal SimulationStorageDefinition Create<TDefinition, TNodeData>(bool nodeDataIsManaged, bool isScaffolded)
@@ -528,19 +573,32 @@ namespace Unity.DataFlowGraph
             where TNodeData : struct, INodeData
         {
             ValidateRulesForStorage<TDefinition, TNodeData>(nodeDataIsManaged);
-            return new SimulationStorageDefinition(nodeDataIsManaged, isScaffolded, SimpleType.Create<TNodeData>(), SimpleType.Create<EmptyType>());
+            return new SimulationStorageDefinition(
+                nodeDataIsManaged,
+                isScaffolded,
+                TypeHash.Create<TNodeData>(),
+                SimpleType.Create<TNodeData>(),
+                SimpleType.Create<EmptyType>()
+            );
         }
 
         static internal SimulationStorageDefinition Create<TSimPorts>()
             where TSimPorts : struct, ISimulationPortDefinition
         {
-            return new SimulationStorageDefinition(false, false, SimpleType.Create<EmptyType>(), SimpleType.Create<TSimPorts>());
+            return new SimulationStorageDefinition(
+                false,
+                false,
+                default,
+                SimpleType.Create<EmptyType>(),
+                SimpleType.Create<TSimPorts>()
+            );
         }
 
-        SimulationStorageDefinition(bool nodeDataIsManaged, bool isScaffolded, SimpleType nodeData, SimpleType simPorts)
+        SimulationStorageDefinition(bool nodeDataIsManaged, bool isScaffolded, TypeHash nodeDataHash, SimpleType nodeData, SimpleType simPorts)
         {
             NodeData = nodeData;
             SimPorts = simPorts;
+            NodeDataHash = nodeDataHash;
             NodeDataIsManaged = nodeDataIsManaged;
             IsScaffolded = isScaffolded;
         }
@@ -573,7 +631,7 @@ namespace Unity.DataFlowGraph
         public readonly BlitList<BufferInfo> KernelBufferInfos;
         public readonly bool IsComponentNode;
 
-        public readonly Int32 KernelHash, KernelDataHash;
+        public readonly TypeHash KernelHash, KernelDataHash;
 
         static internal KernelStorageDefinition Create<TDefinition, TKernelData, TKernelPortDefinition, TUserKernel>(bool isComponentNode)
             where TDefinition : NodeDefinition
@@ -586,13 +644,13 @@ namespace Unity.DataFlowGraph
                 SimpleType.Create<TKernelData>(),
                 SimpleType.Create<TKernelPortDefinition>(),
                 SimpleType.Create<TUserKernel>(),
-                BurstRuntime.GetHashCode32<TUserKernel>(),
-                BurstRuntime.GetHashCode32<TKernelData>(),
+                TypeHash.Create<TUserKernel>(),
+                TypeHash.Create<TKernelData>(),
                 typeof(TUserKernel)
             );
         }
 
-        KernelStorageDefinition(bool isComponentNode, SimpleType kernelData, SimpleType kernelPorts, SimpleType kernel, Int32 kernelHash, Int32 kernelDataHash, Type kernelType)
+        KernelStorageDefinition(bool isComponentNode, SimpleType kernelData, SimpleType kernelPorts, SimpleType kernel, TypeHash kernelHash, TypeHash kernelDataHash, Type kernelType)
         {
             KernelData = kernelData;
             Kernel = kernel;

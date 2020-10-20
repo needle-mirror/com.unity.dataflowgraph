@@ -104,7 +104,7 @@ namespace Unity.DataFlowGraph
                 get
                 {
                     if (m_Conns.Length > (uint) handle.Index)
-                        return ref Utility.AsRef<Connection>((byte*)m_Conns.Ptr + m_SizeOf * handle.Index);
+                        return ref UnsafeUtility.AsRef<Connection>((byte*)m_Conns.Ptr + m_SizeOf * handle.Index);
 
                     throw new IndexOutOfRangeException("ConnectionHandle was out of range");
                 }
@@ -130,7 +130,7 @@ namespace Unity.DataFlowGraph
                 if (m_Conns.Ptr == null)
                     throw new NullReferenceException();
 #endif
-                return ref Utility.AsRef<Connection>((byte*)m_Conns.Ptr + m_SizeOf * index);
+                return ref UnsafeUtility.AsRef<Connection>((byte*)m_Conns.Ptr + m_SizeOf * index);
             }
 
             UnsafeList m_Conns;

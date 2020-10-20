@@ -44,7 +44,7 @@ namespace Unity.DataFlowGraph
             where TType : struct
         {
             ThrowIfEmpty();
-            return Utility.AsRef<TType>(input.Ptr);
+            return UnsafeUtility.AsRef<TType>(input.Ptr);
         }
 
         /// <summary>
@@ -117,7 +117,7 @@ namespace Unity.DataFlowGraph
                     if ((uint)i >= Length)
                         throw new IndexOutOfRangeException();
 
-                    return Utility.AsRef<TType>(PortArray.GetRef((ushort)i).Ptr);
+                    return UnsafeUtility.AsRef<TType>(PortArray.GetRef((ushort)i).Ptr);
                 }
             }
 

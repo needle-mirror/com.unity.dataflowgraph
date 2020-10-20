@@ -49,8 +49,8 @@ namespace Unity.DataFlowGraph.Tests
                 set.Connect(a, SimpleMessageNode.SimulationPorts.Output, b, SimpleMessageNode.SimulationPorts.Input);
                 set.SendMessage(a, SimpleMessageNode.SimulationPorts.Input, 10);
 
-                Assert.AreEqual(10, set.GetNodeData<Node>(a).Contents);
-                Assert.AreEqual(30, set.GetNodeData<Node>(b).Contents);
+                set.SendTest(a, (Node data) => Assert.AreEqual(10, data.Contents));
+                set.SendTest(b, (Node data) => Assert.AreEqual(30, data.Contents));
 
                 set.Destroy(a, b);
             }
@@ -71,14 +71,14 @@ namespace Unity.DataFlowGraph.Tests
                         ctx.Set.Connect(
                             self, DelegateMessageIONode<NodeHandle<PassthroughTest<Message>>>.SimulationPorts.Output,
                             Child, PassthroughTest<Message>.SimulationPorts.Input);
-                        ctx.EmitMessage(DelegateMessageIONode<NodeHandle>.SimulationPorts.Output, k_MagicMessage);
+                        ctx.EmitMessage(DelegateMessageIONode<NodeHandle<PassthroughTest<Message>>>.SimulationPorts.Output, k_MagicMessage);
                     },
                     destroyHandler: (DestroyContext ctx, ref NodeHandle<PassthroughTest<Message>> Child) => ctx.Set.Destroy(Child)
                 );
 
-                var child = set.GetNodeData<DelegateMessageIONode<NodeHandle>.NodeData>(node).CustomNodeData;
-
-                Assert.AreEqual(k_MagicMessage, set.GetNodeData<PassthroughTest<Message>.NodeData>(child).LastReceivedMsg.Contents);
+                set.SendTest<DelegateMessageIONode<NodeHandle<PassthroughTest<Message>>>.NodeData>(node,
+                    ctx => ctx.SendTest(ctx.NodeData.CustomNodeData,
+                        (PassthroughTest<Message>.NodeData data) => Assert.AreEqual(k_MagicMessage, data.LastReceivedMsg.Contents)));
 
                 set.Destroy(node);
             }
@@ -99,8 +99,8 @@ namespace Unity.DataFlowGraph.Tests
                 for (var i = 1; i < 10; ++i)
                 {
                     set.Update();
-                    Assert.AreEqual(10 + i, set.GetNodeData<Node>(a).Contents);
-                    Assert.AreEqual(30 + i + 1, set.GetNodeData<Node>(b).Contents);
+                    set.SendTest(a, (Node data) => Assert.AreEqual(10 + i, data.Contents));
+                    set.SendTest(b, (Node data) => Assert.AreEqual(30 + i + 1, data.Contents));
                 }
 
                 set.Destroy(a, b);
@@ -186,18 +186,18 @@ namespace Unity.DataFlowGraph.Tests
                 set.Connect(b, SimpleMessageArrayNode.SimulationPorts.Outputs, 2, c, SimpleMessageArrayNode.SimulationPorts.Inputs, 4);
                 set.SendMessage(a, SimpleMessageArrayNode.SimulationPorts.Inputs, 1, 10);
 
-                Assert.AreEqual(11, set.GetNodeData<Node>(a).Contents);
-                Assert.AreEqual(33, set.GetNodeData<Node>(b).Contents);
-                Assert.AreEqual(36, set.GetNodeData<Node>(c).Contents);
+                set.SendTest(a, (Node data) => Assert.AreEqual(11, data.Contents));
+                set.SendTest(b, (Node data) => Assert.AreEqual(33, data.Contents));
+                set.SendTest(c, (Node data) => Assert.AreEqual(36, data.Contents));
 
                 set.Disconnect(a, SimpleMessageArrayNode.SimulationPorts.Outputs, 1, b, SimpleMessageArrayNode.SimulationPorts.Inputs, 2);
                 set.Disconnect(b, SimpleMessageArrayNode.SimulationPorts.Outputs, 2, c, SimpleMessageArrayNode.SimulationPorts.Inputs, 4);
                 set.SendMessage(a, SimpleMessageArrayNode.SimulationPorts.Inputs, 1, 20);
 
                 // Only the contents of the first node should have changed since downstream nodes have been disconnected.
-                Assert.AreEqual(21, set.GetNodeData<Node>(a).Contents);
-                Assert.AreEqual(33, set.GetNodeData<Node>(b).Contents);
-                Assert.AreEqual(36, set.GetNodeData<Node>(c).Contents);
+                set.SendTest(a, (Node data) => Assert.AreEqual(21, data.Contents));
+                set.SendTest(b, (Node data) => Assert.AreEqual(33, data.Contents));
+                set.SendTest(c, (Node data) => Assert.AreEqual(36, data.Contents));
 
                 set.Destroy(a, b, c);
             }
@@ -211,7 +211,8 @@ namespace Unity.DataFlowGraph.Tests
                 var node = set.Create<DelegateMessageIONode<Node>, Node>(
                     (in MessageContext ctx, in Message msg, ref Node data) => data.Contents += msg.Contents);
 
-                Assert.AreEqual(0, set.GetNodeData<Node>(node).Contents);
+                set.SendTest(node, (DelegateMessageIONode<Node>.NodeData data) =>
+                    Assert.AreEqual(0, data.CustomNodeData.Contents));
 
                 for (int mc = 0; mc < 10; ++mc)
                 {
@@ -220,8 +221,10 @@ namespace Unity.DataFlowGraph.Tests
                         set.SendMessage(node, DelegateMessageIONode<Node>.SimulationPorts.Input, new Message(10));
                     }
 
-                    var contents = set.GetNodeData<DelegateMessageIONode<Node>.NodeData>(node).CustomNodeData.Contents;
-                    Assert.AreEqual((mc + 1) * 10 * 10, contents);
+                    set.SendTest(node, (DelegateMessageIONode<Node>.NodeData data) => {
+                        var contents = data.CustomNodeData.Contents;
+                        Assert.AreEqual((mc + 1) * 10 * 10, contents);
+                    });
                 }
 
                 set.Destroy(node);
@@ -264,10 +267,10 @@ namespace Unity.DataFlowGraph.Tests
 
                 set.SendMessage(a, MulticastTestNode.SimulationPorts.Input1, new Message(10));
 
-                Assert.AreEqual(10, set.GetNodeData<Node>(a).Contents);
-                Assert.AreEqual(11, set.GetNodeData<Node>(b).Contents);
-                Assert.AreEqual(11, set.GetNodeData<Node>(c).Contents);
-                Assert.AreEqual(24, set.GetNodeData<Node>(d).Contents);
+                set.SendTest(a, (Node data) => Assert.AreEqual(10, data.Contents));
+                set.SendTest(b, (Node data) => Assert.AreEqual(11, data.Contents));
+                set.SendTest(c, (Node data) => Assert.AreEqual(11, data.Contents));
+                set.SendTest(d, (Node data) => Assert.AreEqual(24, data.Contents));
 
                 set.Destroy(a, b, c, d);
             }
@@ -291,11 +294,11 @@ namespace Unity.DataFlowGraph.Tests
 
                 set.SendMessage(a, MulticastTestNode.SimulationPorts.Input1, new Message(10));
 
-                Assert.AreEqual(10, set.GetNodeData<Node>(a).Contents);
-                Assert.AreEqual(11, set.GetNodeData<Node>(b).Contents);
+                set.SendTest(a, (Node data) => Assert.AreEqual(10, data.Contents));
+                set.SendTest(b, (Node data) => Assert.AreEqual(11, data.Contents));
                 // multicaster sends message on port 0, but c is connected through port 1, so it never updates its data.
-                Assert.AreEqual(0, set.GetNodeData<Node>(c).Contents);
-                Assert.AreEqual(12, set.GetNodeData<Node>(d).Contents);
+                set.SendTest(c, (Node data) => Assert.AreEqual(0, data.Contents));
+                set.SendTest(d, (Node data) => Assert.AreEqual(12, data.Contents));
 
                 set.Destroy(a, b, c, d);
             }
@@ -316,9 +319,9 @@ namespace Unity.DataFlowGraph.Tests
 
                 set.SendMessage(a, MulticastTestNode.SimulationPorts.Input1, new Message(10));
 
-                Assert.AreEqual(10, set.GetNodeData<Node>(a).Contents);
-                Assert.AreEqual(11, set.GetNodeData<Node>(b).Contents);
-                Assert.AreEqual(11, set.GetNodeData<Node>(c).Contents);
+                set.SendTest(a, (Node data) => Assert.AreEqual(10, data.Contents));
+                set.SendTest(b, (Node data) => Assert.AreEqual(11, data.Contents));
+                set.SendTest(c, (Node data) => Assert.AreEqual(11, data.Contents));
 
                 set.Destroy(a, b, c);
             }
@@ -375,10 +378,10 @@ namespace Unity.DataFlowGraph.Tests
 
                 set.SendMessage(a, PassMessageThroughNextPort.SimulationPorts.Input1, new Message(10));
 
-                Assert.AreEqual(10, set.GetNodeData<Node>(a).Contents);
-                Assert.AreEqual(13, set.GetNodeData<Node>(b).Contents);
-                Assert.AreEqual(16, set.GetNodeData<Node>(c).Contents);
-                Assert.AreEqual(19, set.GetNodeData<Node>(d).Contents);
+                set.SendTest(a, (Node data) => Assert.AreEqual(10, data.Contents));
+                set.SendTest(b, (Node data) => Assert.AreEqual(13, data.Contents));
+                set.SendTest(c, (Node data) => Assert.AreEqual(16, data.Contents));
+                set.SendTest(d, (Node data) => Assert.AreEqual(19, data.Contents));
 
                 set.Destroy(a, b, c, d);
             }
@@ -420,10 +423,8 @@ namespace Unity.DataFlowGraph.Tests
                 set.SendMessage(node, DifferentHandlers.SimulationPorts.Input1, 5);
                 set.SendMessage(node, DifferentHandlers.SimulationPorts.Input2, 5f);
 
-                var data = set.GetNodeData<Node>(node);
-
-                Assert.AreEqual(6, data.Contents);
-                Assert.AreEqual(8, data.OtherContents);
+                set.SendTest(node, (Node data) => Assert.AreEqual(6, data.Contents));
+                set.SendTest(node, (Node data) => Assert.AreEqual(8, data.OtherContents));
 
                 set.Destroy(node);
             }
@@ -449,10 +450,8 @@ namespace Unity.DataFlowGraph.Tests
                 Assume.That(otherNodesFloatPort != (InputPortID)DifferentHandlers.SimulationPorts.Input2);
                 Assert.Throws<InvalidOperationException>(() => set.SendMessage(node, otherNodesFloatPort, 5f));
 
-                var data = set.GetNodeData<Node>(node);
-
-                Assert.AreEqual(0, data.Contents);
-                Assert.AreEqual(0, data.OtherContents);
+                set.SendTest(node, (Node data) => Assert.AreEqual(0, data.Contents));
+                set.SendTest(node, (Node data) => Assert.AreEqual(0, data.OtherContents));
 
                 set.Destroy(node);
             }
@@ -673,13 +672,12 @@ namespace Unity.DataFlowGraph.Tests
             using (var set = new NodeSet())
             {
                 var node = set.Create<NewStyleMessageNode>();
-                ref var nodeData = ref set.GetNodeData<NewStyleMessageNode.NodeData>(node);
 
                 set.SendMessage(node, NewStyleMessageNode.SimulationPorts.IntInput, 10);
-                Assert.AreEqual(10, nodeData.IntResult);
+                set.SendTest(node, (NewStyleMessageNode.NodeData data) => Assert.AreEqual(10, data.IntResult));
 
                 set.SendMessage(node, NewStyleMessageNode.SimulationPorts.FloatInput, 10);
-                Assert.AreEqual(10.0f, nodeData.FloatResult);
+                set.SendTest(node, (NewStyleMessageNode.NodeData data) => Assert.AreEqual(10.0f, data.FloatResult));
 
                 set.Destroy(node);
             }
@@ -715,10 +713,10 @@ namespace Unity.DataFlowGraph.Tests
             using (var set = new NodeSet())
             {
                 var node = set.Create<GenericHiddenNewStyleMessageNode<float>>();
-                ref var nodeData = ref set.GetNodeData<GenericHiddenNewStyleMessageNode<float>.NodeData>(node);
 
                 set.SendMessage(node, GenericHiddenNewStyleMessageNode<float>.SimulationPorts.Input, 10.0f);
-                Assert.AreEqual(10, nodeData.Result);
+                set.SendTest(node, (GenericHiddenNewStyleMessageNode<float>.NodeData nodeData) =>
+                    Assert.AreEqual(10, nodeData.Result));
 
                 set.Destroy(node);
             }
@@ -745,9 +743,96 @@ namespace Unity.DataFlowGraph.Tests
             using (var set = new NodeSet())
             {
                 var node = set.Create<NewStyleInitHandler>();
-                ref var nodeData = ref set.GetNodeData<NewStyleInitHandler.NodeData>(node);
 
-                Assert.True(nodeData.Called);
+                set.SendTest(node, (NewStyleInitHandler.NodeData data) => Assert.True(data.Called));
+
+                set.Destroy(node);
+            }
+        }
+
+        public class MixedGenericInputNode<T> : SimulationNodeDefinition<MixedGenericInputNode<T>.Ports>
+        {
+            public struct Ports : ISimulationPortDefinition
+            {
+                public MessageInput<MixedGenericInputNode<T>, T> InputT;
+                public MessageInput<MixedGenericInputNode<T>, int> InputInt;
+            }
+
+            public struct Data : INodeData, IMsgHandler<int>, IMsgHandlerGeneric<T>
+            {
+                public InputPortID LastReceivedInput;
+
+                public void HandleMessage(in MessageContext ctx, in int msg)
+                {
+                    LastReceivedInput = ctx.Port;
+                }
+
+                public void HandleMessage(in MessageContext ctx, in T msg)
+                {
+                    LastReceivedInput = ctx.Port;
+                }
+            }
+        }
+
+        [Test]
+        public void CanHandle_GenericMsgInput_AndConcreteMsgInput()
+        {
+            using (var set = new NodeSet())
+            {
+                var node = set.Create<MixedGenericInputNode<int>>();
+                Assert.AreEqual(set.GetNodeData<MixedGenericInputNode<int>.Data>(node).LastReceivedInput, default(InputPortID));
+
+                set.SendMessage(node, MixedGenericInputNode<int>.SimulationPorts.InputInt, 1);
+                Assert.AreEqual(set.GetNodeData<MixedGenericInputNode<int>.Data>(node).LastReceivedInput, (InputPortID)MixedGenericInputNode<int>.SimulationPorts.InputInt);
+
+                set.SendMessage(node, MixedGenericInputNode<int>.SimulationPorts.InputT, 1);
+                Assert.AreEqual(set.GetNodeData<MixedGenericInputNode<int>.Data>(node).LastReceivedInput, (InputPortID)MixedGenericInputNode<int>.SimulationPorts.InputT);
+
+                set.Destroy(node);
+            }
+        }
+
+        public abstract class MixedGenericInputNodeCRTP<TFinalNodeDefinition, T>
+            : SimulationNodeDefinition<MixedGenericInputNodeCRTP<TFinalNodeDefinition, T>.Ports>
+                where TFinalNodeDefinition : NodeDefinition
+        {
+            public struct Ports : ISimulationPortDefinition
+            {
+                public MessageInput<TFinalNodeDefinition, T> InputT;
+                public MessageInput<TFinalNodeDefinition, int> InputInt;
+            }
+
+            public struct Data : INodeData, IMsgHandler<int>, IMsgHandlerGeneric<T>
+            {
+                public InputPortID LastReceivedInput;
+
+                public void HandleMessage(in MessageContext ctx, in int msg)
+                {
+                    LastReceivedInput = ctx.Port;
+                }
+
+                public void HandleMessage(in MessageContext ctx, in T msg)
+                {
+                    LastReceivedInput = ctx.Port;
+                }
+            }
+        }
+
+        public class MixedGenericInputNodeCRTPForFloat : MixedGenericInputNodeCRTP<MixedGenericInputNodeCRTPForFloat, float> {}
+
+        [Test]
+        public void CanHandle_GenericMsgInput_AndConcreteMsgInput_WithCRTPPattern()
+        {
+            using (var set = new NodeSet())
+            {
+                var node = set.Create<MixedGenericInputNodeCRTPForFloat>();
+                Assert.AreEqual(set.GetNodeData<MixedGenericInputNodeCRTPForFloat.Data>(node).LastReceivedInput, default(InputPortID));
+
+                set.SendMessage(node, MixedGenericInputNodeCRTPForFloat.SimulationPorts.InputInt, 1);
+                Assert.AreEqual(set.GetNodeData<MixedGenericInputNodeCRTPForFloat.Data>(node).LastReceivedInput, (InputPortID)MixedGenericInputNode<int>.SimulationPorts.InputInt);
+
+                set.SendMessage(node, MixedGenericInputNodeCRTPForFloat.SimulationPorts.InputT, 1);
+                Assert.AreEqual(set.GetNodeData<MixedGenericInputNodeCRTPForFloat.Data>(node).LastReceivedInput, (InputPortID)MixedGenericInputNode<int>.SimulationPorts.InputT);
 
                 set.Destroy(node);
             }

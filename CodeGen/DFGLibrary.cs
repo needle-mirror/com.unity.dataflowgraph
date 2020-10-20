@@ -195,6 +195,11 @@ namespace Unity.DataFlowGraph.CodeGen
         [NSymbol] public TypeReference IMessageHandlerInterface;
 
         /// <summary>
+        /// <see cref="IMsgHandlerGeneric{TMsg}"/>
+        /// </summary>
+        [NSymbol] public TypeReference IMessageHandlerGenericInterface;
+
+        /// <summary>
         /// <see cref="IInit"/>
         /// </summary>
         [NSymbol] public TypeReference IInitInterface;
@@ -217,12 +222,22 @@ namespace Unity.DataFlowGraph.CodeGen
         /// <summary>
         /// <see cref="NodeDefinition.SimulationVTable.InstallMessageHandler{TNodeDefinition, TNodeData, TMessageData}(MessageInput{TNodeDefinition, TMessageData})"/>
         /// </summary>
-        [NSymbol] public MethodReference VTableMessageInstaller;
+        [NSymbol] MethodReference VTableMessageInstaller;
 
         /// <summary>
         /// <see cref="NodeDefinition.SimulationVTable.InstallPortArrayMessageHandler{TNodeDefinition, TNodeData, TMessageData}(PortArray{MessageInput{TNodeDefinition, TMessageData}})"/>
         /// </summary>
-        [NSymbol] public MethodReference VTablePortArrayMessageInstaller;
+        [NSymbol] MethodReference VTablePortArrayMessageInstaller;
+
+        /// <summary>
+        /// <see cref="NodeDefinition.SimulationVTable.InstallMessageHandlerGeneric{TNodeDefinition, TNodeData, TMessageData}(MessageInput{TNodeDefinition, TMessageData})"/>
+        /// </summary>
+        [NSymbol] MethodReference VTableMessageGenericInstaller;
+
+        /// <summary>
+        /// <see cref="NodeDefinition.SimulationVTable.InstallPortArrayMessageHandlerGeneric{TNodeDefinition, TNodeData, TMessageData}(PortArray{MessageInput{TNodeDefinition, TMessageData}})"/>
+        /// </summary>
+        [NSymbol] MethodReference VTablePortArrayMessageGenericInstaller;
 
         /// <summary>
         /// <see cref="NodeDefinition.SimulationVTable.InstallDestroyHandler{TNodeDefinition, TNodeData}"/>
@@ -279,10 +294,19 @@ namespace Unity.DataFlowGraph.CodeGen
         /// </summary>
         [NSymbol] public TypeReference InternalComponentNodeType;
 
+        /// <summary>
+        /// <see cref="System.ValueType"/>
+        /// </summary>
+        [NSymbol] public TypeReference ValueTypeType;
+
         public DFGLibrary(ModuleDefinition def) : base(def) { }
 
         public NodeDefinitionKind? IdentifyDefinition(TypeReference r)
         {
+            // Drop instantiation so we can match against NodeDefinition<,> etc.
+            if (r.IsGenericInstance)
+                r = r.Resolve(); // TODO: Use .Unqualified() in the future.
+
             for(int i = 0; i < NodeDefinitions.Count; ++i)
             {
                 if(r.RefersToSame(NodeDefinitions[i]))
@@ -302,6 +326,17 @@ namespace Unity.DataFlowGraph.CodeGen
             return TraitsDefinitions[(int)kind];
         }
 
+        public MethodReference GetVTableMessageInstallerForHandler(TypeReference messageHandler, TypeReference portType)
+        {
+            // TODO: Use .Unqualified() in the future.
+            var forIMsgHandler = messageHandler.Resolve().RefersToSame(IMessageHandlerInterface);
+
+            if (portType.Resolve().RefersToSame(PortArrayType))
+                return forIMsgHandler ? VTablePortArrayMessageInstaller : VTablePortArrayMessageGenericInstaller;
+
+            return forIMsgHandler ? VTableMessageInstaller : VTableMessageGenericInstaller;
+        }
+
         public MethodReference FindCreateMethodForPortType(TypeReference portType, bool forInput)
         {
             return PortCreateMethods.First(p => p.DeclaringType.RefersToSame(portType) && p.Parameters[0].ParameterType.RefersToSame(forInput ? InputPortIDType : OutputPortIDType));
@@ -319,6 +354,7 @@ namespace Unity.DataFlowGraph.CodeGen
             IKernelDataInterface = GetImportedReference(typeof(IKernelData));
             IGraphKernelInterface = GetImportedReference(typeof(IGraphKernel<,>));
             IMessageHandlerInterface = GetImportedReference(typeof(IMsgHandler<>));
+            IMessageHandlerGenericInterface = GetImportedReference(typeof(IMsgHandlerGeneric<>));
             IUpdateInterface = GetImportedReference(typeof(IUpdate));
             IDestroyInterface = GetImportedReference(typeof(IDestroy));
             IInitInterface = GetImportedReference(typeof(IInit));
@@ -373,6 +409,12 @@ namespace Unity.DataFlowGraph.CodeGen
             );
             VTablePortArrayMessageInstaller = EnsureImported(
                 vtableMethods.Single(m => m.Name == nameof(NodeDefinition.SimulationVTable.InstallPortArrayMessageHandler))
+            );
+            VTableMessageGenericInstaller = EnsureImported(
+                vtableMethods.Single(m => m.Name == nameof(NodeDefinition.SimulationVTable.InstallMessageHandlerGeneric))
+            );
+            VTablePortArrayMessageGenericInstaller = EnsureImported(
+                vtableMethods.Single(m => m.Name == nameof(NodeDefinition.SimulationVTable.InstallPortArrayMessageHandlerGeneric))
             );
 
             VTableInitInstaller = EnsureImported(
@@ -435,6 +477,7 @@ namespace Unity.DataFlowGraph.CodeGen
             AddCreateMethod(typeof(PortArray<>), nameof(PortArray<MessageOutput<DummyNode, object>>.Create), OutputPortIDType);
 
             InternalComponentNodeType = GetImportedReference(typeof(InternalComponentNode));
+            ValueTypeType = GetImportedReference(typeof(System.ValueType));
         }
 
         public override void AnalyseConsistency(Diag diag)

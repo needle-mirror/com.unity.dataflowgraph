@@ -6,6 +6,7 @@ using Mono.Cecil;
 using NUnit.Framework;
 using Unity.CompilationPipeline.Common.Diagnostics;
 using Unity.DataFlowGraph.Tests;
+using UnityEngine;
 
 namespace Unity.DataFlowGraph.CodeGen.Tests
 {
@@ -37,7 +38,7 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
             CecilNodeReference = CecilAssembly.MainModule.ImportReference(DotNetType);
             CecilNodeDefinition = CecilNodeReference.Resolve();
             Library = new DFGLibrary(CecilAssembly.MainModule);
-            
+
             NodeProcessor = new NodeDefinitionProcessor(Library, CecilNodeDefinition);
 
             Assert.NotNull(DotNetAssembly);
@@ -98,6 +99,11 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
         public void Dispose()
         {
             CheckDiagnostics();
+
+            // Dump out transcript on success.
+            foreach (var message in Diagnostic.Messages)
+                Debug.Log($"Encountered expected diagnostic {message.DiagnosticType}: {message.MessageData}");
+
             m_CecilAssembly.Dispose();
         }
 
@@ -156,5 +162,4 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
             }
         }
     }
-    
 }

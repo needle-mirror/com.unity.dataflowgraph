@@ -6,7 +6,7 @@ namespace Unity.DataFlowGraph.Examples.RenderGraph
 {
     public class PositionAnimator : SimulationKernelNodeDefinition<PositionAnimator.SimPorts, PositionAnimator.KernelDefs>
     {
-        public struct NodeData : INodeData, IUpdate, IMsgHandler<float>, IMsgHandler<float3>
+        public struct NodeData : INodeData, IUpdate, IMsgHandler<float>, IMsgHandler<float3>, IInit
         {
             public float Speed;
             KernelData m_Data;
@@ -29,6 +29,11 @@ namespace Unity.DataFlowGraph.Examples.RenderGraph
             {
                 m_Data.Translation = msg;
                 m_Data.Mask = math.normalize(msg);
+            }
+
+            public void Init(InitContext ctx)
+            {
+                ctx.RegisterForUpdate();
             }
         }
 

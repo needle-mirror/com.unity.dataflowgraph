@@ -84,5 +84,10 @@ namespace Unity.DataFlowGraph.CodeGen
         {
             Error(nameof(DFG_UE_15), context, $"New-style definition implementing old style handler ({newInterface.PrettyName()} should be implemented on an {nameof(INodeData)} struct within the definition)", oldStyleHandler);
         }
+
+        public void DFG_UE_16(IDefinitionContext context, TypeReference handlerType1, TypeReference handlerType2)
+        {
+            Error(nameof(DFG_UE_16), context, $"Ambiguous implementation of both {handlerType1.PrettyName()} and {handlerType2.PrettyName()}");
+        }
     }
 }

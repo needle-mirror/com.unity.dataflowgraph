@@ -380,6 +380,17 @@ namespace Unity.DataFlowGraph
                         continue;
 
                     ref var buffer = ref GetBufferDescription(ref Nodes[handle.Versioned.Index], ref command);
+
+                    // Adopt memory directly from the command?
+                    if(command.PotentialMemory != null)
+                    {
+                        // free the old one.
+                        buffer.FreeIfNeeded(PortAllocator);
+
+                        buffer = new BufferDescription(command.PotentialMemory, command.Size, buffer.OwnerNode);
+                        continue;
+                    }
+
                     var oldSize = buffer.Size;
 
                     // We will need to realloc if the new size is larger than the previous size.
@@ -399,10 +410,7 @@ namespace Unity.DataFlowGraph
                     var type = new SimpleType(command.ItemType.Size * command.Size, command.ItemType.Align);
 
                     // free the old one.
-                    if (buffer.Ptr != null)
-                    {
-                        UnsafeUtility.Free(buffer.Ptr, PortAllocator);
-                    }
+                    buffer.FreeIfNeeded(PortAllocator);
 
                     buffer = new BufferDescription(
                         command.Size == 0 ? null : (byte*)Utility.CAlloc(type, PortAllocator),

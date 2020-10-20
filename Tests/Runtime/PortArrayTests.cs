@@ -535,9 +535,11 @@ namespace Unity.DataFlowGraph.Tests
                 set.Connect(uber, UberNodeWithPortArrayForwarding.SimulationPorts.ForwardedMsgOutputs, 2, result, PassthroughTest<int>.SimulationPorts.Input);
 
                 set.SendMessage(uber, UberNodeWithPortArrayForwarding.SimulationPorts.ForwardedMsgInputs, 2, 4);
-                var uberChild = set.GetNodeData<UberNodeWithPortArrayForwarding.Data>(uber).Child;
-                Assert.AreEqual((2, 4), set.GetNodeData<ArrayIONode.NodeData>(uberChild).LastReceivedMsg);
-                Assert.AreEqual(4, set.GetNodeData<PassthroughTest<int>.NodeData>(result).LastReceivedMsg);
+                set.SendTest<UberNodeWithPortArrayForwarding.Data>(uber, ctx =>
+                    ctx.SendTest(ctx.NodeData.Child, (ArrayIONode.NodeData data) =>
+                        Assert.AreEqual((2, 4), data.LastReceivedMsg)));
+                set.SendTest(result, (PassthroughTest<int>.NodeData data) =>
+                    Assert.AreEqual(4, data.LastReceivedMsg));
 
                 set.Destroy(uber, result);
             }
@@ -629,7 +631,7 @@ namespace Unity.DataFlowGraph.Tests
                     if (inputs.Length == dbgInputView.Items.Length)
                     {
                         for (var i = 0; i < inputs.Length; ++i)
-                            if (inputs[i] != Utility.AsRef<int>(dbgInputView.Items[i].Ptr))
+                            if (inputs[i] != UnsafeUtility.AsRef<int>(dbgInputView.Items[i].Ptr))
                                 return;
                     }
 

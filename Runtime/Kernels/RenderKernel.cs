@@ -153,7 +153,7 @@ namespace Unity.DataFlowGraph
         [AOT.MonoPInvokeCallback (typeof(RenderKernelFunction.InvokeDelegate))]
         public static void Execute(ref RenderContext ctx, in KernelLayout.Pointers instance)
         {
-            Utility.AsRef<TUserKernel>(instance.Kernel).Execute(ctx, Utility.AsRef<TKernelData>(instance.Data), ref Utility.AsRef<TKernelPortDefinition>(instance.Ports));
+            UnsafeUtility.AsRef<TUserKernel>(instance.Kernel).Execute(ctx, UnsafeUtility.AsRef<TKernelData>(instance.Data), ref UnsafeUtility.AsRef<TKernelPortDefinition>(instance.Ports));
         }
 
         /* TODO: Uncomment once issue #229 is fixed

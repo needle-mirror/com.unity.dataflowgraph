@@ -142,9 +142,14 @@ namespace Unity.DataFlowGraph.PolynomialCubeRotatorExample
                 public MessageInput<PhaseNode, float> Time, Scale;
             }
 
-            struct InstanceData : INodeData, IMsgHandler<float>, IUpdate
+            struct InstanceData : INodeData, IMsgHandler<float>, IUpdate, IInit
             {
                 float m_Time, m_TimeScale;
+
+                public void Init(InitContext ctx)
+                {
+                    ctx.RegisterForUpdate();
+                }
 
                 public void HandleMessage(in MessageContext ctx, in float msg)
                 {

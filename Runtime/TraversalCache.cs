@@ -89,7 +89,7 @@ namespace Unity.DataFlowGraph
                 public ref /*TODO: Use readonly in later refactors: readonly*/ Slot IndexTraversal(int index)
                 {
                     if (m_OrderedTraversal.Length > (uint)index)
-                        return ref Utility.AsRef<Slot>((byte*)m_OrderedTraversal.Ptr + UnsafeUtility.SizeOf<Slot>() * index);
+                        return ref UnsafeUtility.AsRef<Slot>((byte*)m_OrderedTraversal.Ptr + UnsafeUtility.SizeOf<Slot>() * index);
 
                     throw new ArgumentOutOfRangeException($"Index {index} is out of range of list length {m_OrderedTraversal.Length}");
                 }
@@ -102,7 +102,7 @@ namespace Unity.DataFlowGraph
                 public ref readonly Connection IndexParent(int index)
                 {
                     if (m_ParentTable.Length > (uint)index)
-                        return ref Utility.AsRef<Connection>((byte*)m_ParentTable.Ptr + UnsafeUtility.SizeOf<Connection>() * index);
+                        return ref UnsafeUtility.AsRef<Connection>((byte*)m_ParentTable.Ptr + UnsafeUtility.SizeOf<Connection>() * index);
 
                     throw new ArgumentOutOfRangeException($"Index {index} is out of range of list length {m_ParentTable.Length}");
                 }
@@ -115,7 +115,7 @@ namespace Unity.DataFlowGraph
                 public ref readonly Connection IndexChild(int index)
                 {
                     if (m_ChildTable.Length > (uint)index)
-                        return ref Utility.AsRef<Connection>((byte*)m_ChildTable.Ptr + UnsafeUtility.SizeOf<Connection>() * index);
+                        return ref UnsafeUtility.AsRef<Connection>((byte*)m_ChildTable.Ptr + UnsafeUtility.SizeOf<Connection>() * index);
 
                     throw new ArgumentOutOfRangeException($"Index {index} is out of range of list length {m_ChildTable.Length}");
                 }

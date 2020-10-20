@@ -2,6 +2,7 @@ using System;
 using System.Text.RegularExpressions;
 using System.Threading;
 using NUnit.Framework;
+using Unity.Collections;
 using UnityEngine;
 using UnityEngine.TestTools;
 
@@ -408,6 +409,66 @@ namespace Unity.DataFlowGraph.Tests
             }
 
             NewStyleDestroyHandler.NodeData.Called = false;
+        }
+
+        public class CommonContextTestNode : SimulationKernelNodeDefinition<CommonContextTestNode.SimPorts, CommonContextTestNode.KernelDefs>
+        {
+            public struct SimPorts : ISimulationPortDefinition
+            {
+                public MessageInput<CommonContextTestNode, int> In;
+                public MessageOutput<CommonContextTestNode, int> Out;
+                public PortArray<MessageOutput<CommonContextTestNode, int>> ArrayOut;
+            }
+
+            public struct KernelDefs : IKernelPortDefinition { }
+
+            struct Node : INodeData, IMsgHandler<int>, IUpdate
+            {
+                public void Update(in UpdateContext context)
+                    => throw new System.NotImplementedException();
+
+                public void HandleMessage(in MessageContext ctx, in int msg)
+                    => throw new NotImplementedException();
+            }
+
+            internal struct EmptyKernelData : IKernelData { }
+
+            internal struct Kernel : IGraphKernel<EmptyKernelData, KernelDefs>
+            {
+                public void Execute(RenderContext context, EmptyKernelData data, ref KernelDefs ports) { }
+            }
+        }
+
+        [Test]
+        public void Contexts_CanBeCast_ToCommonContext()
+        {
+            using (var set = new NodeSet())
+            {
+                var node = set.Create<CommonContextTestNode>();
+                set.SetPortArraySize(node, CommonContextTestNode.SimulationPorts.ArrayOut, 3);
+
+                void TestCommonContext(CommonContext ctx)
+                {
+                    Assert.AreEqual(ctx.Set.NodeSetID, set.NodeSetID);
+                    Assert.AreEqual(ctx.Handle, (NodeHandle)node);
+
+                    Assert.DoesNotThrow(() => ctx.EmitMessage(CommonContextTestNode.SimulationPorts.Out, 22));
+                    Assert.DoesNotThrow(() => ctx.EmitMessage(CommonContextTestNode.SimulationPorts.ArrayOut, 2, 22));
+                    Assert.DoesNotThrow(() => ctx.UpdateKernelBuffers(new CommonContextTestNode.Kernel()));
+                    Assert.DoesNotThrow(() => ctx.UpdateKernelData(new CommonContextTestNode.EmptyKernelData()));
+                    Assert.DoesNotThrow(() => ctx.RegisterForUpdate());
+                    Assert.DoesNotThrow(() => ctx.RemoveFromUpdate());
+                }
+
+                BlitList<ForwardedPort.Unchecked> ports = default;
+                TestCommonContext(new InitContext(set.Validate(node), NodeDefinitionTypeIndex<CommonContextTestNode>.Index, set, ref ports));
+
+                TestCommonContext(new UpdateContext(set, set.Validate(node)));
+
+                TestCommonContext(new MessageContext(set, new InputPair(set, node, new InputPortArrayID((InputPortID)CommonContextTestNode.SimulationPorts.In))));
+
+                set.Destroy(node);
+            }
         }
     }
 }

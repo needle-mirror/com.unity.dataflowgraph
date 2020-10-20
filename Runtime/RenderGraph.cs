@@ -4,8 +4,8 @@ using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
 using Unity.Jobs.LowLevel.Unsafe;
-using UnityEngine;
 using Unity.Entities;
+using Unity.Mathematics;
 
 namespace Unity.DataFlowGraph
 {
@@ -69,7 +69,7 @@ namespace Unity.DataFlowGraph
 
     partial class RenderGraph : IDisposable
     {
-        internal struct BufferResizeStruct
+        internal unsafe struct BufferResizeStruct
         {
             /// <summary>
             /// Special (invalid) value for DataPortIndex indicating that the buffer resize should affect a kernel buffer rather than a data port buffer.
@@ -79,7 +79,25 @@ namespace Unity.DataFlowGraph
             public int DataPortIndex;
             public int LocalBufferOffset;
             public int Size;
-            public SimpleType ItemType;
+            public SimpleType ItemType
+            {
+                get
+                {
+#if DFG_ASSERTIONS
+                    if (PotentialMemory != null)
+                        throw new AssertionException("Memory should be adopted");
+#endif
+                    return m_ItemType;
+                }
+                set => m_ItemType = value;
+            }
+
+            SimpleType m_ItemType;
+
+            /// <summary>
+            /// If this field isn't null, adopt this memory instead of using <see cref="ItemType"/> to allocate memory
+            /// </summary>
+            public void* PotentialMemory;
         }
 
         internal unsafe struct InputPortUpdateStruct
@@ -130,12 +148,12 @@ namespace Unity.DataFlowGraph
                 // we don't need to keep track, we can just walk over all output ports and free them.
                 foreach (var offset in traits.DataPorts.OutputBufferOffsets)
                 {
-                    UnsafeUtility.Free(offset.AsUntyped(Instance.Ports).Ptr, PortAllocator);
+                    offset.AsUntyped(Instance.Ports).FreeIfNeeded(PortAllocator);
                 }
 
                 foreach (var offset in traits.KernelStorage.KernelBufferInfos)
                 {
-                    UnsafeUtility.Free(offset.Offset.AsUntyped(Instance.Kernel).Ptr, PortAllocator);
+                    offset.Offset.AsUntyped(Instance.Kernel).FreeIfNeeded(PortAllocator);
                 }
 
                 for (int i = 0; i < traits.DataPorts.Inputs.Count; ++i)
@@ -418,7 +436,7 @@ namespace Unity.DataFlowGraph
             job.KernelNodes = m_Nodes;
             job.SimulationNodes = m_Set.GetInternalData();
 
-            return job.Schedule(m_Nodes.Count, Mathf.Max(10, m_Nodes.Count / JobsUtility.MaxJobThreadCount), inputDependencies);
+            return job.Schedule(m_Nodes.Count, math.max(10, m_Nodes.Count / JobsUtility.MaxJobThreadCount), inputDependencies);
         }
 
         JobHandle RefreshTopology(JobHandle dependency, in Topology.ComputationContext<FlatTopologyMap> context)
@@ -438,9 +456,8 @@ namespace Unity.DataFlowGraph
                 return deps;
 
             ClearLocalECSInputsAndOutputsJob clearJob;
-#pragma warning disable 618 // 'EntityManager.EntityComponentStore' is obsolete: 'This is slow. Use The EntityDataAccess directly in new code.'
-            clearJob.EntityStore = world.EntityManager.EntityComponentStore;
-#pragma warning restore 618
+
+            clearJob.EntityStore = world.EntityManager.GetCheckedEntityDataAccess()->EntityComponentStore;
             clearJob.KernelNodes = m_Nodes;
             clearJob.NodeSetID = m_Set.NodeSetID;
             clearJob.NodeSetAttachmentType = m_Set.HostSystem.GetBufferTypeHandle<NodeSetAttachment>(true);
@@ -475,9 +492,7 @@ namespace Unity.DataFlowGraph
             {
                 RepatchDFGInputsIfNeededJob ecsPatchJob;
 
-#pragma warning disable 618 // 'EntityManager.EntityComponentStore' is obsolete: 'This is slow. Use The EntityDataAccess directly in new code.'
-                ecsPatchJob.EntityStore = world.EntityManager.EntityComponentStore;
-#pragma warning restore 618
+                ecsPatchJob.EntityStore = world.EntityManager.GetCheckedEntityDataAccess()->EntityComponentStore;
                 ecsPatchJob.KernelNodes = m_Nodes;
                 ecsPatchJob.NodeSetID = m_Set.NodeSetID;
                 ecsPatchJob.Shared = m_SharedData;
@@ -510,10 +525,10 @@ namespace Unity.DataFlowGraph
         public static unsafe void* AllocateAndCopyData<TData>(in TData data)
             where TData : struct
         {
-            return AllocateAndCopyData(Utility.AsPointer(data), SimpleType.Create<TData>());
+            return AllocateAndCopyData(UnsafeUtilityExtensions.AddressOf(data), SimpleType.Create<TData>());
         }
 
-        void AlignWorld(/* in */ ref GraphDiff ownedGraphDiff, out BufferResizeCommands bufferResizeCommands, out InputPortUpdateCommands inputPortUpdateCommands)
+        unsafe void AlignWorld(/* in */ ref GraphDiff ownedGraphDiff, out BufferResizeCommands bufferResizeCommands, out InputPortUpdateCommands inputPortUpdateCommands)
         {
             var simulationNodes = m_Set.GetInternalData();
             var llTraits = m_Set.GetLLTraits();
@@ -541,15 +556,20 @@ namespace Unity.DataFlowGraph
 
                         var portNumber = args.Port == default ? BufferResizeStruct.KernelBufferResizeHint : traits.DataPorts.FindOutputDataPortNumber(args.Port.PortID);
 
-                        bufferResizeCommands.Add(
-                            new BufferResizeStruct {
-                                Handle = args.Handle,
-                                DataPortIndex = portNumber,
-                                LocalBufferOffset = args.LocalBufferOffset,
-                                Size = args.NewSize,
-                                ItemType = args.ItemType
-                            }
-                        );
+                        var resize = new BufferResizeStruct
+                        {
+                            Handle = args.Handle,
+                            DataPortIndex = portNumber,
+                            LocalBufferOffset = args.LocalBufferOffset,
+                            Size = args.NewSize
+                        };
+
+                        if(args.PotentialMemory != null)
+                            resize.PotentialMemory = args.PotentialMemory;
+                        else
+                            resize.ItemType = args.ItemType;
+
+                        bufferResizeCommands.Add(resize);
 
                         break;
                     }

@@ -89,9 +89,8 @@ namespace Unity.DataFlowGraph.Tests
                 ref readonly var kdata = ref f.Set.GetSimulationSide_KernelData(f.Set.Validate(node));
 
                 Assert.AreEqual(entity, kdata.Entity);
-#pragma warning disable 618 // 'EntityManager.EntityComponentStore' is obsolete: 'This is slow. Use The EntityDataAccess directly in new code.'
-                Assert.True(f.World.EntityManager.EntityComponentStore == kdata.EntityStore);
-#pragma warning restore 618
+                Assert.True(f.World.EntityManager.GetCheckedEntityDataAccess()->EntityComponentStore == kdata.EntityStore);
+
                 f.Set.Destroy(node);
             }
         }

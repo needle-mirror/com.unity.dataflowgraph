@@ -154,6 +154,7 @@ namespace Unity.DataFlowGraph.Tests
             Assert.IsFalse(set.GetActiveComponentTypes().IsCreated);
             Assert.IsFalse(set.GetUpdateIndices().IsCreated);
             Assert.IsFalse(set.GetUpdateQueue().IsCreated);
+            Assert.IsFalse(set.GetPendingBuffers_ForTesting().IsCreated);
 
             // Add more as they come...
         }

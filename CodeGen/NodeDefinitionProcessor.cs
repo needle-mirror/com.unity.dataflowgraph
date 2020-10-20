@@ -173,32 +173,47 @@ namespace Unity.DataFlowGraph.CodeGen
                 diag.DFG_UE_06(this, new AggrTypeContext(nameClashes));
 
             // check only old or new style
-            var implementedMessageTypes =
-                m_NodeDataMessageTypes.Count > 0 ? m_NodeDataMessageTypes : m_OldMessageHandlers.Select(g => g.GenericArguments[0]);
+            var implementedMessageHandlers = m_NodeDataMessageHandlers.Count > 0 ? m_NodeDataMessageHandlers : m_OldMessageHandlers;
 
             foreach (var messageHandler in m_OldMessageHandlers)
             {
                 if (!Kind.Value.IsScaffolded())
                     diag.DFG_UE_15(this, messageHandler, messageHandler);
-                else if (m_NodeDataMessageTypes.Count > 0)
+                else if (m_NodeDataMessageHandlers.Count > 0)
                     diag.DFG_UE_10(this, messageHandler);
             }
 
-            // check all declared message input ports are implemented
+            // check all declared message input port handlers are implemented
             foreach (var messagePort in m_DeclaredInputMessagePorts)
             {
-                if (!implementedMessageTypes.Any(t => t.RefersToSame(messagePort.MessageType)))
+                if (!implementedMessageHandlers.Any(h => h.GenericArguments[0].RefersToSame(messagePort.MessageType)))
+                {
                     diag.DFG_UE_11(this, new FieldLocationContext(messagePort.ClosedField));
+                }
+            }
+
+            // check that no ambiguous overloads of clashing IMsgHandler and IMsgHandlerGeneric have been declared.
+            for (var i = 0; i < implementedMessageHandlers.Count; ++i)
+            {
+                for (var j = i + 1; j < implementedMessageHandlers.Count; ++j)
+                {
+                    if (!implementedMessageHandlers[i].GetElementType().RefersToSame(implementedMessageHandlers[j].GetElementType()) &&
+                        implementedMessageHandlers[i].GenericArguments[0].RefersToSame(implementedMessageHandlers[j].GenericArguments[0]))
+                    {
+                        diag.DFG_UE_16(this, implementedMessageHandlers[i], implementedMessageHandlers[j]);
+                    }
+                }
             }
 
             // Scan the hierarchy for potential implementations of old callbacks
             if (m_PresentCallbacks != 0 || !Kind.Value.IsScaffolded())
             {
-                for (var node = DefinitionRoot; !node.RefersToSame(m_BaseNodeDefinitionReference); node = node.BaseType.Resolve())
+                for (var node = InstantiatedDefinition; !node.RefersToSame(m_BaseNodeDefinitionReference); node = node.InstantiatedBaseType())
                 {
+                    var resolved = node.Resolve();
                     void CheckAndReport(PresentSingularCallbacks cb, MethodReference method, TypeReference newInterface)
                     {
-                        if (!node.Overrides(method))
+                        if (!resolved.Overrides(method))
                             return;
                         if (!Kind.Value.IsScaffolded())
                             diag.DFG_UE_15(this, newInterface, method);

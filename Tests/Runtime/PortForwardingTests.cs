@@ -4,6 +4,7 @@ using NUnit.Framework;
 using Unity.Burst;
 using UnityEngine;
 using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
 using UnityEngine.TestTools;
 using static Unity.DataFlowGraph.Tests.ComponentNodeSetTests;
 using Unity.Entities;
@@ -59,8 +60,6 @@ namespace Unity.DataFlowGraph.Tests
 
                 public void Destroy(DestroyContext ctx) => ctx.Set.Destroy(ChildNode);
             }
-
-            public ref Data ExposeData(NodeHandle handle) => ref Set.GetNodeData<Data>(handle);
         }
 
         [Test]
@@ -100,15 +99,16 @@ namespace Unity.DataFlowGraph.Tests
             {
                 var msgNode = set.Create<InOutTestNode>();
                 var uberNode = set.Create<StaticUberNode>();
-                var subGraphNode = set.GetDefinition(uberNode).ExposeData(uberNode).ChildNode;
 
                 set.Connect(msgNode, InOutTestNode.SimulationPorts.Output, uberNode, StaticUberNode.SimulationPorts.ForwardedInput);
 
                 ref readonly var newEdge = ref set.GetTopologyDatabase_ForTesting()[set.GetTopologyDatabase_ForTesting().TotalConnections - 1];
+                var edgeCopy = newEdge;
 
                 Assert.IsTrue(newEdge.Valid);
                 Assert.AreEqual(newEdge.Source.ToPublicHandle(), (NodeHandle)msgNode);
-                Assert.AreEqual(newEdge.Destination.ToPublicHandle(), (NodeHandle)subGraphNode);
+                set.SendTest(uberNode, (StaticUberNode.Data data) =>
+                    Assert.AreEqual(edgeCopy.Destination.ToPublicHandle(), (NodeHandle)data.ChildNode));
 
                 set.Disconnect(msgNode, InOutTestNode.SimulationPorts.Output, uberNode, StaticUberNode.SimulationPorts.ForwardedInput);
 
@@ -125,14 +125,15 @@ namespace Unity.DataFlowGraph.Tests
             {
                 var msgNode = set.Create<InOutTestNode>();
                 var uberNode = set.Create<StaticUberNode>();
-                var subGraphNode = set.GetDefinition(uberNode).ExposeData(uberNode).ChildNode;
 
                 set.Connect(uberNode, StaticUberNode.SimulationPorts.ForwardedOutput, msgNode, InOutTestNode.SimulationPorts.Input);
 
                 ref readonly var newEdge = ref set.GetTopologyDatabase_ForTesting()[set.GetTopologyDatabase_ForTesting().TotalConnections - 1];
+                var edgeCopy = newEdge;
 
                 Assert.IsTrue(newEdge.Valid);
-                Assert.AreEqual(newEdge.Source.ToPublicHandle(), (NodeHandle)subGraphNode);
+                set.SendTest(uberNode, (StaticUberNode.Data data) =>
+                    Assert.AreEqual(edgeCopy.Source.ToPublicHandle(), (NodeHandle)data.ChildNode));
                 Assert.AreEqual(newEdge.Destination.ToPublicHandle(), (NodeHandle)msgNode);
 
                 set.Disconnect(uberNode, StaticUberNode.SimulationPorts.ForwardedOutput, msgNode, InOutTestNode.SimulationPorts.Input);
@@ -151,16 +152,16 @@ namespace Unity.DataFlowGraph.Tests
                 var uberNodeA = set.Create<StaticUberNode>();
                 var uberNodeB = set.Create<StaticUberNode>();
 
-                var childHandleA = set.GetDefinition(uberNodeA).ExposeData(uberNodeA).ChildNode;
-                var childHandleB = set.GetDefinition(uberNodeB).ExposeData(uberNodeB).ChildNode;
-
                 set.Connect(uberNodeA, StaticUberNode.SimulationPorts.ForwardedOutput, uberNodeB, StaticUberNode.SimulationPorts.ForwardedInput);
 
                 ref readonly var newEdge = ref set.GetTopologyDatabase_ForTesting()[set.GetTopologyDatabase_ForTesting().TotalConnections - 1];
+                var edgeCopy = newEdge;
 
                 Assert.IsTrue(newEdge.Valid);
-                Assert.AreEqual(newEdge.Source.ToPublicHandle(), (NodeHandle)childHandleA);
-                Assert.AreEqual(newEdge.Destination.ToPublicHandle(), (NodeHandle)childHandleB);
+                set.SendTest(uberNodeA, (StaticUberNode.Data data) =>
+                    Assert.AreEqual(edgeCopy.Source.ToPublicHandle(), (NodeHandle)data.ChildNode));
+                set.SendTest(uberNodeB, (StaticUberNode.Data data) =>
+                    Assert.AreEqual(edgeCopy.Destination.ToPublicHandle(), (NodeHandle)data.ChildNode));
 
                 set.Disconnect(uberNodeA, StaticUberNode.SimulationPorts.ForwardedOutput, uberNodeB, StaticUberNode.SimulationPorts.ForwardedInput);
 
@@ -202,8 +203,6 @@ namespace Unity.DataFlowGraph.Tests
                     ctx.Set.Destroy(Child);
                 }
             }
-
-            public ref Data ExposeData(NodeHandle handle) => ref Set.GetNodeData<Data>(handle);
         }
 
         public class NestedUberNodeMiddle : SimulationNodeDefinition<NestedUberNodeMiddle.SimPorts>
@@ -251,17 +250,18 @@ namespace Unity.DataFlowGraph.Tests
 
                 set.Connect(uberNodeA, RootNestedUberNode.SimulationPorts.ForwardedOutput, uberNodeB, RootNestedUberNode.SimulationPorts.ForwardedInput);
 
-                var nestedMiddleA = set.GetDefinition(uberNodeA).ExposeData(uberNodeA).Child;
-                var nestedMiddleB = set.GetDefinition(uberNodeB).ExposeData(uberNodeB).Child;
-
-                var sourceA = set.GetDefinition(nestedMiddleA).ExposeData(nestedMiddleA).Child;
-                var sourceB = set.GetDefinition(nestedMiddleB).ExposeData(nestedMiddleB).Child;
-
                 ref readonly var newEdge = ref set.GetTopologyDatabase_ForTesting()[set.GetTopologyDatabase_ForTesting().TotalConnections - 1];
+                var edgeCopy = newEdge;
 
                 Assert.IsTrue(newEdge.Valid);
-                Assert.AreEqual(newEdge.Source.ToPublicHandle(), (NodeHandle)sourceA);
-                Assert.AreEqual(newEdge.Destination.ToPublicHandle(), (NodeHandle)sourceB);
+
+                set.SendTest<RootNestedUberNode.Data>(uberNodeA, ctx =>
+                    ctx.SendTest(ctx.NodeData.Child, (NestedUberNodeMiddle.Data data) =>
+                        Assert.AreEqual(edgeCopy.Source.ToPublicHandle(), (NodeHandle)data.Child)));
+
+                set.SendTest<RootNestedUberNode.Data>(uberNodeB, ctx =>
+                    ctx.SendTest(ctx.NodeData.Child, (NestedUberNodeMiddle.Data data) =>
+                        Assert.AreEqual(edgeCopy.Destination.ToPublicHandle(), (NodeHandle)data.Child)));
 
                 set.Disconnect(uberNodeA, RootNestedUberNode.SimulationPorts.ForwardedOutput, uberNodeB, RootNestedUberNode.SimulationPorts.ForwardedInput);
 
@@ -277,7 +277,6 @@ namespace Unity.DataFlowGraph.Tests
             using (var set = new NodeSet())
             {
                 var nestedMiddle = set.Create<NestedUberNodeMiddle>();
-                var child = set.GetDefinition(nestedMiddle).ExposeData(nestedMiddle).Child;
 
                 var forwardTable = set.GetForwardingTable();
 
@@ -292,8 +291,10 @@ namespace Unity.DataFlowGraph.Tests
                 var middleInput = middleFirst.IsInput ? middleFirst : middleSecond;
                 var middleOutput = middleFirst.IsInput ? middleSecond : middleFirst;
 
-                Assert.AreEqual(middleInput.Replacement.ToPublicHandle(), (NodeHandle)child);
-                Assert.AreEqual(middleOutput.Replacement.ToPublicHandle(), (NodeHandle)child);
+                set.SendTest(nestedMiddle, (NestedUberNodeMiddle.Data data) =>
+                    Assert.AreEqual(middleInput.Replacement.ToPublicHandle(), (NodeHandle)data.Child));
+                set.SendTest(nestedMiddle, (NestedUberNodeMiddle.Data data) =>
+                    Assert.AreEqual(middleOutput.Replacement.ToPublicHandle(), (NodeHandle)data.Child));
 
                 Assert.AreEqual(middleInput.GetOriginInputPortID(), NestedUberNodeMiddle.SimulationPorts.ForwardedInput.Port);
                 Assert.AreEqual(middleOutput.GetOriginOutputPortID(), NestedUberNodeMiddle.SimulationPorts.ForwardedOutput.Port);
@@ -311,8 +312,6 @@ namespace Unity.DataFlowGraph.Tests
             using (var set = new NodeSet())
             {
                 var rootUberNode = set.Create<RootNestedUberNode>();
-                var nestedMiddle = set.GetDefinition(rootUberNode).ExposeData(rootUberNode).Child;
-                var child = set.GetDefinition(nestedMiddle).ExposeData(nestedMiddle).Child;
 
                 var forwardTable = set.GetForwardingTable();
 
@@ -328,8 +327,11 @@ namespace Unity.DataFlowGraph.Tests
                 var rootInput = rootFirst.IsInput ? rootFirst : rootSecond;
                 var rootOutput = rootFirst.IsInput ? rootSecond : rootFirst;
 
-                Assert.AreEqual(rootInput.Replacement.ToPublicHandle(), (NodeHandle)child);
-                Assert.AreEqual(rootOutput.Replacement.ToPublicHandle(), (NodeHandle)child);
+                set.SendTest<RootNestedUberNode.Data>(rootUberNode, ctx =>
+                    ctx.SendTest(ctx.NodeData.Child, (NestedUberNodeMiddle.Data data) => {
+                        Assert.AreEqual(rootInput.Replacement.ToPublicHandle(), (NodeHandle)data.Child);
+                        Assert.AreEqual(rootOutput.Replacement.ToPublicHandle(), (NodeHandle)data.Child);
+                    }));
 
                 Assert.AreEqual(rootInput.GetOriginInputPortID(), RootNestedUberNode.SimulationPorts.ForwardedInput.Port);
                 Assert.AreEqual(rootOutput.GetOriginOutputPortID(), RootNestedUberNode.SimulationPorts.ForwardedOutput.Port);
@@ -340,8 +342,6 @@ namespace Unity.DataFlowGraph.Tests
                 set.Destroy(rootUberNode);
             }
         }
-
-        public class AsExpectedException : Exception { }
 
         public class AlienUberNode : SimulationNodeDefinition<AlienUberNode.SimPorts>
         {
@@ -612,10 +612,11 @@ namespace Unity.DataFlowGraph.Tests
             public struct SimPorts : ISimulationPortDefinition
             {
                 public MessageInput<UberNodeThatPrematurely_KillsChildren, Message> ForwardedInput;
+                public MessageInput<UberNodeThatPrematurely_KillsChildren, bool> KillChildrenTrigger;
                 public MessageOutput<UberNodeThatPrematurely_KillsChildren, Message> ForwardedOutput;
             }
 
-            struct Data : INodeData, IInit, IMsgHandler<Message>
+            struct Data : INodeData, IInit, IMsgHandler<Message>, IMsgHandler<bool>
             {
                 public NodeHandle<InOutTestNode> Child;
 
@@ -626,10 +627,10 @@ namespace Unity.DataFlowGraph.Tests
                     ctx.ForwardInput(SimulationPorts.ForwardedInput, Child, InOutTestNode.SimulationPorts.Input);
                 }
 
+                public void HandleMessage(in MessageContext ctx, in bool _) => ctx.Set.Destroy(Child);
+
                 public void HandleMessage(in MessageContext ctx, in Message msg) => throw new NotImplementedException();
             }
-
-            public void KillChildren(NodeHandle handle) => Set.Destroy(Set.GetNodeData<Data>(handle).Child);
         }
 
         [Test]
@@ -646,7 +647,7 @@ namespace Unity.DataFlowGraph.Tests
                 set.Disconnect(uberA, UberNodeThatPrematurely_KillsChildren.SimulationPorts.ForwardedOutput, rhs, InOutTestNode.SimulationPorts.Input);
                 set.Disconnect(rhs, InOutTestNode.SimulationPorts.Output, uberA, UberNodeThatPrematurely_KillsChildren.SimulationPorts.ForwardedInput);
 
-                set.GetDefinition(uberA).KillChildren(uberA);
+                set.SendMessage(uberA, UberNodeThatPrematurely_KillsChildren.SimulationPorts.KillChildrenTrigger, true);
 
                 Assert.Throws<InvalidOperationException>(() => set.Connect(uberA, UberNodeThatPrematurely_KillsChildren.SimulationPorts.ForwardedOutput, rhs, InOutTestNode.SimulationPorts.Input));
                 Assert.Throws<InvalidOperationException>(() => set.Connect(rhs, InOutTestNode.SimulationPorts.Output, uberA, UberNodeThatPrematurely_KillsChildren.SimulationPorts.ForwardedInput));
@@ -778,8 +779,6 @@ namespace Unity.DataFlowGraph.Tests
                     ctx.Set.Destroy(Child);
                 }
             }
-
-            public ref Data ExposeData(NodeHandle handle) => ref Set.GetNodeData<Data>(handle);
         }
 
         [Test]
@@ -788,7 +787,6 @@ namespace Unity.DataFlowGraph.Tests
             using (var set = new NodeSet())
             {
                 var uber = set.Create<UberNodeWithDataForwarding>();
-                var child = set.GetDefinition(uber).ExposeData(uber).Child;
 
                 set.SetData(uber, UberNodeWithDataForwarding.KernelPorts.ForwardedDataInput, 1);
 
@@ -798,7 +796,8 @@ namespace Unity.DataFlowGraph.Tests
 
                 var message = diff.MessagesArrivingAtDataPorts[0];
 
-                Assert.AreEqual((NodeHandle)child, message.Destination.Handle.ToPublicHandle());
+                set.SendTest(uber, (UberNodeWithDataForwarding.Data data) =>
+                    Assert.AreEqual(message.Destination.Handle.ToPublicHandle(), (NodeHandle)data.Child));
                 Assert.AreEqual((InputPortID)NodeWithAllTypesOfPorts.KernelPorts.InputScalar, message.Destination.Port.PortID);
 
                 set.Destroy(uber);
@@ -811,7 +810,6 @@ namespace Unity.DataFlowGraph.Tests
             using (var set = new NodeSet())
             {
                 var uber = set.Create<UberNodeWithDataForwarding>();
-                var child = set.GetDefinition(uber).ExposeData(uber).Child;
 
                 set.SetBufferSize(uber, UberNodeWithDataForwarding.KernelPorts.ForwardedDataOutputBuffer, Buffer<int>.SizeRequest(10));
 
@@ -821,7 +819,8 @@ namespace Unity.DataFlowGraph.Tests
 
                 var resize = diff.ResizedDataBuffers[0];
 
-                Assert.AreEqual((NodeHandle)child, resize.Handle.ToPublicHandle());
+                set.SendTest(uber, (UberNodeWithDataForwarding.Data data) =>
+                    Assert.AreEqual((NodeHandle)data.Child, resize.Handle.ToPublicHandle()));
                 Assert.AreEqual((OutputPortID)NodeWithAllTypesOfPorts.KernelPorts.OutputBuffer, resize.Port.PortID);
 
                 set.Destroy(uber);
@@ -834,7 +833,6 @@ namespace Unity.DataFlowGraph.Tests
             using (var set = new NodeSet())
             {
                 var uber = set.Create<UberNodeWithDataForwarding>();
-                var child = set.GetDefinition(uber).ExposeData(uber).Child;
                 var rhs = set.Create<NodeWithAllTypesOfPorts>();
 
                 set.Connect(rhs, NodeWithAllTypesOfPorts.KernelPorts.OutputScalar, uber, UberNodeWithDataForwarding.KernelPorts.ForwardedDataInput);
@@ -847,7 +845,8 @@ namespace Unity.DataFlowGraph.Tests
 
                 var message = diff.MessagesArrivingAtDataPorts[0];
 
-                Assert.AreEqual((NodeHandle)child, message.Destination.Handle.ToPublicHandle());
+                set.SendTest(uber, (UberNodeWithDataForwarding.Data data) =>
+                    Assert.AreEqual(message.Destination.Handle.ToPublicHandle(), (NodeHandle)data.Child));
                 Assert.AreEqual((InputPortID)NodeWithAllTypesOfPorts.KernelPorts.InputScalar, message.Destination.Port.PortID);
 
                 set.Destroy(uber, rhs);
@@ -860,18 +859,18 @@ namespace Unity.DataFlowGraph.Tests
             using (var set = new NodeSet())
             {
                 var uber = set.Create<UberNodeWithDataForwarding>();
-                var child = set.GetDefinition(uber).ExposeData(uber).Child;
 
                 var gv = set.CreateGraphValue(uber, UberNodeWithDataForwarding.KernelPorts.ForwardedDataOutputBuffer);
                 var values = set.GetOutputValues();
 
-                ref readonly var value = ref values[gv.Handle];
+                var value = values[gv.Handle];
 
-                Assert.AreEqual((NodeHandle)child, value.Source.ToPublicHandle());
+                set.SendTest(uber, (UberNodeWithDataForwarding.Data data) =>
+                    Assert.AreEqual((NodeHandle)data.Child, value.Source.ToPublicHandle()));
 
                 ref readonly var traits = ref set.GetLLTraits()[set.Nodes[value.Source.Versioned].TraitsIndex].Resolve();
                 ref readonly var outputPort = ref traits.DataPorts.FindOutputDataPort(NodeWithAllTypesOfPorts.KernelPorts.OutputBuffer.Port);
-                Assert.True(Utility.AsPointer(outputPort) == value.OutputDeclaration);
+                Assert.True(UnsafeUtilityExtensions.AddressOf(outputPort) == value.OutputDeclaration);
 
                 set.ReleaseGraphValue(gv);
                 set.Destroy(uber);
@@ -988,7 +987,6 @@ namespace Unity.DataFlowGraph.Tests
                 var set = f.Set;
 
                 var uber = f.Set.Create<ForwarderECSNode>();
-                var entity = f.Set.GetNodeData<ForwarderECSNode.Data>(uber).Entity;
                 var end = f.Set.Create<PassthroughTest<SimpleData>>();
                 var start = f.Set.Create<PassthroughTest<SimpleData>>();
 
@@ -997,7 +995,8 @@ namespace Unity.DataFlowGraph.Tests
 
                 var gv = f.Set.CreateGraphValue(end, PassthroughTest<SimpleData>.KernelPorts.Output);
 
-                Assert.That(f.EM.HasComponent<SimpleData>(entity));
+                set.SendTest(uber, (ForwarderECSNode.Data data) =>
+                    Assert.That(f.EM.HasComponent<SimpleData>(data.Entity)));
 
                 for(int i = 0; i < 10; ++i)
                 {
@@ -1005,9 +1004,12 @@ namespace Unity.DataFlowGraph.Tests
 
                     f.System.Update();
 
-                    var ecsData = f.EM.GetComponentData<SimpleData>(entity);
-                    Assert.AreEqual(i, (int)ecsData.SomethingElse);
-                    Assert.AreEqual(i, (int)ecsData.Something);
+                    set.SendTest(uber, (ForwarderECSNode.Data data) =>
+                    {
+                        var ecsData = f.EM.GetComponentData<SimpleData>(data.Entity);
+                        Assert.AreEqual(i, (int) ecsData.SomethingElse);
+                        Assert.AreEqual(i, (int) ecsData.Something);
+                    });
 
                     var dfgData = set.GetValueBlocking(gv);
                     Assert.AreEqual(i, (int)dfgData.SomethingElse);

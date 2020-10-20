@@ -76,12 +76,18 @@ namespace Unity.DataFlowGraph.TimeExample
         {
             float m_Time;
             float m_Speed;
-            bool m_IsPlaying;
             KernelData m_KernelData;
 
             public void HandleMessage(in MessageContext ctx, in SeekMessage msg) => m_Time = msg.Time;
             public void HandleMessage(in MessageContext ctx, in SpeedMessage msg) => m_Speed = msg.Scale;
-            public void HandleMessage(in MessageContext ctx, in PlayStateMessage msg) => m_IsPlaying = msg.ShouldPlay;
+            public void HandleMessage(in MessageContext ctx, in PlayStateMessage msg)
+            {
+                if (msg.ShouldPlay)
+                    ctx.RegisterForUpdate();
+                else
+                    ctx.RemoveFromUpdate();
+            }
+
             public void HandleMessage(in MessageContext ctx, in StreamType msg)
             {
                 m_KernelData.Mask = msg;
@@ -90,9 +96,6 @@ namespace Unity.DataFlowGraph.TimeExample
 
             public void Update(in UpdateContext ctx)
             {
-                if (!m_IsPlaying)
-                    return;
-
                 m_Time += Time.deltaTime * m_Speed;
                 m_KernelData.Time = m_Time;
                 ctx.UpdateKernelData(m_KernelData);
@@ -202,7 +205,16 @@ namespace Unity.DataFlowGraph.TimeExample
                 ctx.EmitMessage(SimulationPorts.SpeedOut, msg);
             }
 
-            public void HandleMessage(in MessageContext ctx, in PlayStateMessage msg) => m_IsPlaying = msg.ShouldPlay;
+            public void HandleMessage(in MessageContext ctx, in PlayStateMessage msg)
+            {
+                if (m_IsPlaying)
+                    ctx.RemoveFromUpdate();
+                else
+                    ctx.RegisterForUpdate();
+
+                m_IsPlaying = msg.ShouldPlay;
+            }
+
             public void HandleMessage(in MessageContext ctx, in TimeOffsetMessage msg) => m_Origin = msg.Origin;
 
             public void Update(in UpdateContext ctx)

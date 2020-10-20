@@ -15,9 +15,19 @@ namespace Unity.DataFlowGraph.Tests
             public struct EmptyPorts : ISimulationPortDefinition { }
 
             [Managed]
-            public struct Data : INodeData
+            public struct Data : INodeData, IInit, IDestroy
             {
                 public MObject Object;
+
+                public void Init(InitContext ctx)
+                {
+                    Object = new MObject();
+                }
+
+                public void Destroy(DestroyContext context)
+                {
+                    Object = null;
+                }
             }
         }
 
@@ -28,10 +38,10 @@ namespace Unity.DataFlowGraph.Tests
 
             using (var set = new NodeSet())
             {
+                Assert.Zero(MObject.Instances);
+
                 var handle = set.Create<NodeWithManagedData>();
 
-                Assert.Zero(MObject.Instances);
-                set.GetNodeData<NodeWithManagedData.Data>(handle).Object = new MObject();
                 Assert.AreEqual(1, MObject.Instances);
 
                 var currentTime = Time.realtimeSinceStartup;
@@ -45,12 +55,11 @@ namespace Unity.DataFlowGraph.Tests
                 }
 
                 Assert.AreEqual(1, MObject.Instances);
-                set.GetNodeData<NodeWithManagedData.Data>(handle).Object = null;
+
+                set.Destroy(handle);
 
                 set.Update();
                 yield return ManagedMemoryAllocatorTests.AssertManagedObjectsReleasedInTime();
-
-                set.Destroy(handle);
             }
         }
     }

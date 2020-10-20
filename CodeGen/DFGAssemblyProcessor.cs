@@ -20,9 +20,9 @@ namespace Unity.DataFlowGraph.CodeGen
         (MethodReference Original, MethodReference Replacement)[] PortInitUtilityGetInitializedPortDefMethods;
 
         /// <summary>
-        /// <see cref="Utility.AsRef"/>, <see cref="Utility.As"/> and <see cref="Utility.AsPointer"/> methods.
+        /// <see cref="Utility.AddressOfEvenIfManaged"/> method.
         /// </summary>
-        MethodReference[] UtilityAsRefMethods;
+        MethodReference UtilityAddressOfMethod;
 
         public DFGAssemblyProcessor(ModuleDefinition def, DFGLibrary lib)
             : base(def)
@@ -42,10 +42,9 @@ namespace Unity.DataFlowGraph.CodeGen
                     FindGenericMethod(portInitUtilityType, nameof(PortInitUtility.GetInitializedPortDefImp), i+1);
             }
 
-            // Gather our local implementations of the Unsafe.AsRef<T>() and Unsafe.AsPointer<T>() methods
             var utilityType = GetImportedReference(typeof(Utility));
-            UtilityAsRefMethods = utilityType.Resolve().Methods.Where(
-                m => (m.Name == nameof(Utility.AsRef) || m.Name == nameof(Utility.As) || m.Name == nameof(Utility.AsPointer)) && m.Parameters.Count == 1).ToArray();
+            UtilityAddressOfMethod = utilityType.Resolve().Methods.Single(
+                m => m.Name == nameof(Utility.AddressOfEvenIfManaged) && m.Parameters.Count == 1);
         }
 
         public override void AnalyseConsistency(Diag diag)
@@ -53,8 +52,8 @@ namespace Unity.DataFlowGraph.CodeGen
             if (PortInitUtilityGetInitializedPortDefMethods.Any(m => m.Original == null || m.Replacement == null))
                 diag.DFG_IE_01(this, GetType().GetField(nameof(PortInitUtilityGetInitializedPortDefMethods), BindingFlags.Instance | BindingFlags.NonPublic));
 
-            if (UtilityAsRefMethods.Length != 4)
-                diag.DFG_IE_01(this, GetType().GetField(nameof(UtilityAsRefMethods), BindingFlags.Instance | BindingFlags.NonPublic));
+            if (UtilityAddressOfMethod == null)
+                diag.DFG_IE_01(this, GetType().GetField(nameof(UtilityAddressOfMethod), BindingFlags.Instance | BindingFlags.NonPublic));
         }
 
         public override void PostProcess(Diag diag, out bool mutated)
@@ -92,16 +91,12 @@ namespace Unity.DataFlowGraph.CodeGen
                 PortInitUtilityGetInitializedPortDefMethods[i].Original.Resolve().Body =
                     PortInitUtilityGetInitializedPortDefMethods[i].Replacement.Resolve().Body;
 
-            // Generate an implementation for our local implementations of the Unsafe.AsRef<T>() and Unsafe.AsPointer<T>() methods.
-            // (they all have the exact same IL opcodes)
-            foreach (var method in UtilityAsRefMethods)
-            {
-                var body = method.Resolve().Body;
-                body.Instructions.Clear();
-                var il = body.GetILProcessor();
-                il.Append(il.Create(OpCodes.Ldarg_0));
-                il.Append(il.Create(OpCodes.Ret));
-            }
+            // Generate an implementation for our local version of the UnsafeUtilityExtensions.AddressOf<T>() method.
+            var body = UtilityAddressOfMethod.Resolve().Body;
+            body.Instructions.Clear();
+            var il = body.GetILProcessor();
+            il.Append(il.Create(OpCodes.Ldarg_0));
+            il.Append(il.Create(OpCodes.Ret));
 
             mutated = true;
         }

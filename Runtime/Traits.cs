@@ -48,18 +48,18 @@ namespace Unity.DataFlowGraph
         internal override IManagedMemoryPoolAllocator ManagedAllocator => m_Allocator;
     }
 
-    sealed class NodeTraits<TKernelData, TKernelPortDefinition, TKernel> : NodeTraitsBase
+    sealed class NodeTraits<TKernelData, TKernelPortDefinition, TGraphKernel> : NodeTraitsBase
         where TKernelData : struct, IKernelData
         where TKernelPortDefinition : struct, IKernelPortDefinition
-        where TKernel : struct, IGraphKernel<TKernelData, TKernelPortDefinition>
+        where TGraphKernel : struct, IGraphKernel<TKernelData, TKernelPortDefinition>
     {
         internal override IKernelData DebugGetKernelData(NodeSetAPI set, NodeHandle handle) => set.GetKernelData<TKernelData>(handle);
-        internal override unsafe IKernelData DebugGetKernelData(KernelLayout.Pointers kPointers) => Utility.AsRef<IKernelData>(kPointers.Data);
-        internal override unsafe IGraphKernel DebugGetKernel(KernelLayout.Pointers kPointers) => Utility.AsRef<IGraphKernel>(kPointers.Kernel);
-        internal override unsafe IKernelPortDefinition DebugGetKernelPorts(KernelLayout.Pointers kPointers) => Utility.AsRef<IKernelPortDefinition>(kPointers.Ports);
+        internal override unsafe IKernelData DebugGetKernelData(KernelLayout.Pointers kPointers) => UnsafeUtility.AsRef<TKernelData>(kPointers.Data);
+        internal override unsafe IGraphKernel DebugGetKernel(KernelLayout.Pointers kPointers) => UnsafeUtility.AsRef<TGraphKernel>(kPointers.Kernel);
+        internal override unsafe IKernelPortDefinition DebugGetKernelPorts(KernelLayout.Pointers kPointers) => UnsafeUtility.AsRef<TKernelPortDefinition>(kPointers.Ports);
 
         internal override LLTraitsHandle CreateNodeTraits(System.Type superType, SimulationStorageDefinition simStorage, KernelStorageDefinition kernelStorage)
-            => LowLevelTraitsFactory<TKernelData, TKernelPortDefinition, TKernel>.Create(superType, simStorage, kernelStorage);
+            => LowLevelTraitsFactory<TKernelData, TKernelPortDefinition, TGraphKernel>.Create(superType, simStorage, kernelStorage);
         internal override IManagedMemoryPoolAllocator ManagedAllocator => throw new NotImplementedException();
     }
 
@@ -73,9 +73,9 @@ namespace Unity.DataFlowGraph
 
         internal override IKernelData DebugGetKernelData(NodeSetAPI set, NodeHandle handle) => set.GetKernelData<TKernelData>(handle);
         internal override INodeData DebugGetNodeData(NodeSetAPI set, NodeHandle handle) => set.GetNodeData<TNodeData>(handle);
-        internal override unsafe IKernelData DebugGetKernelData(KernelLayout.Pointers kPointers) => Utility.AsRef<TKernelData>(kPointers.Data);
-        internal override unsafe IGraphKernel DebugGetKernel(KernelLayout.Pointers kPointers) => Utility.AsRef<TKernel>(kPointers.Kernel);
-        internal override unsafe IKernelPortDefinition DebugGetKernelPorts(KernelLayout.Pointers kPointers) => Utility.AsRef<TKernelPortDefinition>(kPointers.Ports);
+        internal override unsafe IKernelData DebugGetKernelData(KernelLayout.Pointers kPointers) => UnsafeUtility.AsRef<TKernelData>(kPointers.Data);
+        internal override unsafe IGraphKernel DebugGetKernel(KernelLayout.Pointers kPointers) => UnsafeUtility.AsRef<TKernel>(kPointers.Kernel);
+        internal override unsafe IKernelPortDefinition DebugGetKernelPorts(KernelLayout.Pointers kPointers) => UnsafeUtility.AsRef<TKernelPortDefinition>(kPointers.Ports);
 
         internal override LLTraitsHandle CreateNodeTraits(System.Type superType, SimulationStorageDefinition simStorage, KernelStorageDefinition kernelStorage)
             => LowLevelTraitsFactory<TKernelData, TKernelPortDefinition, TKernel>.Create(superType, simStorage, kernelStorage);

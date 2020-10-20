@@ -7,7 +7,7 @@ using UnityEngine.Scripting;
 
 namespace Unity.DataFlowGraph.Tests
 {
-    class PortTests
+    public class PortTests
     {
         [Preserve] // avoid stripping, [Values()] is not enough
         struct Scalar : IComponentData
@@ -185,6 +185,31 @@ namespace Unity.DataFlowGraph.Tests
 
                 set.ReleaseGraphValue(gv);
                 set.Destroy(node);
+            }
+        }
+
+        public class CloselyRelatedGenericsNode : SimulationNodeDefinition<CloselyRelatedGenericsNode.SimDefs>
+        {
+            public struct SimDefs : ISimulationPortDefinition
+            {
+                public MessageInput<CloselyRelatedGenericsNode, BlobAssetReference<int>> Graph;
+                public MessageInput<CloselyRelatedGenericsNode, BlobAssetReference<float>> GraphInstance;
+            }
+
+            struct Data : INodeData, IMsgHandler<BlobAssetReference<int>>, IMsgHandler<BlobAssetReference<float>>
+            {
+                public void HandleMessage(in MessageContext ctx, in BlobAssetReference<int> msg) { }
+
+                public void HandleMessage(in MessageContext ctx, in BlobAssetReference<float> msg) { }
+            }
+        }
+
+        [Test]
+        public void CanAuthorNode_WithIdenticalGenericMessagesTypes_ButDifferentNestedInstantiation()
+        {
+            using (var set = new NodeSet())
+            {
+                set.Destroy(set.Create<CloselyRelatedGenericsNode>());
             }
         }
     }

@@ -99,6 +99,22 @@ namespace Unity.DataFlowGraph
                 InstallMessageHandlerInternal(Trampolines<TNodeDefinition>.HandleMessage<TMessageData, TNodeData>, port.GetPortID().Port);
             }
 
+            public void InstallMessageHandlerGeneric<TNodeDefinition, TNodeData, TMessageData>(MessageInput<TNodeDefinition, TMessageData> port)
+                where TNodeDefinition : NodeDefinition
+                where TNodeData : struct, INodeData, IMsgHandlerGeneric<TMessageData>
+                where TMessageData : struct
+            {
+                InstallMessageHandlerInternal(Trampolines<TNodeDefinition>.HandleMessageGeneric<TMessageData, TNodeData>, port.Port.Port);
+            }
+
+            public void InstallPortArrayMessageHandlerGeneric<TNodeDefinition, TNodeData, TMessageData>(PortArray<MessageInput<TNodeDefinition, TMessageData>> port)
+                where TNodeDefinition : NodeDefinition
+                where TNodeData : struct, INodeData, IMsgHandlerGeneric<TMessageData>
+                where TMessageData : struct
+            {
+                InstallMessageHandlerInternal(Trampolines<TNodeDefinition>.HandleMessageGeneric<TMessageData, TNodeData>, port.GetPortID().Port);
+            }
+
             public void InstallDestroyHandler<TNodeDefinition, TNodeData>()
                 where TNodeDefinition : NodeDefinition
                 where TNodeData : struct, INodeData, IDestroy
@@ -239,7 +255,7 @@ namespace Unity.DataFlowGraph
             {
                 InitDelivery delivery;
                 delivery.Context = context;
-                delivery.Node = Set.GetNodeDataRaw(context.m_Handle);
+                delivery.Node = Set.GetNodeDataRaw(context.InternalHandle);
                 VirtualTable.InitHandler(delivery);
             }
             else
@@ -284,8 +300,8 @@ namespace Unity.DataFlowGraph
             {
                 MessageDelivery d;
                 d.Context = ctx;
-                d.Node = Set.GetNodeDataRaw(ctx.InputPair.Handle);
-                d.Message = Utility.AsPointer(msg);
+                d.Node = Set.GetNodeDataRaw(ctx.InternalHandle);
+                d.Message = Utility.AddressOfEvenIfManaged(msg);
                 nodeDataHandler(d);
             }
             else if (this is IMsgHandler<T> specificHandler)
@@ -457,12 +473,12 @@ namespace Unity.DataFlowGraph
                     }
                     else if (genericField == typeof(DataOutput<,>))
                     {
-                        var bufferInfos = new List<(int Offset, SimpleType ItemType)>();
+                        var bufferInfos = new List<PortDescription.OutputPort.BufferEntryInsidePort>();
 
                         if (!IsBufferDefinition(genericType))
                         {
                             var recursiveBuffers = WalkTypeInstanceFields(genericType, BindingFlags.Public, IsBufferDefinition)
-                                .Select(fi => (UnsafeUtility.GetFieldOffset(fi), new SimpleType(fi.FieldType.GetGenericArguments()[0])));
+                                .Select(fi => new PortDescription.OutputPort.BufferEntryInsidePort(UnsafeUtility.GetFieldOffset(fi), new SimpleType(fi.FieldType.GetGenericArguments()[0])));
 
                             bufferInfos.AddRange(recursiveBuffers);
 
@@ -475,7 +491,7 @@ namespace Unity.DataFlowGraph
                         {
                             var bufferType = genericType.GetGenericArguments()[0];
 
-                            bufferInfos.Add((0, new SimpleType(bufferType)));
+                            bufferInfos.Add(new PortDescription.OutputPort.BufferEntryInsidePort(0, new SimpleType(bufferType)));
 
                             if (typeof(IBufferElementData).IsAssignableFrom(bufferType))
                             {

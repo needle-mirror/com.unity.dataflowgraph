@@ -1,5 +1,6 @@
 using System;
 using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
 
 namespace Unity.DataFlowGraph
 {
@@ -9,22 +10,25 @@ namespace Unity.DataFlowGraph
     /// A context provided to a node's <see cref="NodeDefinition.OnMessage"/> implementation which is invoked when a
     /// node receives a message on one of their MessageInputs.
     /// </summary>
-    public readonly struct MessageContext
+    public readonly partial struct MessageContext
     {
-        /// <summary>
-        /// The <see cref="NodeSetAPI"/> associated with this context.
-        /// </summary>
-        public readonly NodeSetAPI Set;
+        readonly CommonContext m_Ctx;
+        readonly InputPortArrayID m_Port;
 
         /// <summary>
         /// A handle to the node receiving a message.
         /// </summary>
-        public NodeHandle Handle => InputPair.Handle.ToPublicHandle();
+        public NodeHandle Handle => m_Ctx.Handle;
+
+        /// <summary>
+        /// The <see cref="NodeSetAPI"/> associated with this context.
+        /// </summary>
+        public NodeSetAPI Set => m_Ctx.Set;
 
         /// <summary>
         /// The port ID of the <see cref="MessageInput{TDefinition, TMsg}"/> on which the message is being received.
         /// </summary>
-        public InputPortID Port => InputPair.Port.PortID;
+        public InputPortID Port => m_Port.PortID;
 
         /// <summary>
         /// If the above port ID corresponds to a <see cref="PortArray{TInputPort}"/>, this is the array index on which the message
@@ -34,12 +38,17 @@ namespace Unity.DataFlowGraph
         {
             get
             {
-                if (!InputPair.Port.IsArray)
+                if (!m_Port.IsArray)
                     throw new InvalidOperationException("Trying to access index array for a non array PortID.");
 
-                return InputPair.Port.ArrayIndex;
+                return m_Port.ArrayIndex;
             }
         }
+
+        /// <summary>
+        /// Conversion operator for common API shared with other contexts.
+        /// </summary>
+        public static implicit operator CommonContext(in MessageContext ctx) => ctx.m_Ctx;
 
         /// <summary>
         /// Emit a message from yourself on a port. Everything connected to it will receive your message.
@@ -47,32 +56,43 @@ namespace Unity.DataFlowGraph
         public void EmitMessage<T, TNodeDefinition>(MessageOutput<TNodeDefinition, T> port, in T msg)
             where TNodeDefinition : NodeDefinition
         {
-            Set.EmitMessage(InputPair.Handle, new OutputPortArrayID(port.Port), msg);
+            Set.EmitMessage(InternalHandle, new OutputPortArrayID(port.Port), msg);
         }
 
         /// <summary>
         /// Emit a message from yourself on a port array. Everything connected to it will receive your message.
         /// </summary>
+        /// <exception cref="IndexOutOfRangeException">Thrown if the index is out of range with respect to the port array.</exception>
         public void EmitMessage<T, TNodeDefinition>(PortArray<MessageOutput<TNodeDefinition, T>> port, int arrayIndex, in T msg)
             where TNodeDefinition : NodeDefinition
         {
-            Set.EmitMessage(InputPair.Handle, new OutputPortArrayID(port.GetPortID(), arrayIndex), msg);
+            Set.EmitMessage(InternalHandle, new OutputPortArrayID(port.GetPortID(), arrayIndex), msg);
         }
 
         /// <summary>
-        /// Set the size of a <see cref="Buffer{T}"/> appearing in this node's <see cref="IGraphKernel{TKernelData,TKernelPortDefinition}"/>.
-        /// Pass an instance of the node's <see cref="IGraphKernel{TKernelData,TKernelPortDefinition}"/> as the <paramref name="requestedSize"/>
-        /// parameter with <see cref="Buffer{T}"/> instances within it having been set using <see cref="Buffer{T}.SizeRequest(int)"/>.
-        /// Any <see cref="Buffer{T}"/> instances within the given struct that have not been set using
-        /// <see cref="Buffer{T}.SizeRequest(int)"/> will be unaffected by the call.
+        /// Updates the contents of <see cref="Buffer{T}"/>s appearing in this node's <see cref="IGraphKernel{TKernelData,TKernelPortDefinition}"/>.
+        /// Pass an instance of the node's <see cref="IGraphKernel{TKernelData,TKernelPortDefinition}"/> as the <paramref name="requestedContents"/>
+        /// parameter with <see cref="Buffer{T}"/> instances within it having been set using <see cref="UploadRequest"/>, or
+        /// <see cref="Buffer{T}.SizeRequest(int)"/>.
+        /// Any <see cref="Buffer{T}"/> instances within the given struct that have default values will be unaffected by the call.
         /// </summary>
-        public void SetKernelBufferSize<TGraphKernel>(in TGraphKernel requestedSize)
-            where TGraphKernel : IGraphKernel
+        public void UpdateKernelBuffers<TGraphKernel>(in TGraphKernel kernel)
+            where TGraphKernel : struct, IGraphKernel
         {
-            Set.SetKernelBufferSize(InputPair.Handle, requestedSize);
+            Set.UpdateKernelBuffers(InternalHandle, kernel);
         }
 
-        internal readonly InputPair InputPair;
+        /// <summary>
+        /// The return value should be used together with <see cref="UpdateKernelBuffers"/> to change the contents
+        /// of a kernel buffer living on a <see cref="IGraphKernel{TKernelData, TKernelPortDefinition}"/>.
+        /// </summary>
+        /// <remarks>
+        /// This will resize the affected buffer to the same size as <paramref name="inputMemory"/>.
+        /// Failing to include the return value in a call to <see cref="UpdateKernelBuffers"/> is an error and will result in a memory leak.
+        /// </remarks>
+        public Buffer<T> UploadRequest<T>(NativeArray<T> inputMemory, BufferUploadMethod method = BufferUploadMethod.Copy)
+            where T : struct
+                => Set.UploadRequest(InternalHandle, inputMemory, method);
 
         /// <summary>
         /// Updates the associated <typeparamref name="TKernelData"/> asynchronously,
@@ -81,12 +101,12 @@ namespace Unity.DataFlowGraph
         public void UpdateKernelData<TKernelData>(in TKernelData data)
             where TKernelData : struct, IKernelData
         {
-            Set.UpdateKernelData(InputPair.Handle, data);
+            Set.UpdateKernelData(InternalHandle, data);
         }
 
         /// <summary>
-        /// Registers <see cref="Handle"/> for regular updates every time <see cref="NodeSet.Update"/> is called.
-        /// This only takes effect after the next <see cref="NodeSet.Update"/>.
+        /// Registers <see cref="Handle"/> for regular updates every time <see cref="NodeSet.Update()"/> is called.
+        /// This only takes effect after the next <see cref="NodeSet.Update()"/>.
         /// <seealso cref="IUpdate.Update(in UpdateContext)"/>
         /// <seealso cref="RemoveFromUpdate()"/>
         /// </summary>
@@ -99,32 +119,46 @@ namespace Unity.DataFlowGraph
         /// <exception cref="InvalidOperationException">
         /// Thrown if <see cref="Handle"/> is already registered for updating.
         /// </exception>
-        public void RegisterForUpdate() => Set.RegisterForUpdate(InputPair.Handle);
+        public void RegisterForUpdate() => Set.RegisterForUpdate(InternalHandle);
 
         /// <summary>
-        /// Deregisters <see cref="Handle"/> from updating every time <see cref="NodeSet.Update"/> is called.
-        /// This only takes effect after the next <see cref="NodeSet.Update"/>.
+        /// Deregisters <see cref="Handle"/> from updating every time <see cref="NodeSet.Update()"/> is called.
+        /// This only takes effect after the next <see cref="NodeSet.Update()"/>.
         /// <seealso cref="RegisterForUpdate()"/>
         /// </summary>
         /// <exception cref="InvalidOperationException">
         /// Thrown if <see cref="Handle"/> is not registered for updating.
         /// </exception>
-        public void RemoveFromUpdate() => Set.RemoveFromUpdate(InputPair.Handle);
+        public void RemoveFromUpdate() => Set.RemoveFromUpdate(InternalHandle);
 
+        internal ValidatedHandle InternalHandle => m_Ctx.InternalHandle;
 
         internal MessageContext(NodeSetAPI set, in InputPair dest)
         {
-            Set = set;
-            InputPair = dest;
+            m_Ctx = new CommonContext(set, dest.Handle);
+            m_Port = dest.Port;
         }
     }
 
     /// <summary>
-    /// Interface to be implemented by <see cref="NodeDefinition{TNodeData,TSimulationPortDefinition}"/> or other variant
-    /// which includes an <see cref="ISimulationPortDefinition"/> that contains <see cref="MessageInput{TDefinition,TMsg}"/>
+    /// Interface to be implemented on an <see cref="INodeData"/> struct for a <see cref="SimulationNodeDefinition{TSimulationPortDefinition}"/>
+    /// or <see cref="SimulationKernelNodeDefinition{TSimulationPortDefinition,TKernelPortDefinition}"/> which includes an
+    /// <see cref="ISimulationPortDefinition"/> that contains <see cref="MessageInput{TDefinition,TMsg}"/>
     /// fields. This interface is used to handle messages which arrive on those <see cref="MessageInput{TDefinition,TMsg}"/> ports.
     /// </summary>
     public interface IMsgHandler<TMsg>
+    {
+        void HandleMessage(in MessageContext ctx, in TMsg msg);
+    }
+
+    /// <summary>
+    /// Alternate variant which can be used in place of <see cref="IMsgHandler{TMsg}"/> when an <see cref="INodeData"/> struct
+    /// implementation would otherwise need to implement two incompatible <see cref="IMsgHandler{TMsg}"/> interfaces. A common
+    /// use of this variant would be for a node which has an input of generic type and other input(s) of non generic type(s).
+    /// In this scenario, the node could use <see cref="IMsgHandlerGeneric{TMsg}"/> to implement the handler for its generic
+    /// input, and normal <see cref="IMsgHandler{TMsg}"/>s for other inputs.
+    /// </summary>
+    public interface IMsgHandlerGeneric<TMsg>
     {
         void HandleMessage(in MessageContext ctx, in TMsg msg);
     }
@@ -284,7 +318,11 @@ namespace Unity.DataFlowGraph
                     if (connection.TraversalFlags != PortDescription.MessageToDataConnectionCategory)
                         throw new AssertionException("Unexpected connection type");
 #endif
-                    m_Diff.SetData(dest, RenderGraph.AllocateAndCopyData(Utility.AsPointer(msg), new SimpleType(typeof(TMsg))));
+#if DFG_ASSERTIONS
+                    if (!UnsafeUtility.IsUnmanaged<TMsg>())
+                        throw new AssertionException("Type was expected to be unmanaged");
+#endif
+                    m_Diff.SetData(dest, RenderGraph.AllocateAndCopyData(Utility.AddressOfEvenIfManaged(msg), new SimpleType(typeof(TMsg))));
                 }
             }
 
@@ -304,6 +342,8 @@ namespace Unity.DataFlowGraph
                     if (port.PortID == forward.GetOriginOutputPortID())
                         throw new ArgumentException("Cannot emit a message through a previously forwarded port");
                 }
+
+                CheckPortArrayBounds(new OutputPair(this, handle.ToPublicHandle(), port));
             }
         }
 
@@ -351,7 +391,7 @@ namespace Unity.DataFlowGraph
             SetDataOnValidatedPort(destination, data);
         }
 
-        unsafe void SetDataOnValidatedPort<TType>(in InputPair destination, in TType data)
+        internal unsafe void SetDataOnValidatedPort<TType>(in InputPair destination, in TType data)
             where TType : struct
         {
             CheckPortArrayBounds(destination);

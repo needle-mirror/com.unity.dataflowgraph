@@ -1,4 +1,5 @@
 using System;
+using System.Text.RegularExpressions;
 using NUnit.Framework;
 using Unity.Burst;
 using Unity.Collections;
@@ -689,7 +690,7 @@ namespace Unity.DataFlowGraph.Tests
                 ref CheatingNativeArrayStorage GetStorage()
                 {
                     fixed (byte* storage = m_NativeArrayStorage)
-                        return ref Utility.AsRef<CheatingNativeArrayStorage>(storage);
+                        return ref UnsafeUtility.AsRef<CheatingNativeArrayStorage>(storage);
                 }
             }
         }
@@ -924,41 +925,41 @@ namespace Unity.DataFlowGraph.Tests
                 set.DataGraph.SyncAnyRendering();
 
                 // Perform the A node transformation locally.
-                var outputADBuf = stackalloc double[bufferSizes.Doubles.GetSizeRequest().Size];
-                var outputAVBuf = stackalloc float4[bufferSizes.Vectors.GetSizeRequest().Size];
-                var outputABBuf = stackalloc byte[bufferSizes.Bytes.GetSizeRequest().Size];
-                var outputAMBuf = stackalloc float4x4[bufferSizes.Matrices.GetSizeRequest().Size];
+                var outputADBuf = stackalloc double[bufferSizes.Doubles.GetSizeRequest_ForTesting()];
+                var outputAVBuf = stackalloc float4[bufferSizes.Vectors.GetSizeRequest_ForTesting()];
+                var outputABBuf = stackalloc byte[bufferSizes.Bytes.GetSizeRequest_ForTesting()];
+                var outputAMBuf = stackalloc float4x4[bufferSizes.Matrices.GetSizeRequest_ForTesting()];
                 var outputA = new ComplexAggregate()
                 {
-                    Doubles = new Buffer<double>(outputADBuf, bufferSizes.Doubles.GetSizeRequest().Size, default),
-                    Vectors = new Buffer<float4>(outputAVBuf, bufferSizes.Vectors.GetSizeRequest().Size, default),
-                    Bytes = new Buffer<byte>(outputABBuf, bufferSizes.Bytes.GetSizeRequest().Size, default),
-                    Matrices = new Buffer<float4x4>(outputAMBuf, bufferSizes.Matrices.GetSizeRequest().Size, default),
+                    Doubles = new Buffer<double>(outputADBuf, bufferSizes.Doubles.GetSizeRequest_ForTesting(), default),
+                    Vectors = new Buffer<float4>(outputAVBuf, bufferSizes.Vectors.GetSizeRequest_ForTesting(), default),
+                    Bytes = new Buffer<byte>(outputABBuf, bufferSizes.Bytes.GetSizeRequest_ForTesting(), default),
+                    Matrices = new Buffer<float4x4>(outputAMBuf, bufferSizes.Matrices.GetSizeRequest_ForTesting(), default),
                 };
                 var fakeRenderContext = new RenderContext(new ValidatedHandle(), set.DataGraph.m_SharedData.SafetyManager);
                 ComplexAggregate.RandomizeOutput(fakeRenderContext, k_RandomSeed, ref outputA);
 
                 var knodes = set.DataGraph.GetInternalData();
                 ref var aKNode = ref knodes[((NodeHandle)a).VHandle.Index];
-                ref var aKPorts = ref Utility.AsRef<ComplexKernelAggregateNode.KernelDefs>(aKNode.Instance.Ports);
+                ref var aKPorts = ref UnsafeUtility.AsRef<ComplexKernelAggregateNode.KernelDefs>(aKNode.Instance.Ports);
                 Assert.AreEqual(aKPorts.Output.m_Value, outputA);
 
                 // Perform the B node transformation locally.
-                var outputBDBuf = stackalloc double[bufferSizes.Doubles.GetSizeRequest().Size];
-                var outputBVBuf = stackalloc float4[bufferSizes.Vectors.GetSizeRequest().Size];
-                var outputBBBuf = stackalloc byte[bufferSizes.Bytes.GetSizeRequest().Size];
-                var outputBMBuf = stackalloc float4x4[bufferSizes.Matrices.GetSizeRequest().Size];
+                var outputBDBuf = stackalloc double[bufferSizes.Doubles.GetSizeRequest_ForTesting()];
+                var outputBVBuf = stackalloc float4[bufferSizes.Vectors.GetSizeRequest_ForTesting()];
+                var outputBBBuf = stackalloc byte[bufferSizes.Bytes.GetSizeRequest_ForTesting()];
+                var outputBMBuf = stackalloc float4x4[bufferSizes.Matrices.GetSizeRequest_ForTesting()];
                 var outputB = new ComplexAggregate()
                 {
-                    Doubles = new Buffer<double>(outputBDBuf, bufferSizes.Doubles.GetSizeRequest().Size, default),
-                    Vectors = new Buffer<float4>(outputBVBuf, bufferSizes.Vectors.GetSizeRequest().Size, default),
-                    Bytes = new Buffer<byte>(outputBBBuf, bufferSizes.Bytes.GetSizeRequest().Size, default),
-                    Matrices = new Buffer<float4x4>(outputBMBuf, bufferSizes.Matrices.GetSizeRequest().Size, default),
+                    Doubles = new Buffer<double>(outputBDBuf, bufferSizes.Doubles.GetSizeRequest_ForTesting(), default),
+                    Vectors = new Buffer<float4>(outputBVBuf, bufferSizes.Vectors.GetSizeRequest_ForTesting(), default),
+                    Bytes = new Buffer<byte>(outputBBBuf, bufferSizes.Bytes.GetSizeRequest_ForTesting(), default),
+                    Matrices = new Buffer<float4x4>(outputBMBuf, bufferSizes.Matrices.GetSizeRequest_ForTesting(), default),
                 };
                 ComplexAggregate.ArbitraryTransformation(fakeRenderContext, outputA, ref outputB);
 
                 ref var bKNode = ref knodes[((NodeHandle)b).VHandle.Index];
-                ref var bKPorts = ref Utility.AsRef<ComplexKernelAggregateNode.KernelDefs>(bKNode.Instance.Ports);
+                ref var bKPorts = ref UnsafeUtility.AsRef<ComplexKernelAggregateNode.KernelDefs>(bKNode.Instance.Ports);
                 Assert.AreEqual(bKPorts.Output.m_Value, outputB);
 
                 set.Destroy(a, b);
@@ -978,7 +979,7 @@ namespace Unity.DataFlowGraph.Tests
             {
                 public void Init(InitContext ctx)
                 {
-                    ctx.SetKernelBufferSize(new Kernel {stateBuffer = Buffer<long>.SizeRequest(10)});
+                    ctx.UpdateKernelBuffers(new Kernel {stateBuffer = Buffer<long>.SizeRequest(10)});
                 }
             }
 
@@ -1011,7 +1012,7 @@ namespace Unity.DataFlowGraph.Tests
             {
                 var node = set.Create<StatefulKernelNode>();
 
-                set.SetKernelBufferSize(
+                set.UpdateKernelBuffers(
                     set.Nodes.Validate(node.VHandle),
                     new StatefulKernelNode.Kernel
                     {
@@ -1065,7 +1066,7 @@ namespace Unity.DataFlowGraph.Tests
                     try
                     {
                         // This is invalid as it doesn't pass in the right IGraphKernel type
-                        ctx.SetKernelBufferSize(new StatefulKernelNode.Kernel {stateBuffer = Buffer<long>.SizeRequest(10)});
+                        ctx.UpdateKernelBuffers(new StatefulKernelNode.Kernel {stateBuffer = Buffer<long>.SizeRequest(10)});
                     }
                     catch (ArgumentException)
                     {
@@ -1084,13 +1085,230 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void CannotSetSize_OnKernelBuffers_WithWrongKernelType()
+        public void CannotUpdateKernelBuffers_WithWrongKernelType()
         {
             using (var set = new NodeSet())
             {
                 LogAssert.Expect(LogType.Log, "All is good");
                 var node = set.Create<KernelNodeWithInvalidSetKernelBufferSize>();
                 set.Destroy(node);
+            }
+        }
+
+        public class KernelNode_ThatInitializesBuffer : SimulationKernelNodeDefinition<KernelNode_ThatInitializesBuffer.SimDefs, KernelNode_ThatInitializesBuffer.KernelDefs>
+        {
+            public const int Elements = 1024;
+            public struct KernelDefs : IKernelPortDefinition { }
+
+            public struct SimDefs : ISimulationPortDefinition
+            {
+                public MessageInput<KernelNode_ThatInitializesBuffer, bool> DoUploadRequestButMaybeForget;
+                public MessageInput<KernelNode_ThatInitializesBuffer, bool> DoUploadRequest_UsingCommonContext;
+                public MessageInput<KernelNode_ThatInitializesBuffer, bool> DoUpdateBuffers_UsingSameBufferTwice;
+                public MessageInput<KernelNode_ThatInitializesBuffer, bool> DoUpdateBuffers_Twice_InSeparateCalls;
+                public MessageInput<KernelNode_ThatInitializesBuffer, bool> DoUpdateBuffers_WithAlienHandle;
+            }
+
+            struct Node : INodeData, IInit, IMsgHandler<bool>
+            {
+                public unsafe void HandleMessage(in MessageContext ctx, in bool control)
+                {
+                    var tempArray = new NativeArray<int>(Elements, Allocator.Temp);
+
+                    for (int i = 0; i < tempArray.Length; ++i)
+                    {
+                        tempArray[i] = i;
+                    }
+
+                    if (ctx.Port == SimulationPorts.DoUploadRequestButMaybeForget)
+                    {
+                        var request = ctx.UploadRequest(tempArray);
+
+                        if (!control)
+                            ctx.UpdateKernelBuffers(new Kernel { MyBuffer = request });
+                    }
+                    else if (ctx.Port == SimulationPorts.DoUploadRequest_UsingCommonContext)
+                    {
+                        CommonContext common = ctx;
+                        var request = common.UploadRequest(tempArray);
+
+                        if (!control)
+                            common.UpdateKernelBuffers(new Kernel { MyBuffer = request });
+                    }
+                    else if(ctx.Port == SimulationPorts.DoUpdateBuffers_UsingSameBufferTwice)
+                    {
+                        var request = ctx.UploadRequest(tempArray);
+
+                        try
+                        {
+                            ctx.UpdateKernelBuffers(new Kernel { MyBuffer = request, MyBufferTwo = request });
+                        }
+                        catch(InvalidOperationException e)
+                        {
+                            Debug.LogError(e.Message);
+                        }
+                    }
+                    else if (ctx.Port == SimulationPorts.DoUpdateBuffers_Twice_InSeparateCalls)
+                    {
+                        var request = ctx.UploadRequest(tempArray);
+
+                        ctx.UpdateKernelBuffers(new Kernel { MyBuffer = request });
+
+                        try
+                        {
+                            ctx.UpdateKernelBuffers(new Kernel { MyBuffer = request });
+                        }
+                        catch (InvalidOperationException e)
+                        {
+                            Debug.LogError(e.Message);
+                        }
+                    }
+                    else if(ctx.Port == SimulationPorts.DoUpdateBuffers_WithAlienHandle)
+                    {
+                        var request = ctx.UploadRequest(tempArray);
+
+                        // This is slightly contrived.. but someone could make the choice to send a request through a message.
+                        request = new Buffer<int>(
+                            new BufferDescription(
+                                request.Ptr,
+                                request.Size,
+                                ValidatedHandle.Create_ForTesting(VersionedHandle.Create_ForTesting(0, 0, 0))
+                            )
+                        );
+
+                        try
+                        {
+                            ctx.UpdateKernelBuffers(new Kernel { MyBuffer = request });
+                        }
+                        catch (InvalidOperationException e)
+                        {
+                            Debug.LogError(e.Message);
+                        }
+                    }
+
+                    tempArray.Dispose();
+                }
+
+                public void Init(InitContext ctx)
+                {
+                    var tempArray = new NativeArray<int>(Elements, Allocator.Temp);
+                    using (var blah = tempArray)
+                    {
+                        for(int i = 0; i < tempArray.Length; ++i)
+                        {
+                            tempArray[i] = i;
+                        }
+
+                        ctx.UpdateKernelBuffers(new Kernel { MyBuffer = ctx.UploadRequest(tempArray) });
+                    }
+                }
+            }
+
+            struct Data : IKernelData { }
+
+            struct Kernel : IGraphKernel<Data, KernelDefs>
+            {
+                internal Buffer<int> MyBuffer;
+                internal Buffer<int> MyBufferTwo;
+
+                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
+                {
+                    var array = MyBuffer.ToNative(ctx);
+
+                    if (array.Length != Elements)
+                        return;
+
+                    for (int i = 0; i < Elements; ++i)
+                        if (array[i] != i)
+                            return;
+
+                    Debug.Log("All is good");
+                }
+            }
+        }
+
+        [Test]
+        public void CanUploadData_ToKernelBuffer()
+        {
+            using (var set = new NodeSet())
+            {
+                LogAssert.Expect(LogType.Log, "All is good");
+                var node = set.Create<KernelNode_ThatInitializesBuffer>();
+                set.Update();
+
+                set.SendMessage(node, KernelNode_ThatInitializesBuffer.SimulationPorts.DoUploadRequestButMaybeForget, false);
+                set.Update();
+                set.Destroy(node);
+            }
+        }
+
+        [Test]
+        public void CanUploadData_ToKernelBuffer_UsingCommonContext()
+        {
+            using (var set = new NodeSet())
+            {
+                LogAssert.Expect(LogType.Log, "All is good");
+                var node = set.Create<KernelNode_ThatInitializesBuffer>();
+                set.Update();
+
+                set.SendMessage(node, KernelNode_ThatInitializesBuffer.SimulationPorts.DoUploadRequest_UsingCommonContext, false);
+                set.Update();
+                set.Destroy(node);
+            }
+        }
+
+        [Test]
+        public void ForgettingToSubmitUploadRequest_ProducesWarning_AtEndOfUpdate()
+        {
+            using (var set = new NodeSet())
+            {
+                LogAssert.Expect(LogType.Log, "All is good");
+                var node = set.Create<KernelNode_ThatInitializesBuffer>();
+                set.Update();
+                LogAssert.Expect(LogType.Warning, new Regex("this is potentially a memory leak"));
+                set.SendMessage(node, KernelNode_ThatInitializesBuffer.SimulationPorts.DoUploadRequestButMaybeForget, true);
+                set.Update();
+                LogAssert.Expect(LogType.Error, new Regex("1 leaked buffer upload requests left"));
+                set.Destroy(node);
+            }
+        }
+
+        [Test]
+        public void UsingSameUploadRequest_InMultipleBuffers_ThrowsException()
+        {
+            using (var set = new NodeSet())
+            {
+                var node = set.Create<KernelNode_ThatInitializesBuffer>();
+                LogAssert.Expect(LogType.Error, new Regex("was submitted more than once"));
+                set.SendMessage(node, KernelNode_ThatInitializesBuffer.SimulationPorts.DoUpdateBuffers_UsingSameBufferTwice, true);
+                set.Destroy(node);
+            }
+        }
+
+        [Test]
+        public void UsingSameUploadRequest_InMultipleUpdateCalls_ThrowsException()
+        {
+            using (var set = new NodeSet())
+            {
+                var node = set.Create<KernelNode_ThatInitializesBuffer>();
+                LogAssert.Expect(LogType.Error, new Regex("was submitted more than once"));
+                set.SendMessage(node, KernelNode_ThatInitializesBuffer.SimulationPorts.DoUpdateBuffers_Twice_InSeparateCalls, true);
+                set.Destroy(node);
+            }
+        }
+
+        [Test]
+        public void UsingForeignUpdateRequest_InUpdateKernelBuffersCall_ThrowsException()
+        {
+            using (var set = new NodeSet())
+            {
+                var node = set.Create<KernelNode_ThatInitializesBuffer>();
+                LogAssert.Expect(LogType.Error, new Regex("originated from a different node than the target owner"));
+                set.SendMessage(node, KernelNode_ThatInitializesBuffer.SimulationPorts.DoUpdateBuffers_WithAlienHandle, true);
+                LogAssert.Expect(LogType.Warning, new Regex("this is potentially a memory leak"));
+                LogAssert.Expect(LogType.Error, new Regex("1 leaked buffer upload requests left"));
+                set.Destroy(node);
+
             }
         }
     }

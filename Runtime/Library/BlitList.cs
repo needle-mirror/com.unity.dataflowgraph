@@ -3,8 +3,8 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
-using UnityEngine;
 using Unity.Collections.LowLevel.Unsafe;
+using Unity.Mathematics;
 
 namespace Unity.Collections
 {
@@ -272,7 +272,7 @@ namespace Unity.Collections
         /// </summary>
         public void BlitSharedPortion(BlitList<T> other)
         {
-            var count = Mathf.Min(other.Count, Count);
+            var count = math.min(other.Count, Count);
             UnsafeUtility.MemCpy(Pointer, other.Pointer, count * sizeof(T));
         }
 
@@ -306,7 +306,7 @@ namespace Unity.Collections
             else
             {
                 // relocate
-                m_Capacity = Mathf.NextPowerOfTwo((int)newSize);
+                m_Capacity = math.ceilpow2((int)newSize);
 
                 var temp = (T*)UnsafeUtility.Malloc(m_Capacity * sizeof(T), Alignment, AllocationLabel);
 
@@ -342,7 +342,7 @@ namespace Unity.Collections
                 return;
 
             // relocate
-            m_Capacity = Mathf.NextPowerOfTwo((int)newSize);
+            m_Capacity = math.ceilpow2((int)newSize);
 
             var temp = (T*)UnsafeUtility.Malloc(m_Capacity * sizeof(T), Alignment, AllocationLabel);
 

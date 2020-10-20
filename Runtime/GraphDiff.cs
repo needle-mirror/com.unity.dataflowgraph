@@ -51,7 +51,7 @@ namespace Unity.DataFlowGraph
             public int Class;
         }
 
-        public struct BufferResizedTuple
+        public unsafe struct BufferResizedTuple
         {
             public ValidatedHandle Handle;
             public OutputPortArrayID Port;
@@ -60,7 +60,25 @@ namespace Unity.DataFlowGraph
             /// </summary>
             public int LocalBufferOffset;
             public int NewSize;
-            public SimpleType ItemType;
+            public SimpleType ItemType
+            {
+                get
+                {
+#if DFG_ASSERTIONS
+                    if (PotentialMemory != null)
+                        throw new AssertionException("Memory should be adopted");
+#endif
+                    return m_ItemType;
+                }
+                set => m_ItemType = value;
+            }
+
+            SimpleType m_ItemType;
+
+            /// <summary>
+            /// If this field isn't null, adopt this memory instead of using <see cref="ItemType"/> to allocate memory
+            /// </summary>
+            public void* PotentialMemory;
         }
 
         public struct PortArrayResizedTuple
@@ -124,6 +142,12 @@ namespace Unity.DataFlowGraph
         {
             Commands.Add(new CommandTuple { command = Command.ResizeBuffer, ContainerIndex = ResizedDataBuffers.Count });
             ResizedDataBuffers.Add(new BufferResizedTuple { Handle = target, Port = default, LocalBufferOffset = bufferOffset, NewSize = size, ItemType = itemType });
+        }
+
+        public unsafe void KernelBufferUpdated(in ValidatedHandle target, int bufferOffset, int size, void* memory)
+        {
+            Commands.Add(new CommandTuple { command = Command.ResizeBuffer, ContainerIndex = ResizedDataBuffers.Count });
+            ResizedDataBuffers.Add(new BufferResizedTuple { Handle = target, Port = default, LocalBufferOffset = bufferOffset, NewSize = size, PotentialMemory = memory });
         }
 
         public void PortArrayResized(in InputPair dest, ushort size)

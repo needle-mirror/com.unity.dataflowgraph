@@ -254,11 +254,11 @@ namespace Unity.DataFlowGraph.Tests
             {
                 void* mem = allocator.Alloc();
 
-                ref var alias = ref Utility.AsRef<SimpleStruct>(mem);
+                ref var alias = ref UnsafeUtility.AsRef<SimpleStruct>(mem);
                 alias.FValue = value;
                 alias.IValue = value;
 
-                ref var secondAlias = ref Utility.AsRef<SimpleStruct>(mem);
+                ref var secondAlias = ref UnsafeUtility.AsRef<SimpleStruct>(mem);
 
                 Assert.AreEqual((int)secondAlias.FValue, value);
                 Assert.AreEqual(secondAlias.IValue, value);
@@ -316,7 +316,7 @@ namespace Unity.DataFlowGraph.Tests
             {
                 unsafe
                 {
-                    return ref Utility.AsRef<ManagedStruct>(m_Allocation);
+                    return ref UnsafeUtility.AsRef<ManagedStruct>(m_Allocation);
                 }
             }
 

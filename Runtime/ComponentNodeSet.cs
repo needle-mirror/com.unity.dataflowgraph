@@ -44,11 +44,10 @@ namespace Unity.DataFlowGraph
         {
 
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
-#pragma warning disable 618 // 'EntityManager.SafetyHandles' is obsolete: 'This is slow. Use The EntityDataAccess directly in new code.'
-            var componentSafetyManager = HostSystem.World.EntityManager.SafetyHandles;
-#pragma warning restore 618
 
-            for(int i = 0; i < m_ActiveComponentTypes.Count; ++i)
+            var componentSafetyManager = &HostSystem.World.EntityManager.GetCheckedEntityDataAccess()->DependencyManager->Safety;
+
+            for (int i = 0; i < m_ActiveComponentTypes.Count; ++i)
             {
                 m_ActiveComponentTypes[i].CopySafetyHandle(componentSafetyManager);
             }
@@ -70,7 +69,7 @@ namespace Unity.DataFlowGraph
             }
         }
 
-        void AddWriter(ComponentType component)
+        unsafe void AddWriter(ComponentType component)
         {
             // TODO: take argument instead. AtomicSafetyManager does not yet support read-only
             // For now, DFG takes write dependency on every type in the graph
@@ -81,7 +80,8 @@ namespace Unity.DataFlowGraph
                 if (component.IsZeroSized)
                     throw new InvalidNodeDefinitionException($"ECS types on ports cannot be zero-sized ({component})");
 
-                HostSystem.AddReaderWriter(component);
+                HostSystem.CheckedState()->AddReaderWriter(component);
+
                 m_ActiveComponentTypes.Add(new AtomicSafetyManager.ECSTypeAndSafety { Type = component });
             }
         }

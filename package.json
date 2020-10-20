@@ -1,27 +1,27 @@
 {
   "name": "com.unity.dataflowgraph",
   "displayName": "Data Flow Graph",
-  "version": "0.17.0-preview.4",
-  "unity": "2019.4",
+  "version": "0.18.0-preview.3",
+  "unity": "2020.1",
   "description": "Data Flow Graph delivers DOTS-optimized code for graph-like problems, i.e., where order-of-execution is important.\n\nThis is a highly experimental package and should NOT be considered suitable for production situations.",
   "keywords": [
     "graph",
     "processing"
   ],
   "dependencies": {
-    "com.unity.entities": "0.11.1-preview.4",
-    "com.unity.jobs": "0.2.10-preview.12",
-    "com.unity.collections": "0.9.0-preview.6",
-    "com.unity.mathematics": "1.1.0",
-    "com.unity.burst": "1.3.0"
+    "com.unity.entities": "0.16.0-preview.21",
+    "com.unity.jobs": "0.7.0-preview.17",
+    "com.unity.collections": "0.14.0-preview.16",
+    "com.unity.mathematics": "1.2.1",
+    "com.unity.burst": "1.3.7"
   },
   "upmCi": {
-    "footprint": "da658e338c600c0a3104279cc38a841b41ada74e"
+    "footprint": "faf80559d6e1e3c3f877f6c47a12d862f7922546"
   },
   "repository": {
     "url": "https://github.com/Unity-Technologies/com.unity.dataflowgraph.git",
     "type": "git",
-    "revision": "eb6ae607477c01e36991f1fbff1c18d392563f62"
+    "revision": "51f8ca0871a6c7c6bff7290f5b8ef269fdbdb945"
   },
   "samples": [
     {

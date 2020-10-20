@@ -1153,7 +1153,7 @@ namespace Unity.DataFlowGraph.Tests
                     set.SendMessage(uber, UberWithPartialNonPublicComms.SimulationPorts.PublicInput, i);
                     set.SetData(uber, UberWithPartialNonPublicComms.KernelPorts.PublicInput, -i);
                     set.Update();
-                    Assert.AreEqual(i, set.GetNodeData<PassthroughTest<int>.NodeData>(result).LastReceivedMsg);
+                    set.SendTest(result, (PassthroughTest<int>.NodeData data) => Assert.AreEqual(i, data.LastReceivedMsg));
                     var value = set.GetValueBlocking(gv);
                     Assert.AreEqual(-i, i == 0 ? 0 : value - 1);
                 }
@@ -1245,9 +1245,10 @@ namespace Unity.DataFlowGraph.Tests
                 {
                     set.SendMessage(uber, UberWithNonPublicDataComms.SimulationPorts.PublicInput, i);
                     set.Update();
-                    var value = set.GetNodeData<PassthroughTest<int>.NodeData>(result).LastReceivedMsg;
-                    Assert.AreEqual(i + lastValue - 1, set.GetNodeData<PassthroughTest<int>.NodeData>(result).LastReceivedMsg);
-                    lastValue = value;
+                    var expectedValue = i + lastValue - 1;
+                    set.SendTest(result, (PassthroughTest<int>.NodeData data) =>
+                        Assert.AreEqual(expectedValue, data.LastReceivedMsg));
+                    lastValue = expectedValue;
                 }
 
                 set.Destroy(uber, result);
@@ -1341,6 +1342,54 @@ namespace Unity.DataFlowGraph.Tests
 
                 set.ReleaseGraphValue(gv);
                 set.Destroy(uber);
+            }
+        }
+
+        public class Node_ThatSetsDefaultValue_OnInputPort
+            : SimulationKernelNodeDefinition<Node_ThatSetsDefaultValue_OnInputPort.SimPorts, Node_ThatSetsDefaultValue_OnInputPort.KernelDefs>
+        {
+            public const int kValue = 33;
+
+            public struct SimPorts : ISimulationPortDefinition {}
+
+            public struct KernelDefs : IKernelPortDefinition
+            {
+                public DataInput<Node_ThatSetsDefaultValue_OnInputPort, int> Input;
+                public DataOutput<Node_ThatSetsDefaultValue_OnInputPort, int> Output;
+            }
+
+            struct Node : INodeData, IInit
+            {
+                public void Init(InitContext ctx)
+                    => ctx.SetInitialPortValue(KernelPorts.Input, kValue);
+            }
+
+            struct Data : IKernelData { }
+
+            [BurstCompile(CompileSynchronously = true)]
+            struct Kernel : IGraphKernel<Data, KernelDefs>
+            {
+                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
+                {
+                    ctx.Resolve(ref ports.Output) = ctx.Resolve(ports.Input);
+                }
+            }
+        }
+
+        [Test]
+        public void CanUseSetInitialPortValue_OnInitContext()
+        {
+            using (var set = new NodeSet())
+            {
+                var node = set.Create<Node_ThatSetsDefaultValue_OnInputPort>();
+                var gv = set.CreateGraphValue(node, Node_ThatSetsDefaultValue_OnInputPort.KernelPorts.Output);
+
+                set.Update();
+
+                Assert.AreEqual(Node_ThatSetsDefaultValue_OnInputPort.kValue, set.GetValueBlocking(gv));
+
+                set.ReleaseGraphValue(gv);
+                set.Destroy(node);
             }
         }
     }

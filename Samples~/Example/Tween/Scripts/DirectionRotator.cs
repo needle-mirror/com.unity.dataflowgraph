@@ -12,8 +12,11 @@ namespace Unity.DataFlowGraph.Examples.RenderGraph
             Transform m_OutputTransform;
             GraphValue<float3> m_Output;
 
-            public void Init(InitContext ctx) 
-                => m_Output = ctx.Set.CreateGraphValue(ctx.Set.CastHandle<DirectionRotator>(ctx.Handle), KernelPorts.Output);
+            public void Init(InitContext ctx)
+            {
+                m_Output = ctx.Set.CreateGraphValue(ctx.Set.CastHandle<DirectionRotator>(ctx.Handle), KernelPorts.Output);
+                ctx.RegisterForUpdate();
+            }
 
             public void Destroy(DestroyContext ctx) => ctx.Set.ReleaseGraphValue(m_Output);
             public void Update(in UpdateContext ctx) => m_OutputTransform.position = ctx.Set.GetValueBlocking(m_Output);

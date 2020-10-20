@@ -321,102 +321,108 @@ namespace Unity.DataFlowGraph
 
             m_IsDisposed = true;
 
-            unsafe
+            int leakedNodes = 0;
+            foreach (ref var node in Nodes.Items)
             {
-                int leakedGraphValues = 0;
-
-                foreach(ref readonly var value in m_GraphValues.Items)
-                {
-                    leakedGraphValues++;
-                    m_GraphValues.Release(value);
-                }
-
-                int leakedNodes = 0;
-                foreach (ref var node in Nodes.Items)
-                {
-                    Destroy(ref node);
-                    leakedNodes++;
-                }
-
-                // Primarily used for diff'ing the RenderGraph
-                // TODO: Assert/Test order of these statements - it's important that all handlers and definition is alive at this update statement
-                UpdateInternal(m_LastJobifiedUpdateHandle);
-
-                if (leakedNodes > 0 || leakedGraphValues > 0)
-                {
-                    Debug.LogError($"NodeSet leak warnings: {leakedNodes} leaked node(s) and {leakedGraphValues} leaked graph value(s) left!");
-                }
-
-#if DFG_ASSERTIONS
-                // At this point, the forwarding table should be empty, except for the first, invalid index.
-                int badForwardedPorts = m_ForwardingTable.InUse - 1;
-
-                // After all nodes are destroyed, there should be no more array size entries.
-                int badArraySizes = m_ArraySizes.InUse - 1;
-
-                // if any connections are left are recorded as valid, the topology database is corrupted
-                // (since destroying a node removes all its connections, thus all connections should be gone
-                // after destroying all nodes)
-                var badConnections = m_Database.CountEstablishedConnections();
-
-                if (badConnections > 0 || badForwardedPorts > 0 || badArraySizes > 0)
-                {
-                    Debug.LogError("NodeSet internal leaks: " +
-                        $"{badForwardedPorts} corrupted forward definition(s), " +
-                        $"{badArraySizes} dangling array size entry(s), " +
-                        $"{badConnections} corrupted connections left!"
-                    );
-                }
-#endif
-
-                DebugInfo.RegisterNodeSetDisposed(this);
-
-                foreach (var handler in m_ConnectionHandlerMap)
-                {
-                    handler.Value.Dispose();
-                }
-
-                foreach (var definition in m_NodeDefinitions)
-                {
-                    if (definition != s_InvalidDefinitionSlot)
-                        definition.Dispose();
-                }
-
-                for (int i = 0; i < m_Traits.Count; ++i)
-                    if (m_Traits[i].IsCreated)
-                        m_Traits[i].Dispose();
-
-                for (int i = 0; i < m_ManagedAllocators.Count; ++i)
-                    if (m_ManagedAllocators[i].IsCreated)
-                        m_ManagedAllocators[i].Dispose();
-
-                m_Database.Dispose();
-
-                m_Topology.Dispose();
-
-                Nodes.Dispose();
-
-                m_GraphValues.Dispose();
-
-                m_PostRenderValues.Dispose();
-                m_ReaderFences.Dispose();
-
-                m_Diff.Dispose();
-                m_RenderGraph.Dispose();
-
-                m_Traits.Dispose();
-                m_ManagedAllocators.Clear();
-
-                m_ForwardingTable.Dispose();
-
-                m_ArraySizes.Dispose();
-                m_UpdateIndices.Dispose();
-                m_UpdateRequestQueue.Dispose();
-
-                if (m_ActiveComponentTypes.IsCreated)
-                    m_ActiveComponentTypes.Dispose();
+                Destroy(ref node);
+                leakedNodes++;
             }
 
+            int leakedGraphValues = 0;
+
+            foreach(ref readonly var value in m_GraphValues.Items)
+            {
+                leakedGraphValues++;
+                m_GraphValues.Release(value);
+            }
+
+            LogPendingTestExceptions();
+
+            // Primarily used for diff'ing the RenderGraph
+            // TODO: Assert/Test order of these statements - it's important that all handlers and definition is alive at this update statement
+            UpdateInternal(m_LastJobifiedUpdateHandle);
+
+            if (leakedNodes > 0 || leakedGraphValues > 0 || m_PendingBufferUploads.Count > 0)
+            {
+                Debug.LogError($"NodeSet leak warnings: " +
+                    $"{leakedNodes} leaked node(s)," +
+                    $"{leakedGraphValues} leaked graph value(s) and " +
+                    $"{m_PendingBufferUploads.Count} leaked buffer upload requests left!"
+                );
+            }
+
+#if DFG_ASSERTIONS
+            // At this point, the forwarding table should be empty, except for the first, invalid index.
+            int badForwardedPorts = m_ForwardingTable.InUse - 1;
+
+            // After all nodes are destroyed, there should be no more array size entries.
+            int badArraySizes = m_ArraySizes.InUse - 1;
+
+            // if any connections are left are recorded as valid, the topology database is corrupted
+            // (since destroying a node removes all its connections, thus all connections should be gone
+            // after destroying all nodes)
+            var badConnections = m_Database.CountEstablishedConnections();
+
+            if (badConnections > 0 || badForwardedPorts > 0 || badArraySizes > 0)
+            {
+                Debug.LogError("NodeSet internal leaks: " +
+                    $"{badForwardedPorts} corrupted forward definition(s), " +
+                    $"{badArraySizes} dangling array size entry(s), " +
+                    $"{badConnections} corrupted connections left!"
+                );
+            }
+#endif
+
+            DebugInfo.RegisterNodeSetDisposed(this);
+
+            foreach (var handler in m_ConnectionHandlerMap)
+            {
+                handler.Value.Dispose();
+            }
+
+            foreach (var definition in m_NodeDefinitions)
+            {
+                if (definition != s_InvalidDefinitionSlot)
+                    definition.Dispose();
+            }
+
+            for (int i = 0; i < m_Traits.Count; ++i)
+                if (m_Traits[i].IsCreated)
+                    m_Traits[i].Dispose();
+
+            for (int i = 0; i < m_ManagedAllocators.Count; ++i)
+                if (m_ManagedAllocators[i].IsCreated)
+                    m_ManagedAllocators[i].Dispose();
+
+            for (int i = 0; i < m_PendingBufferUploads.Count; ++i)
+                m_PendingBufferUploads[i].FreeIfNeeded(Allocator.Persistent);
+
+            m_Database.Dispose();
+
+            m_Topology.Dispose();
+
+            Nodes.Dispose();
+
+            m_GraphValues.Dispose();
+
+            m_PostRenderValues.Dispose();
+            m_ReaderFences.Dispose();
+
+            m_Diff.Dispose();
+            m_RenderGraph.Dispose();
+
+            m_Traits.Dispose();
+            m_ManagedAllocators.Clear();
+
+            m_ForwardingTable.Dispose();
+
+            m_ArraySizes.Dispose();
+            m_UpdateIndices.Dispose();
+            m_UpdateRequestQueue.Dispose();
+                m_PendingBufferUploads.Dispose();
+
+            if (m_ActiveComponentTypes.IsCreated)
+                m_ActiveComponentTypes.Dispose();
         }
 
         internal NodeDefinition GetDefinition(NodeHandle handle)
@@ -513,7 +519,7 @@ namespace Unity.DataFlowGraph
                     throw new InvalidOperationException($"Expecting an instance of {portDescription.Type}");
             }
 
-            SetBufferSizeWithCorrectlyTypedSizeParameter(source, portDescription, requestedSize);
+            SetPortBufferSizeWithCorrectlyTypedSizeParameter(source, portDescription, requestedSize);
         }
 
         /// <summary>
@@ -538,61 +544,91 @@ namespace Unity.DataFlowGraph
             where TType : struct
         {
             var source = new OutputPair(this, handle, new OutputPortArrayID(port.Port));
-            SetBufferSizeWithCorrectlyTypedSizeParameter(source, GetFormalPort(source), requestedSize);
+            SetPortBufferSizeWithCorrectlyTypedSizeParameter(source, GetFormalPort(source), requestedSize);
         }
 
         internal unsafe void UpdateKernelData<TKernelData>(ValidatedHandle h, in TKernelData data)
             where TKernelData : struct, IKernelData
         {
-            var hash = BurstRuntime.GetHashCode32<TKernelData>();
             ref readonly var node = ref Nodes[h];
-            var ll = m_Traits[node.TraitsIndex].Resolve().KernelStorage.KernelDataHash;
+            var hash = m_Traits[node.TraitsIndex].Resolve().KernelStorage.KernelDataHash;
 
-            if (hash != ll)
+            if (hash != TypeHash.Create<TKernelData>())
                 throw new InvalidOperationException($"Updated kernel data type {typeof(TKernelData)} does not match expected kernel data type for node {h}");
 
-            UnsafeUtility.MemCpy(node.KernelData, Utility.AsPointer(data), UnsafeUtility.SizeOf<TKernelData>());
+            UnsafeUtility.MemCpy(node.KernelData, UnsafeUtilityExtensions.AddressOf(data), UnsafeUtility.SizeOf<TKernelData>());
         }
 
-        unsafe void SetBufferSizeWithCorrectlyTypedSizeParameter<TType>(in OutputPair source, in PortDescription.OutputPort port, TType sizeRequest)
+        void SetPortBufferSizeWithCorrectlyTypedSizeParameter<TType>(in OutputPair source, in PortDescription.OutputPort port, in TType sizeRequest)
             where TType : struct
         {
             if (!port.HasBuffers)
                 throw new InvalidOperationException("Cannot set size on a DataOutput port which contains no Buffer<T> instances in its type.");
 
-            OutputPortID resolvedOutput = port;
-
             foreach (var bufferInfo in port.BufferInfos)
             {
-                var requestedSizeBuf = (BufferDescription*)((byte*)UnsafeUtility.AddressOf(ref sizeRequest) + bufferInfo.Offset);
-                var requestedSize = requestedSizeBuf->GetSizeRequest();
-                if (!requestedSize.IsValid)
+                ref readonly var desc = ref bufferInfo.AsUntyped(sizeRequest);
+
+                if(desc.HasSizeRequest)
+                {
+                    m_Diff.NodeBufferResized(source, bufferInfo.Offset, desc.GetSizeRequest(), bufferInfo.ItemType);
+                }
+                else if(!desc.Equals(default))
                 {
                     if (port.Type.IsConstructedGenericType && port.Type.GetGenericTypeDefinition() == typeof(Buffer<>))
                         throw new InvalidOperationException($"Expecting the return value of {port.Type}.SizeRequest().");
                     else
                         throw new InvalidOperationException($"Expecting the return value of Buffer<T>.SizeRequest() on individual fields of {port.Type} for sizes being set.");
                 }
-                if (requestedSize.Size >= 0)
-                    m_Diff.NodeBufferResized(source, bufferInfo.Offset, requestedSize.Size, bufferInfo.ItemType);
             }
         }
 
-        internal unsafe void SetKernelBufferSize<TGraphKernel>(ValidatedHandle handle, in TGraphKernel requestedSize)
-            where TGraphKernel : IGraphKernel
+        internal unsafe void UpdateKernelBuffers<TGraphKernel>(ValidatedHandle handle, in TGraphKernel requested)
+            where TGraphKernel : struct, IGraphKernel
         {
-            var llTraits = GetLLTraits()[Nodes[handle].TraitsIndex].Resolve();
-            if (BurstRuntime.GetHashCode32<TGraphKernel>() != llTraits.KernelStorage.KernelHash)
+            var llTraits = m_Traits[Nodes[handle].TraitsIndex].Resolve();
+            if (llTraits.KernelStorage.KernelHash != TypeHash.Create<TGraphKernel>())
                 throw new ArgumentException($"Graph Kernel type {typeof(TGraphKernel)} does not match NodeDefinition");
+
+            var kernel = (RenderKernelFunction.BaseKernel*)UnsafeUtilityExtensions.AddressOf(requested);
 
             foreach (var bufferInfo in llTraits.KernelStorage.KernelBufferInfos)
             {
-                var requestedSizeBuf = bufferInfo.Offset.AsUntyped((RenderKernelFunction.BaseKernel*)Utility.AsPointer(requestedSize));
-                var sizeRequest = requestedSizeBuf.GetSizeRequest();
-                if (!sizeRequest.IsValid)
-                    throw new InvalidOperationException($"Expecting the return value of Buffer<T>.SizeRequest() on individual fields of {typeof(TGraphKernel)} for sizes being set.");
-                if (sizeRequest.Size >= 0)
-                    m_Diff.KernelBufferResized(handle, bufferInfo.Offset.Offset, sizeRequest.Size, bufferInfo.ItemType);
+                ref readonly var description = ref bufferInfo.Offset.AsUntyped(kernel);
+
+                if(description.HasOwnedMemoryContents)
+                {
+                    if (description.OwnerNode != handle)
+                        throw new InvalidOperationException(
+                            $"Issue to {nameof(InitContext.UploadRequest)} " +
+                            $"originated from a different node than the target owner"
+                    );
+
+                    var supposedIndex = FindPendingBufferIndex(description);
+
+                    if (supposedIndex == -1)
+                    {
+                        throw new InvalidOperationException(
+                            $"Issue to {nameof(InitContext.UploadRequest)} was submitted more than once," +
+                            $" or came from an unknown place"
+                        );
+                    }
+
+                    m_PendingBufferUploads.RemoveAtSwapBack(supposedIndex);
+
+                    m_Diff.KernelBufferUpdated(handle, bufferInfo.Offset.Offset, description.Size, description.Ptr);
+                }
+                else if(description.HasSizeRequest)
+                {
+                    m_Diff.KernelBufferResized(handle, bufferInfo.Offset.Offset, description.GetSizeRequest(), bufferInfo.ItemType);
+                }
+                else if(!description.Equals(default))
+                {
+                    throw new InvalidOperationException(
+                        $"Unexpected contents of kernel buffer at +{bufferInfo.Offset}, " +
+                        $"expected return value of Buffer<T>.SizeRequest or Buffer<T>.UploadRequest"
+                    );
+                }
             }
         }
 
@@ -626,10 +662,24 @@ namespace Unity.DataFlowGraph
         internal PortDescription.OutputPort GetVirtualPort(in OutputPair source)
             => GetDefinitionInternal(source.Handle).GetVirtualOutput(source.Handle, source.Port);
 
-        internal unsafe ref TNode GetNodeData<TNode>(NodeHandle handle)
-            where TNode : struct, INodeData
+        internal unsafe ref TNodeData GetNodeData<TNodeData>(NodeHandle handle)
+            where TNodeData : struct, INodeData
         {
-            return ref Utility.AsRef<TNode>(Nodes[handle.VHandle].UserData);
+            ref readonly var node = ref Nodes[handle.VHandle];
+#if DFG_ASSERTIONS
+            var hash = m_Traits[node.TraitsIndex].Resolve().SimulationStorage.NodeDataHash;
+            if (hash != TypeHash.Create<TNodeData>())
+                throw new AssertionException($"Requested type {typeof(TNodeData)} does not match node data type for node {handle}");
+#endif
+            return ref UnsafeUtility.AsRef<TNodeData>(node.UserData);
+        }
+
+        internal void CheckNodeDataType<TNodeData>(NodeHandle handle)
+        {
+            ref readonly var node = ref Nodes[handle.VHandle];
+            var hash = m_Traits[node.TraitsIndex].Resolve().SimulationStorage.NodeDataHash;
+            if (hash != TypeHash.Create<TNodeData>())
+                throw new InvalidOperationException($"Requested type {typeof(TNodeData)} does not match node data type for node {handle}");
         }
 
         internal unsafe void* GetNodeDataRaw(ValidatedHandle handle)
@@ -637,11 +687,16 @@ namespace Unity.DataFlowGraph
             return Nodes[handle].UserData;
         }
 
-
-        internal unsafe ref TKernel GetKernelData<TKernel>(NodeHandle handle)
-            where TKernel : struct, IKernelData
+        internal unsafe ref TKernelData GetKernelData<TKernelData>(NodeHandle handle)
+            where TKernelData : struct, IKernelData
         {
-            return ref Utility.AsRef<TKernel>(Nodes[handle.VHandle].KernelData);
+            ref readonly var node = ref Nodes[handle.VHandle];
+#if DFG_ASSERTIONS
+            var hash = m_Traits[node.TraitsIndex].Resolve().KernelStorage.KernelDataHash;
+            if (hash != TypeHash.Create<TKernelData>())
+                throw new AssertionException($"Requested type {typeof(TKernelData)} does not match kernel data type for node {handle}");
+#endif
+            return ref UnsafeUtility.AsRef<TKernelData>(node.KernelData);
         }
 
         internal ref InternalNodeData AllocateData()

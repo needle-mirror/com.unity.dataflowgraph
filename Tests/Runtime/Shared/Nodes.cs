@@ -24,6 +24,13 @@ namespace Unity.DataFlowGraph.Tests
         public struct EmptyPorts : ISimulationPortDefinition { }
     }
 
+    public class EmptyNodeAndData : SimulationNodeDefinition<EmptyNodeAndData.EmptyPorts>
+    {
+        public struct EmptyPorts : ISimulationPortDefinition { }
+
+        public struct EmptyData : INodeData {}
+    }
+
     public class EmptyNode2 : SimulationNodeDefinition<EmptyNode2.EmptyPorts>
     {
         public struct EmptyPorts : ISimulationPortDefinition { }

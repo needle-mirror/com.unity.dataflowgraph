@@ -42,25 +42,32 @@ namespace Unity.DataFlowGraph
             where TNodeData : struct, INodeData, IMsgHandler<TMessage>
             where TMessage : struct
         {
-            Utility.AsRef<TNodeData>(delivery.Node).HandleMessage(delivery.Context, Utility.AsRef<TMessage>(delivery.Message));
+            UnsafeUtility.AsRef<TNodeData>(delivery.Node).HandleMessage(delivery.Context, UnsafeUtility.AsRef<TMessage>(delivery.Message));
+        }
+
+        public static void HandleMessageGeneric<TMessage, TNodeData>(in MessageDelivery delivery)
+            where TNodeData : struct, INodeData, IMsgHandlerGeneric<TMessage>
+            where TMessage : struct
+        {
+            UnsafeUtility.AsRef<TNodeData>(delivery.Node).HandleMessage(delivery.Context, UnsafeUtility.AsRef<TMessage>(delivery.Message));
         }
 
         public static void HandleInit<TNodeData>(in InitDelivery delivery)
             where TNodeData : struct, INodeData, IInit
         {
-            Utility.AsRef<TNodeData>(delivery.Node).Init(delivery.Context);
+            UnsafeUtility.AsRef<TNodeData>(delivery.Node).Init(delivery.Context);
         }
 
         public static void HandleUpdate<TNodeData>(in UpdateDelivery delivery)
             where TNodeData : struct, INodeData, IUpdate
         {
-            Utility.AsRef<TNodeData>(delivery.Node).Update(delivery.Context);
+            UnsafeUtility.AsRef<TNodeData>(delivery.Node).Update(delivery.Context);
         }
 
         public static void HandleDestroy<TNodeData>(in DestroyDelivery delivery)
             where TNodeData : struct, INodeData, IDestroy
         {
-            Utility.AsRef<TNodeData>(delivery.Node).Destroy(delivery.Context);
+            UnsafeUtility.AsRef<TNodeData>(delivery.Node).Destroy(delivery.Context);
         }
     }
 }

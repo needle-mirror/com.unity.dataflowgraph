@@ -98,7 +98,7 @@ namespace Unity.DataFlowGraph
 
             unsafe
             {
-                return Utility.AsRef<T>(value.OutputDeclaration->Resolve(KernelNodes[value.Source.Versioned.Index].Instance.Ports));
+                return UnsafeUtility.AsRef<T>(value.OutputDeclaration->Resolve(KernelNodes[value.Source.Versioned.Index].Instance.Ports));
             }
         }
 
@@ -235,7 +235,7 @@ namespace Unity.DataFlowGraph
 
             unsafe
             {
-                return Utility.AsRef<T>(value.OutputDeclaration->Resolve(DataGraph.GetInternalData()[value.Source.Versioned.Index].Instance.Ports));
+                return UnsafeUtility.AsRef<T>(value.OutputDeclaration->Resolve(DataGraph.GetInternalData()[value.Source.Versioned.Index].Instance.Ports));
             }
         }
 
@@ -286,7 +286,7 @@ namespace Unity.DataFlowGraph
             ref readonly var outputDeclaration = ref traits.DataPorts.FindOutputDataPort(source.Port.PortID);
 
             ref var value = ref m_GraphValues.Allocate();
-            value.Emplace<T>(source, (DataPortDeclarations.OutputDeclaration*)Utility.AsPointer(outputDeclaration));
+            value.Emplace<T>(source, (DataPortDeclarations.OutputDeclaration*)UnsafeUtilityExtensions.AddressOf(outputDeclaration));
 
             m_Diff.GraphValueCreated(value.Handle);
             return new GraphValue<T> { Handle = value.Handle.Versioned };

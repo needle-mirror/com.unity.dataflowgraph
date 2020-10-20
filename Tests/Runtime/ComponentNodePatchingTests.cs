@@ -4,6 +4,7 @@ using System.Linq;
 using NUnit.Framework;
 using Unity.Burst;
 using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
 using Unity.Entities;
 using Unity.Jobs;
 using static Unity.DataFlowGraph.Tests.ComponentNodeSetTests;
@@ -91,17 +92,17 @@ namespace Unity.DataFlowGraph.Tests
             Assert.True(typeof(IJobChunk).IsAssignableFrom(typeof(HookPatchJob)));
             Assert.True(typeof(IJobChunk).IsAssignableFrom(typeof(RepatchDFGInputsIfNeededJob)));
 
-            var hookAttributes = 
+            var hookAttributes =
                 typeof(HookPatchJob)
                 .GetCustomAttributes(true)
                 .Where(o => !(o is BurstCompileAttribute));
 
-            var internalAttributes = 
+            var internalAttributes =
                 typeof(RepatchDFGInputsIfNeededJob)
                 .GetCustomAttributes(true)
                 .Where(o => !(o is BurstCompileAttribute));
 
-            CollectionAssert.AreEqual(hookAttributes, internalAttributes);  
+            CollectionAssert.AreEqual(hookAttributes, internalAttributes);
         }
 
         [Test]
@@ -166,7 +167,7 @@ namespace Unity.DataFlowGraph.Tests
             {
                 var graph = Set.DataGraph;
                 graph.SyncAnyRendering();
-                
+
                 var knode = graph.GetInternalData()[handle.VHandle.Index];
                 ref readonly var traits = ref knode.TraitsHandle.Resolve();
 
@@ -176,9 +177,7 @@ namespace Unity.DataFlowGraph.Tests
             public unsafe T* GetComponent<T>(Entity e)
                 where T : unmanaged
             {
-#pragma warning disable 618 // 'EntityManager.EntityComponentStore' is obsolete: 'This is slow. Use The EntityDataAccess directly in new code.'
-                return (T*)World.EntityManager.EntityComponentStore->GetComponentDataWithTypeRO(e, ComponentType.ReadWrite<T>().TypeIndex);
-#pragma warning restore 618
+                return (T*)World.EntityManager.GetCheckedEntityDataAccess()->EntityComponentStore->GetComponentDataWithTypeRO(e, ComponentType.ReadWrite<T>().TypeIndex);
             }
         }
 
@@ -249,7 +248,7 @@ namespace Unity.DataFlowGraph.Tests
         [Test]
         public void RepatchJobExecutes_WhenChunk_IsReshuffled([Values] FixtureSystemType systemType)
         {
-            // As entities are guaranteed to be linearly laid out, destroying 
+            // As entities are guaranteed to be linearly laid out, destroying
             // an entity behind another moves the other and invalidates pointers.
             // TODO: Establish confidence these entities are in the same chunk.
             using (var f = new PatchFixture(systemType))
@@ -270,7 +269,7 @@ namespace Unity.DataFlowGraph.Tests
         [Test]
         public void RepatchJobExecutes_WhenBuffer_ChangesSize([Values] FixtureSystemType systemType)
         {
-            // TODO: Rewrite this test to cover buffers. 
+            // TODO: Rewrite this test to cover buffers.
             // Could be good to precisely cover when buffer switches from internal capacity to external capacity
             using (var f = new Fixture<RepatchSystemDelegate>(systemType))
             {
@@ -289,7 +288,7 @@ namespace Unity.DataFlowGraph.Tests
                 }
             }
         }
-        
+
         [Test]
         public unsafe void ECSInput_Union_OfPointerAndEntity_HaveExpectedLayout()
         {
@@ -511,8 +510,8 @@ namespace Unity.DataFlowGraph.Tests
                     var inputEntityData = InternalComponentNode.GetGraphKernel(nodes[inputEntityNode.VHandle.Index].Instance.Kernel);
                     var outputEntityData = InternalComponentNode.GetGraphKernel(nodes[outputEntityNode.VHandle.Index].Instance.Kernel);
 
-                    ref var dfgInputPorts = ref Utility.AsRef<NodeWithParametricPortType<SimpleData>.KernelDefs>(nodes[dfgInput.VHandle.Index].Instance.Ports);
-                    ref var dfgOutputPorts = ref Utility.AsRef<NodeWithParametricPortType<SimpleData>.KernelDefs>(nodes[dfgOutput.VHandle.Index].Instance.Ports);
+                    ref var dfgInputPorts = ref UnsafeUtility.AsRef<NodeWithParametricPortType<SimpleData>.KernelDefs>(nodes[dfgInput.VHandle.Index].Instance.Ports);
+                    ref var dfgOutputPorts = ref UnsafeUtility.AsRef<NodeWithParametricPortType<SimpleData>.KernelDefs>(nodes[dfgOutput.VHandle.Index].Instance.Ports);
 
                     // check patches point to the correct places
                     Assert.AreEqual(1, inputEntityData.Inputs.Count);

@@ -29,7 +29,7 @@ namespace Unity.DataFlowGraph.CodeGen
     }
 #endif
 
-    static class HelperExtensions
+    static partial class HelperExtensions
     {
         /// <summary>
         /// Traverses instance fields and <see cref="IEnumerable"/> collections marked <see cref="NSymbolAttribute"/>
@@ -86,8 +86,12 @@ namespace Unity.DataFlowGraph.CodeGen
 
         static public bool IsOrImplements(this TypeReference type, TypeReference subtype)
         {
-            if (type == null)
+            if (type == null || subtype == null)
                 return false;
+
+            // Are we trying to compare an open interface against an implemented, closed version?
+            if(type.IsGenericInstance && subtype.HasGenericParameters)
+                return type.Resolve().IsOrImplements(subtype);
 
             if (type.RefersToSame(subtype))
                 return true;
@@ -106,34 +110,6 @@ namespace Unity.DataFlowGraph.CodeGen
                 return true;
 
             return false;
-        }
-
-        /// <summary>
-        /// Partial implementation of https://github.com/jbevain/cecil/blob/master/Mono.Cecil/MetadataResolver.cs#L366
-        /// </summary>
-        static public bool RefersToSame(this TypeReference a, TypeReference b)
-        {
-            if (ReferenceEquals(a, b))
-                return true;
-
-            if (a == null || b == null)
-                return false;
-
-            // if (a.etype != b.etype)
-            //    return false;
-
-            //if (a.IsGenericParameter)
-            //    return RefersToSame((GenericParameter)a, (GenericParameter)b);
-
-            //if (a.IsTypeSpecification())
-            //    return AreSame((TypeSpecification)a, (TypeSpecification)b);
-
-            if (a.Name != b.Name || a.Namespace != b.Namespace)
-                return false;
-
-            //TODO: check scope
-
-            return RefersToSame(a.DeclaringType, b.DeclaringType);
         }
 
         /// <summary>

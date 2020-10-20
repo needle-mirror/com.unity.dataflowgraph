@@ -107,7 +107,7 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
         struct SomethingThatImplements : INeededToBeImplemented { }
 
         [Test]
-        public void IsOrImplements_Extension_WorksValueTypes_AndInterfaces()
+        public void IsOrImplements_Extension_WorksForValueTypes_AndInterfaces()
         {
             using (var cecilAssembly = AssemblyManager.LoadThisTestAssemblyAgain())
             {
@@ -123,7 +123,7 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
         }
 
         [Test]
-        public void IsOrImplements_Extension_WorksClasses()
+        public void IsOrImplements_Extension_WorksForClasses()
         {
             using (var cecilAssembly = AssemblyManager.LoadThisTestAssemblyAgain())
             {
@@ -133,6 +133,40 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
 
                 Assert.True(subType.IsOrImplements(subType));
                 Assert.True(subType.IsOrImplements(baseClass));
+            }
+        }
+
+        interface IGenericInterface<A> { }
+
+        struct SpecificImplementer : IGenericInterface<int> { }
+
+        [Test]
+        public void IsOrImplements_MatchesClosedInterface_AgainstOpenInterface()
+        {
+            using (var cecilAssembly = AssemblyManager.LoadThisTestAssemblyAgain())
+            {
+                var module = cecilAssembly.Assembly.MainModule;
+                var openIface = module.ImportReference(typeof(IGenericInterface<>));
+                var someType = module.ImportReference(typeof(SpecificImplementer));
+
+                Assert.True(someType.IsOrImplements(openIface));
+            }
+        }
+
+        [Test]
+        public void IsOrImplements_OnlyMatches_IdenticalInstantiation()
+        {
+            using (var cecilAssembly = AssemblyManager.LoadThisTestAssemblyAgain())
+            {
+                var module = cecilAssembly.Assembly.MainModule;
+                var openIface = module.ImportReference(typeof(IGenericInterface<>));
+                var someType = module.ImportReference(typeof(SpecificImplementer));
+
+                var notTheRightIFace = openIface.MakeGenericInstanceType(module.TypeSystem.Int16);
+                var theRightIFace = openIface.MakeGenericInstanceType(module.TypeSystem.Int32);
+
+                Assert.False(someType.IsOrImplements(notTheRightIFace));
+                Assert.True(someType.IsOrImplements(theRightIFace));
             }
         }
 
@@ -158,6 +192,33 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
 
         class GenericClass<A, B> { }
         class OpenGenericProvider<X, Y> { }
+
+        [Test]
+        public void RefersToSame_DoesNotReturnTrue_ForDifferentInstantiation_AndOpenClose_Mismatch()
+        {
+            using (var cecilAssembly = AssemblyManager.LoadThisTestAssemblyAgain())
+            {
+                var module = cecilAssembly.Assembly.MainModule;
+                var open = module.ImportReference(typeof(GenericClass<,>));
+
+                var closedA = open.MakeGenericInstanceType(module.TypeSystem.UInt16, module.TypeSystem.UInt32);
+                var closedB = open.MakeGenericInstanceType(module.TypeSystem.UInt32, module.TypeSystem.UInt16);
+
+                Assert.False(open.RefersToSame(closedA));
+                Assert.False(open.RefersToSame(closedB));
+
+                Assert.False(closedA.RefersToSame(open));
+                Assert.False(closedB.RefersToSame(open));
+
+                Assert.False(closedA.RefersToSame(closedB));
+                Assert.False(closedB.RefersToSame(closedA));
+
+                // TODO: Use .Unqualified in the future.
+                Assert.True(closedA.Resolve().RefersToSame(open));
+                Assert.True(closedB.Resolve().RefersToSame(open));
+                Assert.True(closedB.Resolve().RefersToSame(closedA.Resolve()));
+            }
+        }
 
 
         [Test]
@@ -297,7 +358,8 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
                 var parentType = module.ImportReference(type);
                 var halfOpenBaseType = parentType.InstantiatedBaseType() as GenericInstanceType;
 
-                Assert.IsTrue(halfOpenBaseType.RefersToSame(module.ImportReference(typeof(GenericClass<,>))));
+                // TODO: Use .Unqualified() in the future.
+                Assert.IsTrue(halfOpenBaseType.Resolve().RefersToSame(module.ImportReference(typeof(GenericClass<,>))));
                 Assert.AreEqual(2, halfOpenBaseType.GenericArguments.Count);
                 Assert.IsInstanceOf<GenericParameter>(halfOpenBaseType.GenericArguments[genArgPos]);
                 Assert.True(halfOpenBaseType.GenericArguments[1-genArgPos].RefersToSame(module.TypeSystem.Single));
@@ -318,13 +380,15 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
                 var derivedType = parentType.InstantiatedBaseType() as GenericInstanceType;
                 var baseTypeType = derivedType.InstantiatedBaseType() as GenericInstanceType;
 
-                Assert.IsTrue(derivedType.RefersToSame(module.ImportReference(typeof(Derived<,,>))));
+                // TODO: Use .Unqualified() in the future.
+                Assert.IsTrue(derivedType.Resolve().RefersToSame(module.ImportReference(typeof(Derived<,,>))));
                 Assert.AreEqual(3, derivedType.GenericArguments.Count);
                 Assert.IsInstanceOf<GenericParameter>(derivedType.GenericArguments[0]);
                 Assert.True(derivedType.GenericArguments[1].RefersToSame(module.TypeSystem.Int32));
                 Assert.IsInstanceOf<GenericParameter>(derivedType.GenericArguments[2]);
 
-                Assert.IsTrue(baseTypeType.RefersToSame(module.ImportReference(typeof(GenericClass<,>))));
+                // TODO: Use .Unqualified() in the future.
+                Assert.IsTrue(baseTypeType.Resolve().RefersToSame(module.ImportReference(typeof(GenericClass<,>))));
                 Assert.AreEqual(2, baseTypeType.GenericArguments.Count);
                 Assert.True(baseTypeType.GenericArguments[0].RefersToSame(module.TypeSystem.Single));
                 Assert.IsInstanceOf<GenericParameter>(baseTypeType.GenericArguments[1]);
@@ -389,11 +453,12 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
 
                 Assert.True(nested.Definition.RefersToSame(nestedClass));
 
-                var baze = (GenericInstanceType)nested.Instantiated.InstantiatedBaseType();
-                Assert.True(baze.RefersToSame(baseClass));
+                var @base = (GenericInstanceType)nested.Instantiated.InstantiatedBaseType();
+                // TODO: Use .Unqualified() in the future.
+                Assert.True(@base.Resolve().RefersToSame(baseClass));
                 
-                Assert.AreEqual(baze.GenericArguments[0], parentClosed.GenericArguments[2]);
-                Assert.AreEqual(baze.GenericArguments[1], parentClosed.GenericArguments[1]);
+                Assert.AreEqual(@base.GenericArguments[0], parentClosed.GenericArguments[2]);
+                Assert.AreEqual(@base.GenericArguments[1], parentClosed.GenericArguments[1]);
             }
         }
 

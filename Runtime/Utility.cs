@@ -86,38 +86,10 @@ namespace Unity.DataFlowGraph
         }
 
         /// <summary>
-        /// Local implementation of <see cref="System.Runtime.CompilerServices.Unsafe.As{TFrom, TTo}(ref TFrom)"/>
+        /// Implementation of Collections.LowLevel.Unsafe.UnsafeUtilityExtensions.AddressOf{T}(in T) without a struct
+        /// constraint.
         /// </summary>
-        public static ref TTo As<TFrom, TTo>(ref TFrom source)
-        {
-            // This body is generated during ILPP.
-            throw new NotImplementedException();
-        }
-
-
-        /// <summary>
-        /// Local implementation of <see cref="System.Runtime.CompilerServices.Unsafe.AsRef{T}(in T)"/>
-        /// </summary>
-        public static ref T AsRef<T>(in T source)
-        {
-            // This body is generated during ILPP.
-            throw new NotImplementedException();
-        }
-
-        /// <summary>
-        /// Local implementation of <see cref="System.Runtime.CompilerServices.Unsafe.AsRef{T}(void*)"/>
-        /// </summary>
-        public static unsafe ref T AsRef<T>(void* source)
-        {
-            // This body is generated during ILPP.
-            throw new NotImplementedException();
-        }
-
-        /// <summary>
-        /// Local implementation of <see cref="System.Runtime.CompilerServices.Unsafe.AsPointer{T}(ref T)"/> but taking an
-        /// "in" parameter instead of by "ref".
-        /// </summary>
-        public static unsafe void* AsPointer<T>(in T value)
+        public static unsafe void* AddressOfEvenIfManaged<T>(in T value)
         {
             // This body is generated during ILPP.
             throw new NotImplementedException();

@@ -25,7 +25,7 @@ namespace Unity.DataFlowGraph.Tests
 
             public void Execute()
             {
-                ref int i = ref Utility.AsRef<int>(Int);
+                ref int i = ref UnsafeUtility.AsRef<int>(Int);
                 i *= 2;
             }
         }
@@ -38,7 +38,7 @@ namespace Unity.DataFlowGraph.Tests
 
             public void Execute()
             {
-                ref int i = ref Utility.AsRef<int>(Int);
+                ref int i = ref UnsafeUtility.AsRef<int>(Int);
                 i *= 2;
             }
         }

@@ -74,7 +74,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 set.SendMessage(ps, new MessageContent { content = messageContent });
 
-                Assert.AreEqual(messageContent, set.GetNodeData<NodeData>(b).content);
+                set.SendTest(b, (NodeData data) => Assert.AreEqual(messageContent, data.content));
 
                 set.Destroy(a, b);
             }
@@ -96,7 +96,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 set.SendMessage(ps, new MessageContent { content = messageContent });
 
-                Assert.AreEqual(messageContent, set.GetNodeData<NodeData>(b).content);
+                set.SendTest(b, (NodeData data) => Assert.AreEqual(messageContent, data.content));
 
                 set.Destroy(a, b);
             }
