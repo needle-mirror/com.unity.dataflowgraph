@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using NUnit.Framework;
+using Unity.Collections;
 
 namespace Unity.DataFlowGraph.Tests
 {
@@ -12,40 +13,6 @@ namespace Unity.DataFlowGraph.Tests
     /// with exceptions or requires more contexts than a direct instantiation gives.
     /// </summary>
     public sealed class IsNotInstantiableAttribute : Attribute {}
-
-#pragma warning disable 618
-    // Silence warnings about old NodeDefinitions in Tests
-    public abstract class NodeDefinition<TSimulationPortDefinition>
-        : Unity.DataFlowGraph.NodeDefinition<TSimulationPortDefinition>
-            where TSimulationPortDefinition : struct, ISimulationPortDefinition
-    {}
-    public abstract class NodeDefinition<TNodeData, TSimulationPortDefinition>
-        : Unity.DataFlowGraph.NodeDefinition<TNodeData, TSimulationPortDefinition>
-            where TNodeData : struct, INodeData
-            where TSimulationPortDefinition : struct, ISimulationPortDefinition
-    {}
-    public abstract class NodeDefinition<TKernelData, TKernelPortDefinition, TKernel>
-        : Unity.DataFlowGraph.NodeDefinition<TKernelData, TKernelPortDefinition, TKernel>
-            where TKernelData : struct, IKernelData
-            where TKernelPortDefinition : struct, IKernelPortDefinition
-            where TKernel : struct, IGraphKernel<TKernelData, TKernelPortDefinition>
-    {}
-    public abstract class NodeDefinition<TNodeData, TKernelData, TKernelPortDefinition, TKernel>
-        : Unity.DataFlowGraph.NodeDefinition<TNodeData, TKernelData, TKernelPortDefinition, TKernel>
-            where TNodeData : struct, INodeData
-            where TKernelData : struct, IKernelData
-            where TKernelPortDefinition : struct, IKernelPortDefinition
-            where TKernel : struct, IGraphKernel<TKernelData, TKernelPortDefinition>
-    {}
-    public abstract class NodeDefinition<TNodeData, TSimulationPortDefinition, TKernelData, TKernelPortDefinition, TKernel>
-        : Unity.DataFlowGraph.NodeDefinition<TNodeData, TSimulationPortDefinition, TKernelData, TKernelPortDefinition, TKernel>
-            where TNodeData : struct, INodeData
-            where TSimulationPortDefinition : struct, ISimulationPortDefinition
-            where TKernelData : struct, IKernelData
-            where TKernelPortDefinition : struct, IKernelPortDefinition
-            where TKernel : struct, IGraphKernel<TKernelData, TKernelPortDefinition>
-    {}
-#pragma warning restore 618
 
     static class TestUtilities
     {
@@ -98,6 +65,14 @@ namespace Unity.DataFlowGraph.Tests
                     yield return type;
                 }
             }
+        }
+
+        public static NativeSlice<T> GetTestingValueBlocking<T>(this NodeSet set, GraphValueArray<T> graphValue)
+            where T : struct
+        {
+            var resolver = set.GetGraphValueResolver(out var job);
+            job.Complete();
+            return resolver.Resolve(graphValue);
         }
 
         static NodeHandle CreateNodeFromTypeShim<TNodeDefinition>(NodeSet set)

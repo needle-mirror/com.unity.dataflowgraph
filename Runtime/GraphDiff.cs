@@ -32,9 +32,9 @@ namespace Unity.DataFlowGraph
 
         public enum Command
         {
-            Create, Destroy, ResizeBuffer, ResizePortArray, MessageToData, GraphValueCreated,
+            Create, Destroy, ResizeBuffer, ResizeInputPortArray, ResizeOutputPortArray, MessageToData, GraphValueChanged,
             CreatedConnection, DeletedConnection
-            //, DirtyKernel, 
+            //, DirtyKernel,
         }
 
         public bool IsCreated => CreatedNodes.IsCreated && DeletedNodes.IsCreated;
@@ -53,13 +53,83 @@ namespace Unity.DataFlowGraph
 
         public unsafe struct BufferResizedTuple
         {
-            public ValidatedHandle Handle;
-            public OutputPortArrayID Port;
+            public BufferResizedTuple(ValidatedHandle handle, OutputPortArrayID port, PortBufferIndex bufferIndex, int newSize, SimpleType itemType)
+            {
+#if DFG_ASSERTIONS
+                if (port == default)
+                    throw new AssertionException("Port buffer resizing requires a valid port ID");
+#endif
+                Handle = handle;
+                m_Port = port;
+                m_BufferIndex = bufferIndex.Value;
+                NewSize = newSize;
+                m_ItemType = itemType;
+                PotentialMemory = null;
+            }
+            public BufferResizedTuple(ValidatedHandle handle, KernelBufferIndex bufferIndex, int newSize, SimpleType itemType)
+            {
+                Handle = handle;
+                m_Port = default;
+                m_BufferIndex = bufferIndex.Value;
+                NewSize = newSize;
+                m_ItemType = itemType;
+                PotentialMemory = null;
+            }
+            public BufferResizedTuple(ValidatedHandle handle, KernelBufferIndex bufferIndex, int newSize, void* memory = null)
+            {
+                Handle = handle;
+                m_Port = default;
+                m_BufferIndex = bufferIndex.Value;
+                NewSize = newSize;
+                m_ItemType = default;
+                PotentialMemory = memory;
+            }
+
+            public bool IsKernelResize => m_Port == default;
+            public ValidatedHandle Handle { get; }
+            public OutputPortArrayID Port
+            {
+                get
+                {
+#if DFG_ASSERTIONS
+                    if (IsKernelResize)
+                        throw new AssertionException("Requesting port ID for a kernel buffer resize command");
+#endif
+                    return m_Port;
+                }
+            }
+
             /// <summary>
-            /// Local offset from start of the port.
+            /// Local index of which buffer within the port is being targeted.
             /// </summary>
-            public int LocalBufferOffset;
-            public int NewSize;
+            public PortBufferIndex PortBufferIndex
+            {
+                get
+                {
+#if DFG_ASSERTIONS
+                    if (IsKernelResize)
+                        throw new AssertionException("Requesting port buffer index for a kernel buffer resize command");
+#endif
+                    return new PortBufferIndex(m_BufferIndex);
+                }
+            }
+
+            /// <summary>
+            /// Local index of which buffer within the kernel is being targeted.
+            /// </summary>
+            public KernelBufferIndex KernelBufferIndex
+            {
+                get
+                {
+#if DFG_ASSERTIONS
+                    if (!IsKernelResize)
+                        throw new AssertionException("Requesting kernel buffer index for a port buffer resize command");
+#endif
+                    return new KernelBufferIndex(m_BufferIndex);
+                }
+            }
+
+            public int NewSize { get; }
             public SimpleType ItemType
             {
                 get
@@ -70,20 +140,27 @@ namespace Unity.DataFlowGraph
 #endif
                     return m_ItemType;
                 }
-                set => m_ItemType = value;
             }
 
+            OutputPortArrayID m_Port;
             SimpleType m_ItemType;
+            ushort m_BufferIndex;
 
             /// <summary>
             /// If this field isn't null, adopt this memory instead of using <see cref="ItemType"/> to allocate memory
             /// </summary>
-            public void* PotentialMemory;
+            public void* PotentialMemory { get; }
         }
 
-        public struct PortArrayResizedTuple
+        public struct InputPortArrayResizedTuple
         {
             public InputPair Destination;
+            public ushort NewSize;
+        }
+
+        public struct OutputPortArrayResizedTuple
+        {
+            public OutputPair Destination;
             public ushort NewSize;
         }
 
@@ -94,13 +171,32 @@ namespace Unity.DataFlowGraph
             public void* msg;
         }
 
+        public readonly struct GraphValueObservationTuple
+        {
+            public readonly bool IsCreation;
+            public readonly ValidatedHandle SourceNode;
+
+            public static GraphValueObservationTuple Created(in DataOutputValue value)
+                => new GraphValueObservationTuple(value.Source, true);
+
+            public static GraphValueObservationTuple Destroyed(in DataOutputValue value)
+                => new GraphValueObservationTuple(value.Source, false);
+
+            private GraphValueObservationTuple(ValidatedHandle node, bool isCreation)
+            {
+                IsCreation = isCreation;
+                SourceNode = node;
+            }
+        }
+
         public BlitList<CommandTuple> Commands;
         public BlitList<ValidatedHandle> CreatedNodes;
         public BlitList<DeletedTuple> DeletedNodes;
         public BlitList<BufferResizedTuple> ResizedDataBuffers;
-        public BlitList<PortArrayResizedTuple> ResizedPortArrays;
+        public BlitList<InputPortArrayResizedTuple> ResizedInputPortArrays;
+        public BlitList<OutputPortArrayResizedTuple> ResizedOutputPortArrays;
         public BlitList<DataPortMessageTuple> MessagesArrivingAtDataPorts;
-        public BlitList<ValidatedHandle> CreatedGraphValues;
+        public BlitList<GraphValueObservationTuple> ChangedGraphValues;
         public BlitList<Adjacency> CreatedConnections;
         public BlitList<Adjacency> DeletedConnections;
 
@@ -113,9 +209,10 @@ namespace Unity.DataFlowGraph
             DeletedNodes = new BlitList<DeletedTuple>(0, allocator);
             Commands = new BlitList<CommandTuple>(0, allocator);
             ResizedDataBuffers = new BlitList<BufferResizedTuple>(0, allocator);
-            ResizedPortArrays = new BlitList<PortArrayResizedTuple>(0, allocator);
+            ResizedInputPortArrays = new BlitList<InputPortArrayResizedTuple>(0, allocator);
+            ResizedOutputPortArrays = new BlitList<OutputPortArrayResizedTuple>(0, allocator);
             MessagesArrivingAtDataPorts = new BlitList<DataPortMessageTuple>(0, allocator);
-            CreatedGraphValues = new BlitList<ValidatedHandle>(0, allocator);
+            ChangedGraphValues = new BlitList<GraphValueObservationTuple>(0, allocator);
             CreatedConnections = new BlitList<Adjacency>(0, allocator);
             DeletedConnections = new BlitList<Adjacency>(0, allocator);
         }
@@ -132,28 +229,34 @@ namespace Unity.DataFlowGraph
             DeletedNodes.Add(new DeletedTuple { Handle = handle, Class = definitionIndex });
         }
 
-        public void NodeBufferResized(in OutputPair target, int bufferOffset, int size, SimpleType itemType)
+        public void NodeBufferResized(in OutputPair target, PortBufferIndex bufferIndex, int size, SimpleType itemType)
         {
             Commands.Add(new CommandTuple { command = Command.ResizeBuffer, ContainerIndex = ResizedDataBuffers.Count });
-            ResizedDataBuffers.Add(new BufferResizedTuple { Handle = target.Handle, Port = target.Port, LocalBufferOffset = bufferOffset, NewSize = size, ItemType = itemType });
+            ResizedDataBuffers.Add(new BufferResizedTuple(target.Handle, target.Port, bufferIndex, size, itemType));
         }
 
-        public void KernelBufferResized(in ValidatedHandle target, int bufferOffset, int size, SimpleType itemType)
+        public void KernelBufferResized(in ValidatedHandle target, KernelBufferIndex bufferIndex, int size, SimpleType itemType)
         {
             Commands.Add(new CommandTuple { command = Command.ResizeBuffer, ContainerIndex = ResizedDataBuffers.Count });
-            ResizedDataBuffers.Add(new BufferResizedTuple { Handle = target, Port = default, LocalBufferOffset = bufferOffset, NewSize = size, ItemType = itemType });
+            ResizedDataBuffers.Add(new BufferResizedTuple(target, bufferIndex, size, itemType));
         }
 
-        public unsafe void KernelBufferUpdated(in ValidatedHandle target, int bufferOffset, int size, void* memory)
+        public unsafe void KernelBufferUpdated(in ValidatedHandle target, KernelBufferIndex bufferIndex, int size, void* memory)
         {
             Commands.Add(new CommandTuple { command = Command.ResizeBuffer, ContainerIndex = ResizedDataBuffers.Count });
-            ResizedDataBuffers.Add(new BufferResizedTuple { Handle = target, Port = default, LocalBufferOffset = bufferOffset, NewSize = size, PotentialMemory = memory });
+            ResizedDataBuffers.Add(new BufferResizedTuple(target, bufferIndex, size, memory));
         }
 
         public void PortArrayResized(in InputPair dest, ushort size)
         {
-            Commands.Add(new CommandTuple { command = Command.ResizePortArray, ContainerIndex = ResizedPortArrays.Count });
-            ResizedPortArrays.Add(new PortArrayResizedTuple { Destination = dest, NewSize = size });
+            Commands.Add(new CommandTuple { command = Command.ResizeInputPortArray, ContainerIndex = ResizedInputPortArrays.Count });
+            ResizedInputPortArrays.Add(new InputPortArrayResizedTuple { Destination = dest, NewSize = size });
+        }
+
+        public void PortArrayResized(in OutputPair dest, ushort size)
+        {
+            Commands.Add(new CommandTuple { command = Command.ResizeOutputPortArray, ContainerIndex = ResizedOutputPortArrays.Count });
+            ResizedOutputPortArrays.Add(new OutputPortArrayResizedTuple { Destination = dest, NewSize = size });
         }
 
         public unsafe void SetData(in InputPair dest, void* msg)
@@ -168,10 +271,16 @@ namespace Unity.DataFlowGraph
             MessagesArrivingAtDataPorts.Add(new DataPortMessageTuple { Destination = dest, msg = null });
         }
 
-        public void GraphValueCreated(ValidatedHandle handle)
+        public void GraphValueCreated(in DataOutputValue value)
         {
-            Commands.Add(new CommandTuple { command = Command.GraphValueCreated, ContainerIndex = CreatedGraphValues.Count });
-            CreatedGraphValues.Add(handle);
+            Commands.Add(new CommandTuple { command = Command.GraphValueChanged, ContainerIndex = ChangedGraphValues.Count });
+            ChangedGraphValues.Add(GraphValueObservationTuple.Created(value));
+        }
+
+        public void GraphValueDestroyed(in DataOutputValue value)
+        {
+            Commands.Add(new CommandTuple { command = Command.GraphValueChanged, ContainerIndex = ChangedGraphValues.Count });
+            ChangedGraphValues.Add(GraphValueObservationTuple.Destroyed(value));
         }
 
         public void Dispose()
@@ -180,10 +289,11 @@ namespace Unity.DataFlowGraph
             DeletedNodes.Dispose();
             Commands.Dispose();
             ResizedDataBuffers.Dispose();
-            ResizedPortArrays.Dispose();
+            ResizedInputPortArrays.Dispose();
+            ResizedOutputPortArrays.Dispose();
             MessagesArrivingAtDataPorts.Dispose();
             CreatedConnections.Dispose();
-            CreatedGraphValues.Dispose();
+            ChangedGraphValues.Dispose();
             DeletedConnections.Dispose();
         }
 

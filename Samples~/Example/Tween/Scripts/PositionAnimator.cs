@@ -11,13 +11,13 @@ namespace Unity.DataFlowGraph.Examples.RenderGraph
             public float Speed;
             KernelData m_Data;
 
-            public void Update(in UpdateContext ctx)
+            public void Update(UpdateContext ctx)
             {
                 m_Data.Time += Time.deltaTime * Speed;
                 ctx.UpdateKernelData(m_Data);
             }
 
-            public void HandleMessage(in MessageContext ctx, in float msg)
+            public void HandleMessage(MessageContext ctx, in float msg)
             {
                 if (ctx.Port == SimulationPorts.Speed)
                     Speed = msg;
@@ -25,7 +25,7 @@ namespace Unity.DataFlowGraph.Examples.RenderGraph
                     m_Data.Time = msg;
             }
 
-            public void HandleMessage(in MessageContext ctx, in float3 msg)
+            public void HandleMessage(MessageContext ctx, in float3 msg)
             {
                 m_Data.Translation = msg;
                 m_Data.Mask = math.normalize(msg);
@@ -58,7 +58,7 @@ namespace Unity.DataFlowGraph.Examples.RenderGraph
         [BurstCompile]
         struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
         {
-            public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
+            public void Execute(RenderContext ctx, in KernelData data, ref KernelDefs ports)
             {
                 math.sincos(data.Time, out float x, out float y);
                 ctx.Resolve(ref ports.Output) = data.Mask * data.Translation * new float3(x, y, 0);

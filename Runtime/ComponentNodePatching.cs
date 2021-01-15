@@ -132,50 +132,54 @@ namespace Unity.DataFlowGraph
 
     partial class InternalComponentNode
     {
-        internal unsafe static void RecordInputConnections(
-            Topology.InputConnectionCacheWalker incomingConnections,
+        internal unsafe static void RecordInputConnection(
+            InputPortArrayID inputPort,
+            OutputPortArrayID outputPort,
+            ValidatedHandle handle,
             in KernelLayout.Pointers instance,
             BlitList<RenderGraph.KernelNode> nodes)
         {
             ref var inputs = ref GetGraphKernel(instance.Kernel).Inputs;
 
-            foreach (var c in incomingConnections)
+            var connectionType = inputPort.PortID.ECSType.TypeIndex;
+
+            ref readonly var parentKernel = ref nodes[handle.Versioned.Index];
+            ref readonly var parentTraits = ref parentKernel.TraitsHandle.Resolve();
+
+            InputToECS input;
+            if (!parentTraits.KernelStorage.IsComponentNode)
             {
-                var connectionType = c.InputPort.PortID.ECSType.TypeIndex;
+                // DFG -> Entity
+                ref readonly var port = ref parentTraits
+                    .DataPorts
+                    .FindOutputDataPort(outputPort.PortID);
 
-                // Test whether this connection type already exists
-                // (equivalent to multiple inputs to one port in DFG model)
-                // This could be under ENABLE_UNITY_COLLECTIONS_CHECKS
-                // This would also benefit from a sorted set
-                for(int i = 0; i < inputs.Count; ++i)
+                input = new InputToECS(port.Resolve(parentKernel.Instance.Ports, outputPort.ArrayIndex), connectionType, port.ElementOrType.Size);
+            }
+            else  // Handle entity -> entity connections..
+            {
+                ref readonly var kdata = ref GetEntityData(parentKernel.Instance.Data);
+
+                // This is where we usually use ElementOrType. Turns out this can be
+                // inferred from ECS type manager... Might revert the old PR.
+                input = new InputToECS(kdata.Entity, connectionType, TypeManager.GetTypeInfo(connectionType).ElementSize);
+            }
+
+            // Check whether this connection type already exists.
+            // This would also benefit from a sorted set
+            for(int i = 0; i < inputs.Count; ++i)
+            {
+                if (inputs[i].ECSTypeIndex == connectionType)
                 {
-                    if(inputs[i].ECSTypeIndex == connectionType)
-                        throw new InvalidOperationException("Cannot have multiple data inputs to the same port");
-                }
-
-                ref readonly var parentKernel = ref nodes[c.Target.Vertex.Versioned.Index];
-                ref readonly var parentTraits = ref parentKernel.TraitsHandle.Resolve();
-
-                if (!parentTraits.KernelStorage.IsComponentNode)
-                {
-                    // DFG -> Entity
-                    ref readonly var port = ref parentKernel
-                        .TraitsHandle
-                        .Resolve()
-                        .DataPorts
-                        .FindOutputDataPort(c.OutputPort.PortID);
-
-                    inputs.Add(new InputToECS(port.Resolve(parentKernel.Instance.Ports), connectionType, port.ElementOrType.Size));
-                }
-                else  // Handle entity -> entity connections..
-                {
-                    ref readonly var kdata = ref GetEntityData(parentKernel.Instance.Data);
-
-                    // This is where we usually use ElementOrType. Turns out this can be
-                    // inferred from ECS type manager... Might revert the old PR.
-                    inputs.Add(new InputToECS(kdata.Entity, connectionType, TypeManager.GetTypeInfo(connectionType).ElementSize));
+                    // Overwrite an already recorded input connection given a potentially "moved" output.
+                    // Normally, the slate is wiped clean through ClearLocalECSInputsAndOutputsJob and ComputeValueChunkAndPatchPorts,
+                    // thus never hitting this location. However certain operations like resizing output port arrays will repatch
+                    // downstream children without resetting these arrays, to avoid a full repatch of the island.
+                    inputs[i] = input;
+                    return;
                 }
             }
+            inputs.Add(input);
         }
 
         internal unsafe static void RecordOutputConnection(DataInputStorage* patch, RenderKernelFunction.BaseKernel* baseKernel, OutputPortID port)

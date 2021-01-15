@@ -34,36 +34,6 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
             diag.TestingWarning();
             Assert.False(diag.HasErrors());
         }
-
-        [Test]
-        public void IsScaffolded_FunctionsAsExpected()
-        {
-            foreach (var value in System.Enum.GetValues(typeof(DFGLibrary.NodeDefinitionKind)).Cast<DFGLibrary.NodeDefinitionKind>())
-            {
-                switch (value)
-                {
-                    case DFGLibrary.NodeDefinitionKind.Simulation:
-                        Assert.IsFalse(value.IsScaffolded()); break;
-                    case DFGLibrary.NodeDefinitionKind.Kernel:
-                        Assert.IsFalse(value.IsScaffolded()); break;
-                    case DFGLibrary.NodeDefinitionKind.SimulationKernel:
-                        Assert.IsFalse(value.IsScaffolded()); break;
-                    case DFGLibrary.NodeDefinitionKind.Naked:
-                        Assert.IsFalse(value.IsScaffolded()); break;
-                    case DFGLibrary.NodeDefinitionKind.Scaffold_1:
-                        Assert.IsTrue(value.IsScaffolded()); break;
-                    case DFGLibrary.NodeDefinitionKind.Scaffold_2:
-                        Assert.IsTrue(value.IsScaffolded()); break;
-                    case DFGLibrary.NodeDefinitionKind.Scaffold_3:
-                        Assert.IsTrue(value.IsScaffolded()); break;
-                    case DFGLibrary.NodeDefinitionKind.Scaffold_4:
-                        Assert.IsTrue(value.IsScaffolded()); break;
-                    case DFGLibrary.NodeDefinitionKind.Scaffold_5:
-                        Assert.IsTrue(value.IsScaffolded()); break;
-                }
-            }
-        }
-
         class Base
         {
             public virtual void Function() { }
@@ -213,10 +183,9 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
                 Assert.False(closedA.RefersToSame(closedB));
                 Assert.False(closedB.RefersToSame(closedA));
 
-                // TODO: Use .Unqualified in the future.
-                Assert.True(closedA.Resolve().RefersToSame(open));
-                Assert.True(closedB.Resolve().RefersToSame(open));
-                Assert.True(closedB.Resolve().RefersToSame(closedA.Resolve()));
+                Assert.True(closedA.Open().RefersToSame(open));
+                Assert.True(closedB.Open().RefersToSame(open));
+                Assert.True(closedB.Open().RefersToSame(closedA.Open()));
             }
         }
 
@@ -229,9 +198,9 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
                 var module = cecilAssembly.Assembly.MainModule;
 
                 // GenericClass`2
-                var definition = module.ImportReference(typeof(GenericClass<,>)).Resolve();
+                var definition = module.ImportReference(typeof(GenericClass<,>)).Open();
                 // TemplateParameterProvider`2
-                var provider = module.ImportReference(typeof(OpenGenericProvider<,>)).Resolve();
+                var provider = module.ImportReference(typeof(OpenGenericProvider<,>)).Open();
 
                 // GenericClass<A, B>
                 var subType = definition.MakeGenericInstanceType(definition.GenericParameters.Cast<TypeReference>().ToArray());
@@ -251,7 +220,7 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
             {
                 var module = cecilAssembly.Assembly.MainModule;
                 // GenericClass`2
-                var definition = module.ImportReference(typeof(GenericClass<,>)).Resolve();
+                var definition = module.ImportReference(typeof(GenericClass<,>)).Open();
                 // GenericClass<A, B>
                 var subType = definition.MakeGenericInstanceType(definition.GenericParameters.Cast<TypeReference>().ToArray());
                 // <int, float>
@@ -276,7 +245,7 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
                 var definition = module.ImportReference(typeof(NestedGenericExpressionClass<,>)).Resolve();
 
                 // TemplateParameterProvider`2
-                var provider = module.ImportReference(typeof(OpenGenericProvider<,>)).Resolve();
+                var provider = module.ImportReference(typeof(OpenGenericProvider<,>)).Open();
 
                 var W = definition.GenericParameters[0];
                 var Y = provider.GenericParameters[1];
@@ -296,11 +265,11 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
 
                 var arg1 = instantiated.GenericArguments[0] as GenericInstanceType;
 
-                Assert.True(arg1.Resolve().RefersToSame(provider)); // == OpenGenericProvider<>,
+                Assert.True(arg1.Open().RefersToSame(provider)); // == OpenGenericProvider<>,
                 Assert.AreEqual(W, arg1.GenericArguments[0]); // == <W, ...>
 
                 var nestedGeneric = arg1.GenericArguments[1] as GenericInstanceType;
-                Assert.True(nestedGeneric.Resolve().RefersToSame(module.ImportReference(typeof(GenericClass<,>)))); // == GenericClass<>,
+                Assert.True(nestedGeneric.Open().RefersToSame(module.ImportReference(typeof(GenericClass<,>)))); // == GenericClass<>,
                 Assert.AreEqual(W, nestedGeneric.GenericArguments[0]); // == <<W, ...>>
                 Assert.AreEqual(Y, nestedGeneric.GenericArguments[1]); // == <<..., Y>>
 
@@ -332,11 +301,11 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
 
                 var arg1 = instantiatedBaseClass.GenericArguments[0] as GenericInstanceType;
 
-                Assert.True(arg1.Resolve().RefersToSame(provider)); // == OpenGenericProvider<>,
+                Assert.True(arg1.Open().RefersToSame(provider)); // == OpenGenericProvider<>,
                 Assert.AreEqual(@int, arg1.GenericArguments[0]); // == <int, ...>
 
                 var nestedGeneric = arg1.GenericArguments[1] as GenericInstanceType;
-                Assert.True(nestedGeneric.Resolve().RefersToSame(module.ImportReference(typeof(GenericClass<,>)))); // == GenericClass<>,
+                Assert.True(nestedGeneric.Open().RefersToSame(module.ImportReference(typeof(GenericClass<,>)))); // == GenericClass<>,
                 Assert.AreEqual(@int, nestedGeneric.GenericArguments[0]); // == <<int, ...>>
                 Assert.AreEqual(@float, nestedGeneric.GenericArguments[1]); // == <<..., float>>
 
@@ -358,8 +327,7 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
                 var parentType = module.ImportReference(type);
                 var halfOpenBaseType = parentType.InstantiatedBaseType() as GenericInstanceType;
 
-                // TODO: Use .Unqualified() in the future.
-                Assert.IsTrue(halfOpenBaseType.Resolve().RefersToSame(module.ImportReference(typeof(GenericClass<,>))));
+                Assert.IsTrue(halfOpenBaseType.Open().RefersToSame(module.ImportReference(typeof(GenericClass<,>))));
                 Assert.AreEqual(2, halfOpenBaseType.GenericArguments.Count);
                 Assert.IsInstanceOf<GenericParameter>(halfOpenBaseType.GenericArguments[genArgPos]);
                 Assert.True(halfOpenBaseType.GenericArguments[1-genArgPos].RefersToSame(module.TypeSystem.Single));
@@ -380,15 +348,13 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
                 var derivedType = parentType.InstantiatedBaseType() as GenericInstanceType;
                 var baseTypeType = derivedType.InstantiatedBaseType() as GenericInstanceType;
 
-                // TODO: Use .Unqualified() in the future.
-                Assert.IsTrue(derivedType.Resolve().RefersToSame(module.ImportReference(typeof(Derived<,,>))));
+                Assert.IsTrue(derivedType.Open().RefersToSame(module.ImportReference(typeof(Derived<,,>))));
                 Assert.AreEqual(3, derivedType.GenericArguments.Count);
                 Assert.IsInstanceOf<GenericParameter>(derivedType.GenericArguments[0]);
                 Assert.True(derivedType.GenericArguments[1].RefersToSame(module.TypeSystem.Int32));
                 Assert.IsInstanceOf<GenericParameter>(derivedType.GenericArguments[2]);
 
-                // TODO: Use .Unqualified() in the future.
-                Assert.IsTrue(baseTypeType.Resolve().RefersToSame(module.ImportReference(typeof(GenericClass<,>))));
+                Assert.IsTrue(baseTypeType.Open().RefersToSame(module.ImportReference(typeof(GenericClass<,>))));
                 Assert.AreEqual(2, baseTypeType.GenericArguments.Count);
                 Assert.True(baseTypeType.GenericArguments[0].RefersToSame(module.TypeSystem.Single));
                 Assert.IsInstanceOf<GenericParameter>(baseTypeType.GenericArguments[1]);
@@ -454,8 +420,7 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
                 Assert.True(nested.Definition.RefersToSame(nestedClass));
 
                 var @base = (GenericInstanceType)nested.Instantiated.InstantiatedBaseType();
-                // TODO: Use .Unqualified() in the future.
-                Assert.True(@base.Resolve().RefersToSame(baseClass));
+                Assert.True(@base.Open().RefersToSame(baseClass));
                 
                 Assert.AreEqual(@base.GenericArguments[0], parentClosed.GenericArguments[2]);
                 Assert.AreEqual(@base.GenericArguments[1], parentClosed.GenericArguments[1]);

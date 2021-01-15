@@ -37,9 +37,9 @@ namespace Unity.DataFlowGraph.Tests
         public void PortStorageFlags_AreNotInLow16bits()
         {
             Assert.GreaterOrEqual(PortStorage.IsECSPortFlag, 1 << 16);
-            Assert.GreaterOrEqual(1 << 30, PortStorage.IsECSPortFlag);
+            Assert.GreaterOrEqual(1 << 28, PortStorage.IsECSPortFlag);
             Assert.GreaterOrEqual(PortStorage.IsDFGPortFlag, 1 << 16);
-            Assert.GreaterOrEqual(1 << 30, PortStorage.IsDFGPortFlag);
+            Assert.GreaterOrEqual(1 << 29, PortStorage.IsDFGPortFlag);
         }
 
         [Test]
@@ -49,17 +49,17 @@ namespace Unity.DataFlowGraph.Tests
             Assert.IsFalse(defaultPortStorage.IsECSPort);
             Assert.IsFalse(defaultPortStorage.IsDFGPort);
 #if DFG_ASSERTIONS
-            ushort port;
+            PortStorage.EncodedDFGPort port;
             int componentType;
-            Assert.Throws<AssertionException>(() => port = defaultPortStorage.DFGPortIndex);
+            Assert.Throws<AssertionException>(() => port = defaultPortStorage.DFGPort);
             Assert.Throws<AssertionException>(() => componentType = defaultPortStorage.ECSTypeIndex);
 #endif
         }
 
         [Test]
-        public void PortStorage_CanBeInitialized_FromUInt16_AndRetrieveValue_ThroughPortAccessor([Values((ushort)0u, (ushort)1u, (ushort)13u, (ushort)(1 << 16 - 1))] ushort ushortValue)
+        public void PortStorage_CanBeInitialized_FromUInt16_AndRetrieveValue_ThroughPortAccessor([Values((ushort)0u, (ushort)1u, (ushort)13u, (ushort)(PortStorage.MaxDFGPortNumber))] ushort ushortValue)
         {
-            Assert.AreEqual(new PortStorage(ushortValue).DFGPortIndex, ushortValue);
+            Assert.AreEqual(new PortStorage(ushortValue, PortStorage.Category.Message).DFGPort.CategoryCounter, ushortValue);
         }
 
         [Test]
@@ -94,8 +94,8 @@ namespace Unity.DataFlowGraph.Tests
         [Test]
         public void PortStorageConstructors_CorrectlyTagUnion()
         {
-            Assert.False(new PortStorage((ushort)0u).IsECSPort);
-            Assert.False(new PortStorage(0).IsECSPort);
+            Assert.False(new PortStorage((ushort)0u, PortStorage.Category.Message).IsECSPort);
+            Assert.False(new PortStorage(0, PortStorage.Category.Message).IsECSPort);
             Assert.True(new PortStorage(new ComponentType()).IsECSPort);
         }
 
@@ -127,7 +127,8 @@ namespace Unity.DataFlowGraph.Tests
 #pragma warning disable 649
                 public DataInput<KernelPortTestNode, int> Input1, Input2;
                 public PortArray<DataInput<KernelPortTestNode, int>> Input3;
-                public DataOutput<KernelPortTestNode, int> Output1, Output2, Output3;
+                public DataOutput<KernelPortTestNode, int> Output1, Output2;
+                public PortArray<DataOutput<KernelPortTestNode, int>> Output3;
 #pragma warning restore 649
 
                 public struct PortIDs
@@ -143,7 +144,7 @@ namespace Unity.DataFlowGraph.Tests
             [BurstCompile(CompileSynchronously = true)]
             struct Kernel : IGraphKernel<EmptyKernelData, KernelDefs>
             {
-                public void Execute(RenderContext ctx, EmptyKernelData data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, in EmptyKernelData data, ref KernelDefs ports)
                 {
                     ref var portIDs = ref ctx.Resolve(ref ports.PortIDsFromKernel);
                     portIDs.Input1PortID = KernelPorts.Input1.Port;
@@ -151,7 +152,7 @@ namespace Unity.DataFlowGraph.Tests
                     portIDs.Input3PortID = KernelPorts.Input3.GetPortID();
                     portIDs.Output1PortID = KernelPorts.Output1.Port;
                     portIDs.Output2PortID = KernelPorts.Output2.Port;
-                    portIDs.Output3PortID = KernelPorts.Output3.Port;
+                    portIDs.Output3PortID = KernelPorts.Output3.GetPortID();
                 }
             }
         }
@@ -173,7 +174,7 @@ namespace Unity.DataFlowGraph.Tests
                 Assert.AreEqual(KernelPortTestNode.KernelPorts.Input3.GetPortID(), portIDs.Input3PortID);
                 Assert.AreEqual(KernelPortTestNode.KernelPorts.Output1.Port, portIDs.Output1PortID);
                 Assert.AreEqual(KernelPortTestNode.KernelPorts.Output2.Port, portIDs.Output2PortID);
-                Assert.AreEqual(KernelPortTestNode.KernelPorts.Output3.Port, portIDs.Output3PortID);
+                Assert.AreEqual(KernelPortTestNode.KernelPorts.Output3.GetPortID(), portIDs.Output3PortID);
 
                 // Verify that PortIDs are unique.
                 Assert.AreNotEqual(KernelPortTestNode.KernelPorts.Input1.Port, portIDs.Input2PortID);
@@ -198,9 +199,9 @@ namespace Unity.DataFlowGraph.Tests
 
             struct Data : INodeData, IMsgHandler<BlobAssetReference<int>>, IMsgHandler<BlobAssetReference<float>>
             {
-                public void HandleMessage(in MessageContext ctx, in BlobAssetReference<int> msg) { }
+                public void HandleMessage(MessageContext ctx, in BlobAssetReference<int> msg) { }
 
-                public void HandleMessage(in MessageContext ctx, in BlobAssetReference<float> msg) { }
+                public void HandleMessage(MessageContext ctx, in BlobAssetReference<float> msg) { }
             }
         }
 

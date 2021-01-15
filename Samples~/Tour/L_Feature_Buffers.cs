@@ -31,7 +31,7 @@ namespace Unity.DataFlowGraph.Tour
             [BurstCompile]
             struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
             {
-                public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, in KernelData data, ref KernelDefs ports)
                 {
                     /*
                      * As usual, we just resolve an output.
@@ -61,7 +61,7 @@ namespace Unity.DataFlowGraph.Tour
 
             struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
             {
-                public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, in KernelData data, ref KernelDefs ports)
                 {
                     /*
                      * Similarly, here we just resolve an input instead without a ref argument.

@@ -4,6 +4,68 @@ All notable changes to this package will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [0.19.0-preview.7] - 2021-01-15
+### Changed
+- Upgraded dependency com.unity.entities to 0.17.0-preview.41
+
+## [0.19.0-preview.6] - 2021-01-13
+### Changed
+- Upgraded dependency com.unity.entities to 0.17.0-preview.40
+
+## [0.19.0-preview.5] - 2020-12-15
+### Changed
+- Upgraded dependency com.unity.entities to 0.17.0-preview.39
+
+## [0.19.0-preview.4] - 2020-12-08
+### Changed
+- Upgraded dependency com.unity.entities to 0.17.0-preview.38
+- Upgraded dependency com.unity.jobs to 0.8.0-preview.23
+
+### Deprecated
+- `RenderContext.ResolvedPortArray` renamed `RenderContext.ResolvedInputPortArray`
+
+## [0.19.0-preview.3] - 2020-11-26
+### Fixed
+- Fixed an ILPP issue causing rewriting of mscorlib references to System.Private.CoreLib in combination with dependent packages when run on Unity 2021.1
+
+## [0.19.0-preview.2] - 2020-11-25
+### Added
+- Observability culling meaning only nodes contributing to a measurable result will actually run (off by default)
+- `CausesSideEffects` attribute which can be used to decorate your `IGraphKernel<>` declarations if they cause (invisible to DFG) side effects to avoid them being culled
+- `NodeSet.RendererOptimizations` flags used to control what speculative optimizations will be performed in the rendering graph
+- Support for declaring `IKernelPortDefinition`s which include `PortArray<DataOutput<TDefinition,TType>>` instances
+- Weak and strong variants of `NodeSetAPI.SetPortArraySize` targeting a `PortArray<DataOutput<>>`
+- All variants of `NodeSetAPI.Connect/Disconnect/DisconnectAndRetain` with `PortArray<DataOutput<>>` sources
+- Weak and strong variants of `NodeSetAPI.CreateGraphValueArray` and `NodeSetAPI.ReleaseGraphValueArray` for creating/destroying `GraphValueArray<T>`s, the equivalent of existing `GraphValue<T>`s but for observing `PortArray<DataOutput<>>`
+- `GraphValueResolver.Resolve(GraphValueArray<T>)` and `RenderContext.Resolve(in PortArray<DataOutput<TDefinition,T>>)` for resolving read only memory of an output port array referenced by a `GraphValueArray<T>` to a `NativeSlice<T>`
+- `InitContext.ForwardOutput(PortArray<DataOutput<TDefinition,TType>> origin, NodeHandle<TForwardedDefinition>, PortArray<DataOutput<TForwardedDefinition,TType>> replacement)`
+- Weak and strong variants of `NodeSetAPI.SetBufferSize` targeting a specific port in a  `PortArray<DataOutput<>>` which includes `Buffer<T>`s in its element type
+- Support for IDE debugging of `PortArray<DataOutput<TDefinition,TType>>` via the `PortArrayDebugView` `DebuggerTypeProxy`
+
+### Changed
+- Upgraded dependency com.unity.entities to 0.17.0-preview.37
+- Upgraded dependency com.unity.jobs to 0.8.0-preview.22
+- Upgraded dependency com.unity.collections to 0.15.0-preview.21
+
+## [0.19.0-preview.1] - 2020-11-13
+### Added
+- Support for showing forwarded ports, private ports and ports on `ComponentNode`s in IDE debugger displays for `NodeHandle`s
+- Endpoints - a new system for connecting directed node+port pairs together
+- `NodeHandle<T>.Tie` for creating endpoints by tying handles and ports together
+- `Connect`, `Disconnect` and `DisconnectAndRetainValue` overloads on `NodeSetAPI` taking output and input endpoints
+
+### Changed
+- `IUpdate.Update` no longer takes its `UpdateContext` argument by `in` parameter
+- `IMsgHandler.HandleMessage` no longer takes its `MessageContext` argument by `in` parameter
+- `IGraphKernel.Execute` now takes its `IKernelData` argument as an `in` parameter
+- Upgraded dependency com.unity.entities to 0.17.0-preview.34
+- Upgraded dependency com.unity.jobs to 0.8.0-preview.20
+- Upgraded dependency com.unity.collections to 0.15.0-preview.19
+- Upgraded dependency com.unity.burst to 1.4.1
+
+### Removed
+- `NodeDefinition<...>` base classes and `Init`, `Destroy`, `Update`, and `HandleMessage` handlers implemented on aforementioned classes are now hard obsoleted and unsupported
+
 ## [0.18.0-preview.3] - 2020-10-20
 ### Changed
 - Upgraded dependency com.unity.entities to 0.16.0-preview.21
@@ -41,8 +103,6 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 ### Fixed
 - The `EmitMessage` variants taking a port array index will now throw an exception if the given port index is out of range
-
-### Fixed
 - Samples and Tour using `IUpdate` functionality 
 
 ## [0.17.0-preview.4] - 2020-09-10

@@ -262,6 +262,11 @@ namespace Unity.Collections
             };
 
             ret.m_Memory = (T*)UnsafeUtility.Malloc(m_Capacity * sizeof(T), Alignment, AllocationLabel);
+#if DFG_ASSERTIONS
+            if (ret.m_Memory == default)
+                throw new Exception($"Allocation failed for {m_Capacity * sizeof(T)} bytes (alignment {Alignment}) on {AllocationLabel}");
+#endif
+
             UnsafeUtility.MemCpy(ret.m_Memory, m_Memory, m_Size * sizeof(T));
 
             return ret;
@@ -289,6 +294,11 @@ namespace Unity.Collections
             if (m_Size == newSize)
                 return;
 
+#if DFG_ASSERTIONS
+            if (newSize < 0)
+                throw new InvalidOperationException($"Cannot allocate a negatively sized list ({newSize})");
+#endif
+
             if (newSize < m_Size)
             {
                 // shrink, kill ctors?
@@ -309,6 +319,10 @@ namespace Unity.Collections
                 m_Capacity = math.ceilpow2((int)newSize);
 
                 var temp = (T*)UnsafeUtility.Malloc(m_Capacity * sizeof(T), Alignment, AllocationLabel);
+#if DFG_ASSERTIONS
+                if (temp == default)
+                    throw new InvalidOperationException($"Allocation failed for {m_Capacity * sizeof(T)} bytes (alignment {Alignment}) on {AllocationLabel}");
+#endif
 
                 // copy construct
                 UnsafeUtility.MemCpy(temp, m_Memory, m_Size * sizeof(T));

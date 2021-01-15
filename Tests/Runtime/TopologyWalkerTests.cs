@@ -55,11 +55,7 @@ namespace Unity.DataFlowGraph.Tests
 
     public class TopologyWalkerTests
     {
-
-
-        public struct Node : INodeData { }
-
-        public class OneInOutNode : NodeDefinition<Node, OneInOutNode.SimPorts>, IMsgHandler<Message>
+        public class OneInOutNode : SimulationNodeDefinition<OneInOutNode.SimPorts>
         {
             public struct SimPorts : ISimulationPortDefinition
             {
@@ -67,13 +63,16 @@ namespace Unity.DataFlowGraph.Tests
                 public MessageOutput<OneInOutNode, Message> Output;
             }
 
-            public void HandleMessage(in MessageContext ctx, in Message msg)
+            struct Node : INodeData, IMsgHandler<Message>
             {
-                throw new NotImplementedException();
+                public void HandleMessage(MessageContext ctx, in Message msg)
+                {
+                    throw new NotImplementedException();
+                }
             }
         }
 
-        public class ThreeInOutNode : NodeDefinition<Node, ThreeInOutNode.SimPorts>, IMsgHandler<Message>
+        public class ThreeInOutNode : SimulationNodeDefinition<ThreeInOutNode.SimPorts>
         {
             public struct SimPorts : ISimulationPortDefinition
             {
@@ -81,9 +80,12 @@ namespace Unity.DataFlowGraph.Tests
                 public MessageOutput<ThreeInOutNode, Message> Output1, Output2, Output3;
             }
 
-            public void HandleMessage(in MessageContext ctx, in Message msg)
+            struct Node : INodeData, IMsgHandler<Message>
             {
-                throw new NotImplementedException();
+                public void HandleMessage(MessageContext ctx, in Message msg)
+                {
+                    throw new NotImplementedException();
+                }
             }
         }
 

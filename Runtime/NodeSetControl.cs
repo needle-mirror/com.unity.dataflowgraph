@@ -172,7 +172,7 @@ namespace Unity.DataFlowGraph
             => GetGraphValueResolverInternal(out resultDependency);
 
         public TDSLHandler GetDSLHandler<TDSLHandler>()
-            where TDSLHandler : class, IDSLHandler
-                => (TDSLHandler)GetDSLHandler(typeof(TDSLHandler));
+            where TDSLHandler : class, IDSLHandler, new()
+                => (TDSLHandler)GetDSLHandler(DSLTypeMap.RegisterDSL<TDSLHandler>());
     }
 }

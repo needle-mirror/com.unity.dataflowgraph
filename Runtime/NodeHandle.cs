@@ -104,7 +104,7 @@ namespace Unity.DataFlowGraph
     /// </summary>
     [DebuggerDisplay("{DebugDisplay(), nq}")]
     [DebuggerTypeProxy(typeof(NodeHandleDebugView<>))]
-    public struct NodeHandle<TDefinition> : IEquatable<NodeHandle<TDefinition>>
+    public partial struct NodeHandle<TDefinition> : IEquatable<NodeHandle<TDefinition>>
         where TDefinition : NodeDefinition
     {
         readonly NodeHandle m_UntypedHandle;

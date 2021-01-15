@@ -20,6 +20,8 @@ namespace Unity.DataFlowGraph
             Port = connection.DestinationInputPort;
         }
 
+        public InputPair(NodeSetAPI set, Detail.UnresolvedInputPair endpoint) : this(set, endpoint.Handle, endpoint.PortID) { }
+
         public InputPair(NodeSetAPI set, NodeHandle destHandle, InputPortArrayID destinationPort)
         {
             Handle = set.Nodes.Validate(destHandle.VHandle);
@@ -36,9 +38,13 @@ namespace Unity.DataFlowGraph
                     continue;
 
                 var port = forwarding.GetOriginInputPortID();
+                var encoded = port.Port;
+
+                if (encoded.Category != destinationPort.PortID.Port.Category)
+                    continue;
 
                 // Forwarded port list are monotonically increasing by port, so we can break out early
-                if (forwarding.GetOriginPortCounter() > destinationPort.PortID.Port)
+                if (encoded.CategoryCounter > destinationPort.PortID.Port.CategoryCounter)
                     break;
 
                 if (port != destinationPort.PortID)
@@ -74,6 +80,8 @@ namespace Unity.DataFlowGraph
             Port = connection.SourceOutputPort;
         }
 
+        public OutputPair(NodeSetAPI set, Detail.UnresolvedOutputPair endpoint) : this(set, endpoint.Handle, endpoint.PortID) { }
+
         public OutputPair(NodeSetAPI set, NodeHandle sourceHandle, OutputPortArrayID sourcePort)
         {
             Handle = set.Nodes.Validate(sourceHandle.VHandle);
@@ -90,9 +98,13 @@ namespace Unity.DataFlowGraph
                     continue;
 
                 var port = forwarding.GetOriginOutputPortID();
+                var encoded = port.Port;
+
+                if (encoded.Category != sourcePort.PortID.Port.Category)
+                    continue;
 
                 // Forwarded port list are monotonically increasing by port, so we can break out early
-                if (forwarding.GetOriginPortCounter() > sourcePort.PortID.Port)
+                if (encoded.CategoryCounter > sourcePort.PortID.Port.CategoryCounter)
                     break;
 
                 if (port != sourcePort.PortID)

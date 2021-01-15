@@ -21,9 +21,7 @@ namespace Unity.DataFlowGraph.Tests
             Jobified
         }
 
-        public struct Node : INodeData { }
-
-        public class InOutTestNode : NodeDefinition<Node, InOutTestNode.SimPorts>, IMsgHandler<Message>
+        public class InOutTestNode : SimulationNodeDefinition<InOutTestNode.SimPorts>
         {
             public struct SimPorts : ISimulationPortDefinition
             {
@@ -33,12 +31,13 @@ namespace Unity.DataFlowGraph.Tests
 #pragma warning restore 649  // Assigned through internal DataFlowGraph reflection
             }
 
-            public void HandleMessage(in MessageContext ctx, in Message msg)
+            struct Node : INodeData, IMsgHandler<Message>
             {
+                public void HandleMessage(MessageContext ctx, in Message msg) { }
             }
         }
 
-        public class OneMessageOneData : NodeDefinition<Node, OneMessageOneData.SimPorts, OneMessageOneData.KernelData, OneMessageOneData.KernelPortDefinition, OneMessageOneData.Kernel>, IMsgHandler<int>
+        public class OneMessageOneData : SimulationKernelNodeDefinition<OneMessageOneData.SimPorts, OneMessageOneData.KernelPortDefinition>
         {
             public struct SimPorts : ISimulationPortDefinition
             {
@@ -56,20 +55,19 @@ namespace Unity.DataFlowGraph.Tests
 #pragma warning restore 649  // Assigned through internal DataFlowGraph reflection
             }
 
-            public struct KernelData : IKernelData
-            {
-            }
+            struct KernelData : IKernelData { }
 
             [BurstCompile(CompileSynchronously = true)]
-            public struct Kernel : IGraphKernel<KernelData, KernelPortDefinition>
+            struct Kernel : IGraphKernel<KernelData, KernelPortDefinition>
             {
-                public void Execute(RenderContext ctx, KernelData data, ref KernelPortDefinition ports)
+                public void Execute(RenderContext ctx, in KernelData data, ref KernelPortDefinition ports)
                 {
                 }
             }
 
-            public void HandleMessage(in MessageContext ctx, in int msg)
+            struct Node : INodeData, IMsgHandler<int>
             {
+                public void HandleMessage(MessageContext ctx, in int msg) { }
             }
         }
 

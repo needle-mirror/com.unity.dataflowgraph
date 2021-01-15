@@ -1,16 +1,15 @@
 using System;
 using NUnit.Framework;
+using Unity.Burst;
+using Unity.Collections.LowLevel.Unsafe;
+using Unity.DataFlowGraph.Detail;
+using Unity.Jobs;
 
 namespace Unity.DataFlowGraph.Tests
 {
     class TopologyAPITests
     {
-        public struct Node : INodeData
-        {
-            public int Contents;
-        }
-
-        class InOutTestNode : NodeDefinition<Node, InOutTestNode.SimPorts>, IMsgHandler<Message>
+        class InOutTestNode : SimulationNodeDefinition<InOutTestNode.SimPorts>
         {
             public struct SimPorts : ISimulationPortDefinition
             {
@@ -20,17 +19,20 @@ namespace Unity.DataFlowGraph.Tests
 #pragma warning restore 649
             }
 
-            public void HandleMessage(in MessageContext ctx, in Message msg)
+            struct Node : INodeData, IMsgHandler<Message>
             {
-                ref var data = ref GetNodeData(ctx.Handle);
+                public int Contents;
 
-                Assert.That(ctx.Port == SimulationPorts.Input);
-                data.Contents += msg.Contents;
-                ctx.EmitMessage(SimulationPorts.Output, new Message(data.Contents + 1));
+                public void HandleMessage(MessageContext ctx, in Message msg)
+                {
+                    Assert.That(ctx.Port == SimulationPorts.Input);
+                    Contents += msg.Contents;
+                    ctx.EmitMessage(SimulationPorts.Output, new Message(Contents + 1));
+                }
             }
         }
 
-        class TwoInOutTestNode : NodeDefinition<Node, TwoInOutTestNode.SimPorts>, IMsgHandler<Message>
+        class TwoInOutTestNode : SimulationNodeDefinition<TwoInOutTestNode.SimPorts>
         {
             public struct SimPorts : ISimulationPortDefinition
             {
@@ -40,7 +42,10 @@ namespace Unity.DataFlowGraph.Tests
 #pragma warning restore 649
             }
 
-            public void HandleMessage(in MessageContext ctx, in Message msg) { }
+            struct Node : INodeData, IMsgHandler<Message>
+            {
+                public void HandleMessage(MessageContext ctx, in Message msg) { }
+            }
         }
 
         [Test]
@@ -52,7 +57,7 @@ namespace Unity.DataFlowGraph.Tests
                     a = set.Create<InOutTestNode>(),
                     b = set.Create<InOutTestNode>();
 
-                set.Connect(b, InOutTestNode.SimulationPorts.Output, a, InOutTestNode.SimulationPorts.Input);
+                set.Connect(b.Tie(InOutTestNode.SimulationPorts.Output), a.Tie(InOutTestNode.SimulationPorts.Input));
 
                 set.Destroy(a, b);
             }
@@ -67,8 +72,8 @@ namespace Unity.DataFlowGraph.Tests
                     a = set.Create<InOutTestNode>(),
                     b = set.Create<InOutTestNode>();
 
-                set.Connect(a, InOutTestNode.SimulationPorts.Output, b, InOutTestNode.SimulationPorts.Input);
-                Assert.Throws<ArgumentException>(() => set.Connect(a, InOutTestNode.SimulationPorts.Output, b, InOutTestNode.SimulationPorts.Input));
+                set.Connect(a.Tie(InOutTestNode.SimulationPorts.Output), b.Tie(InOutTestNode.SimulationPorts.Input));
+                Assert.Throws<ArgumentException>(() => set.Connect(a.Tie(InOutTestNode.SimulationPorts.Output), b.Tie(InOutTestNode.SimulationPorts.Input)));
 
                 set.Destroy(a, b);
             }
@@ -83,10 +88,10 @@ namespace Unity.DataFlowGraph.Tests
                     a = set.Create<InOutTestNode>(),
                     b = set.Create<InOutTestNode>();
 
-                set.Connect(a, InOutTestNode.SimulationPorts.Output, b, InOutTestNode.SimulationPorts.Input);
-                Assert.Throws<ArgumentException>(() => set.Connect(a, InOutTestNode.SimulationPorts.Output, b, InOutTestNode.SimulationPorts.Input));
-                set.Disconnect(a, InOutTestNode.SimulationPorts.Output, b, InOutTestNode.SimulationPorts.Input);
-                set.Connect(a, InOutTestNode.SimulationPorts.Output, b, InOutTestNode.SimulationPorts.Input);
+                set.Connect(a.Tie(InOutTestNode.SimulationPorts.Output), b.Tie(InOutTestNode.SimulationPorts.Input));
+                Assert.Throws<ArgumentException>(() => set.Connect(a.Tie(InOutTestNode.SimulationPorts.Output), b.Tie(InOutTestNode.SimulationPorts.Input)));
+                set.Disconnect(a.Tie(InOutTestNode.SimulationPorts.Output), b.Tie(InOutTestNode.SimulationPorts.Input));
+                set.Connect(a.Tie(InOutTestNode.SimulationPorts.Output), b.Tie(InOutTestNode.SimulationPorts.Input));
 
                 set.Destroy(a, b);
             }
@@ -102,10 +107,10 @@ namespace Unity.DataFlowGraph.Tests
                     b = set.Create<KernelAdderNode>(),
                     c = set.Create<KernelAdderNode>();
 
-                set.Connect(a, KernelAdderNode.KernelPorts.Output, c, KernelAdderNode.KernelPorts.Input);
-                Assert.Throws<ArgumentException>(() => set.Connect(b, KernelAdderNode.KernelPorts.Output, c, KernelAdderNode.KernelPorts.Input));
-                set.Disconnect(a, KernelAdderNode.KernelPorts.Output, c, KernelAdderNode.KernelPorts.Input);
-                set.Connect(a, KernelAdderNode.KernelPorts.Output, c, KernelAdderNode.KernelPorts.Input);
+                set.Connect(a.Tie(KernelAdderNode.KernelPorts.Output), c.Tie(KernelAdderNode.KernelPorts.Input));
+                Assert.Throws<ArgumentException>(() => set.Connect(b.Tie(KernelAdderNode.KernelPorts.Output), c.Tie(KernelAdderNode.KernelPorts.Input)));
+                set.Disconnect(a.Tie(KernelAdderNode.KernelPorts.Output), c.Tie(KernelAdderNode.KernelPorts.Input));
+                set.Connect(a.Tie(KernelAdderNode.KernelPorts.Output), c.Tie(KernelAdderNode.KernelPorts.Input));
 
                 set.Destroy(a, b, c);
             }
@@ -116,12 +121,35 @@ namespace Unity.DataFlowGraph.Tests
         {
             using (var set = new NodeSet())
             {
-                NodeHandle a = set.Create<InOutTestNode>(), b = set.Create<InOutTestNode>();
+                NodeHandle<InOutTestNode> a = set.Create<InOutTestNode>(), b = set.Create<InOutTestNode>(), invalid = default;
 
-                var e = Assert.Throws<ArgumentException>(() => set.Connect(a, (OutputPortID) InOutTestNode.SimulationPorts.Output, new NodeHandle(), (InputPortID)InOutTestNode.SimulationPorts.Input));
+                var e = Assert.Throws<ArgumentException>(() => set.Connect(a, (OutputPortID)InOutTestNode.SimulationPorts.Output, new NodeHandle(), (InputPortID)InOutTestNode.SimulationPorts.Input));
                 StringAssert.Contains(Collections.VersionedList<InternalNodeData>.ValidationFail_InvalidMessage, e.Message);
 
-                e = Assert.Throws<ArgumentException>(() => set.Connect(new NodeHandle(), (OutputPortID) InOutTestNode.SimulationPorts.Output, b, (InputPortID)InOutTestNode.SimulationPorts.Input));
+                e = Assert.Throws<ArgumentException>(() => set.Connect(new NodeHandle(), (OutputPortID)InOutTestNode.SimulationPorts.Output, b, (InputPortID)InOutTestNode.SimulationPorts.Input));
+                StringAssert.Contains(Collections.VersionedList<InternalNodeData>.ValidationFail_InvalidMessage, e.Message);
+
+                e = Assert.Throws<ArgumentException>(() => set.Connect(a.Tie(InOutTestNode.SimulationPorts.Output), invalid.Tie(InOutTestNode.SimulationPorts.Input)));
+                StringAssert.Contains(Collections.VersionedList<InternalNodeData>.ValidationFail_InvalidMessage, e.Message);
+
+                e = Assert.Throws<ArgumentException>(() => set.Connect(invalid.Tie(InOutTestNode.SimulationPorts.Output), b.Tie(InOutTestNode.SimulationPorts.Input)));
+                StringAssert.Contains(Collections.VersionedList<InternalNodeData>.ValidationFail_InvalidMessage, e.Message);
+
+                set.Destroy(a, b);
+            }
+        }
+
+        [Test]
+        public void ConnectThrows_OnDefaultConstructedEndpoints()
+        {
+            using (var set = new NodeSet())
+            {
+                NodeHandle<InOutTestNode> a = set.Create<InOutTestNode>(), b = set.Create<InOutTestNode>();
+
+                var e = Assert.Throws<ArgumentException>(() => set.Connect(a.Tie(InOutTestNode.SimulationPorts.Output), new MessageInputEndpoint<Message>()));
+                StringAssert.Contains(Collections.VersionedList<InternalNodeData>.ValidationFail_InvalidMessage, e.Message);
+
+                e = Assert.Throws<ArgumentException>(() => set.Connect(new MessageOutputEndpoint<Message>(), b.Tie(InOutTestNode.SimulationPorts.Input)));
                 StringAssert.Contains(Collections.VersionedList<InternalNodeData>.ValidationFail_InvalidMessage, e.Message);
 
                 set.Destroy(a, b);
@@ -133,12 +161,18 @@ namespace Unity.DataFlowGraph.Tests
         {
             using (var set = new NodeSet())
             {
-                NodeHandle a = set.Create<InOutTestNode>(), b = set.Create<InOutTestNode>();
+                NodeHandle<InOutTestNode> a = set.Create<InOutTestNode>(), b = set.Create<InOutTestNode>();
 
                 var e = Assert.Throws<ArgumentException>(() => set.Connect(a, new OutputPortID(), b, (InputPortID)InOutTestNode.SimulationPorts.Input));
                 StringAssert.Contains("Invalid output port", e.Message);
 
-                e = Assert.Throws<ArgumentException>(() => set.Connect(a, (OutputPortID) InOutTestNode.SimulationPorts.Output, b, new InputPortID()));
+                e = Assert.Throws<ArgumentException>(() => set.Connect(a, (OutputPortID)InOutTestNode.SimulationPorts.Output, b, new InputPortID()));
+                StringAssert.Contains("Invalid input port", e.Message);
+
+                e = Assert.Throws<ArgumentException>(() => set.Connect(a.Tie(new MessageOutput<InOutTestNode, Message>()), b.Tie(InOutTestNode.SimulationPorts.Input)));
+                StringAssert.Contains("Invalid output port", e.Message);
+
+                e = Assert.Throws<ArgumentException>(() => set.Connect(a.Tie(InOutTestNode.SimulationPorts.Output), b.Tie(new MessageInput<InOutTestNode, Message>())));
                 StringAssert.Contains("Invalid input port", e.Message);
 
                 set.Destroy(a, b);
@@ -150,12 +184,35 @@ namespace Unity.DataFlowGraph.Tests
         {
             using (var set = new NodeSet())
             {
-                NodeHandle node = set.Create<InOutTestNode>();
+                NodeHandle<InOutTestNode> node = set.Create<InOutTestNode>(), invalid = default;
 
-                var e = Assert.Throws<ArgumentException>(() => set.Disconnect(new NodeHandle(), (OutputPortID) InOutTestNode.SimulationPorts.Output, node, (InputPortID)InOutTestNode.SimulationPorts.Input));
+                var e = Assert.Throws<ArgumentException>(() => set.Disconnect(new NodeHandle(), (OutputPortID)InOutTestNode.SimulationPorts.Output, node, (InputPortID)InOutTestNode.SimulationPorts.Input));
                 StringAssert.Contains(Collections.VersionedList<InternalNodeData>.ValidationFail_InvalidMessage, e.Message);
 
-                e = Assert.Throws<ArgumentException>(() => set.Disconnect(node, (OutputPortID) InOutTestNode.SimulationPorts.Output, new NodeHandle(), (InputPortID)InOutTestNode.SimulationPorts.Input));
+                e = Assert.Throws<ArgumentException>(() => set.Disconnect(node, (OutputPortID)InOutTestNode.SimulationPorts.Output, new NodeHandle(), (InputPortID)InOutTestNode.SimulationPorts.Input));
+                StringAssert.Contains(Collections.VersionedList<InternalNodeData>.ValidationFail_InvalidMessage, e.Message);
+
+                e = Assert.Throws<ArgumentException>(() => set.Disconnect(node.Tie(InOutTestNode.SimulationPorts.Output), invalid.Tie(InOutTestNode.SimulationPorts.Input)));
+                StringAssert.Contains(Collections.VersionedList<InternalNodeData>.ValidationFail_InvalidMessage, e.Message);
+
+                e = Assert.Throws<ArgumentException>(() => set.Disconnect(invalid.Tie(InOutTestNode.SimulationPorts.Output), node.Tie(InOutTestNode.SimulationPorts.Input)));
+                StringAssert.Contains(Collections.VersionedList<InternalNodeData>.ValidationFail_InvalidMessage, e.Message);
+
+                set.Destroy(node);
+            }
+        }
+
+        [Test]
+        public void DisconnectThrows_OnDefaultConstructedEndpoints()
+        {
+            using (var set = new NodeSet())
+            {
+                NodeHandle<InOutTestNode> node = set.Create<InOutTestNode>();
+
+                var e = Assert.Throws<ArgumentException>(() => set.Disconnect(new MessageOutputEndpoint<Message>(), node.Tie(InOutTestNode.SimulationPorts.Input)));
+                StringAssert.Contains(Collections.VersionedList<InternalNodeData>.ValidationFail_InvalidMessage, e.Message);
+
+                e = Assert.Throws<ArgumentException>(() => set.Disconnect(node.Tie(InOutTestNode.SimulationPorts.Output), new MessageInputEndpoint<Message>()));
                 StringAssert.Contains(Collections.VersionedList<InternalNodeData>.ValidationFail_InvalidMessage, e.Message);
 
                 set.Destroy(node);
@@ -167,12 +224,18 @@ namespace Unity.DataFlowGraph.Tests
         {
             using (var set = new NodeSet())
             {
-                NodeHandle a = set.Create<InOutTestNode>(), b = set.Create<InOutTestNode>();
+                NodeHandle<InOutTestNode> a = set.Create<InOutTestNode>(), b = set.Create<InOutTestNode>();
 
                 var e = Assert.Throws<ArgumentException>(() => set.Disconnect(a, new OutputPortID(), b, (InputPortID)InOutTestNode.SimulationPorts.Input));
                 StringAssert.Contains("Invalid output port", e.Message);
 
-                e = Assert.Throws<ArgumentException>(() => set.Disconnect(a, (OutputPortID) InOutTestNode.SimulationPorts.Output, b, new InputPortID()));
+                e = Assert.Throws<ArgumentException>(() => set.Disconnect(a, (OutputPortID)InOutTestNode.SimulationPorts.Output, b, new InputPortID()));
+                StringAssert.Contains("Invalid input port", e.Message);
+
+                e = Assert.Throws<ArgumentException>(() => set.Connect(a.Tie(new MessageOutput<InOutTestNode, Message>()), b.Tie(InOutTestNode.SimulationPorts.Input)));
+                StringAssert.Contains("Invalid output port", e.Message);
+
+                e = Assert.Throws<ArgumentException>(() => set.Connect(a.Tie(InOutTestNode.SimulationPorts.Output), b.Tie(new MessageInput<InOutTestNode, Message>())));
                 StringAssert.Contains("Invalid input port", e.Message);
 
                 set.Destroy(a, b);
@@ -251,6 +314,8 @@ namespace Unity.DataFlowGraph.Tests
                 (OutputPortID)NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayOut, (InputPortID)NodeWithAllTypesOfPorts.SimulationPorts.MessageIn);
             ConnectingOutOfRange_InputArrayPortIndices_ThrowsException<NodeWithAllTypesOfPorts>(
                 (InputPortID)NodeWithAllTypesOfPorts.KernelPorts.InputArrayScalar, (OutputPortID)NodeWithAllTypesOfPorts.KernelPorts.OutputScalar);
+            ConnectingOutOfRange_OutputArrayPortIndices_ThrowsException<NodeWithAllTypesOfPorts>(
+                (OutputPortID)NodeWithAllTypesOfPorts.KernelPorts.OutputArrayScalar, (InputPortID)NodeWithAllTypesOfPorts.KernelPorts.InputScalar);
         }
 
         void DisconnectingOutOfRange_InputArrayPortIndices_ThrowsException<TNodeDefinition>(InputPortID inputs, OutputPortID output)
@@ -316,6 +381,8 @@ namespace Unity.DataFlowGraph.Tests
                 (OutputPortID)NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayOut, (InputPortID)NodeWithAllTypesOfPorts.SimulationPorts.MessageIn);
             DisconnectingOutOfRange_InputArrayPortIndices_ThrowsException<NodeWithAllTypesOfPorts>(
                 (InputPortID)NodeWithAllTypesOfPorts.KernelPorts.InputArrayScalar, (OutputPortID)NodeWithAllTypesOfPorts.KernelPorts.OutputScalar);
+            DisconnectingOutOfRange_OutputArrayPortIndices_ThrowsException<NodeWithAllTypesOfPorts>(
+                (OutputPortID)NodeWithAllTypesOfPorts.KernelPorts.OutputArrayScalar, (InputPortID)NodeWithAllTypesOfPorts.KernelPorts.InputScalar);
         }
 
         public void ReducingConnectedInputArrayPort_ThrowsException<TNodeDefinition>(InputPortID inputs, OutputPortID output)
@@ -377,6 +444,198 @@ namespace Unity.DataFlowGraph.Tests
                 (OutputPortID)NodeWithAllTypesOfPorts.SimulationPorts.MessageArrayOut, (InputPortID)NodeWithAllTypesOfPorts.SimulationPorts.MessageIn);
             ReducingConnectedInputArrayPort_ThrowsException<NodeWithAllTypesOfPorts>(
                 (InputPortID)NodeWithAllTypesOfPorts.KernelPorts.InputArrayScalar, (OutputPortID)NodeWithAllTypesOfPorts.KernelPorts.OutputScalar);
+            ReducingConnectedOutputArrayPort_ThrowsException<NodeWithAllTypesOfPorts>(
+                (OutputPortID)NodeWithAllTypesOfPorts.KernelPorts.OutputArrayScalar, (InputPortID)NodeWithAllTypesOfPorts.KernelPorts.InputScalar);
         }
+
+#pragma warning disable 649
+
+        unsafe struct BaseAPI
+        {
+            public const int ConstantForBranchOne = 13;
+            public const int ConstantForBranchTwo = 57;
+
+            [NativeDisableUnsafePtrRestriction]
+            public long* BranchOne;
+
+            [NativeDisableUnsafePtrRestriction]
+            public long* BranchTwo;
+
+            public void Connect<TLeft, TRight>(in TLeft lhs, in TRight rhs, NodeSetAPI.ConnectionType connectionType = NodeSetAPI.ConnectionType.Normal)
+                where TLeft : struct, IConcrete, IOutputEndpoint, IConnectableWith<TRight>
+                where TRight : struct, IConcrete, IInputEndpoint, IConnectableWith<TLeft>
+            {
+                if (!lhs.IsWeak)
+                {
+                    uint category = (uint)lhs.Category;
+
+                    if (lhs.Category == PortDescription.Category.Message && rhs.Category == PortDescription.Category.Data)
+                        category = PortDescription.MessageToDataConnectionCategory;
+
+                    if ((lhs.Category != PortDescription.Category.Data || rhs.Category != PortDescription.Category.Data) && connectionType != NodeSetAPI.ConnectionType.Normal)
+                        throw new InvalidOperationException($"Cannot create a feedback connection for non-Data Port");
+
+                    *BranchOne = ConstantForBranchOne;
+                }
+                else
+                {
+                    *BranchTwo = ConstantForBranchTwo;
+                }
+            }
+        }
+
+        [BurstCompile(CompileSynchronously = true)]
+        unsafe struct AJobWithSideEffects_CallingEndPointLikeAPI_WithStrongEndPoints_ImmediatelyConstructed : IJob
+        {
+            public BaseAPI API;
+
+            public void Execute()
+            {
+                API.Connect(new DataOutputEndpoint<float>(), new DataInputEndpoint<float>());
+            }
+
+        }
+
+        [BurstCompile(CompileSynchronously = true)]
+        unsafe struct AJobWithSideEffects_CallingEndPointLikeAPI_WithMessageToData_Strong_ImmediatelyConstructed : IJob
+        {
+            public BaseAPI API;
+
+            public void Execute()
+            {
+                API.Connect(new MessageOutputEndpoint<float>(), new DataInputEndpoint<float>());
+            }
+
+        }
+
+        [BurstCompile(CompileSynchronously = true)]
+        unsafe struct AJobWithSideEffects_CallingEndPointLikeAPI_WithMessageToData_Strong_ImmediatelyConstructed_WithInvalidFeedback : IJob
+        {
+            public BaseAPI API;
+
+            public void Execute()
+            {
+                API.Connect(new MessageOutputEndpoint<float>(), new DataInputEndpoint<float>(), NodeSetAPI.ConnectionType.Feedback);
+            }
+
+        }
+
+        [BurstCompile(CompileSynchronously = true)]
+        unsafe struct AJobWithSideEffects_CallingEndPointLikeAPI_WithStrongEndPoints_InvisiblyConstructed : IJob
+        {
+            public BaseAPI API;
+
+            public DataOutputEndpoint<float> Output;
+            public DataInputEndpoint<float> Input;
+
+            public void Execute()
+            {
+                API.Connect(Output, Input);
+            }
+        }
+
+
+        [BurstCompile(CompileSynchronously = true)]
+        unsafe struct AJobWithSideEffects_CallingEndPointLikeAPI_WithWeakEndPoints_ImmediatelyConstructed : IJob
+        {
+            public BaseAPI API;
+
+            public void Execute()
+            {
+                API.Connect(new OutputEndpoint(), new InputEndpoint());
+            }
+
+        }
+
+        [BurstCompile(CompileSynchronously = true)]
+        unsafe struct AJobWithSideEffects_CallingEndPointLikeAPI_WithWeakEndPoints_InvisiblyConstructed : IJob
+        {
+            public BaseAPI API;
+
+            public OutputEndpoint Output;
+            public InputEndpoint Input;
+
+            public void Execute()
+            {
+                API.Connect(Output, Input);
+            }
+        }
+
+#pragma warning restore 649
+
+
+
+        [Test]
+        public unsafe void CallingEndPointLikeAPI_ThroughBurst_Works()
+        {
+            // This, until we have the Burst API for verifying constant compile-time expressions,
+            // really just exist to have an easy way to inspect and play around with codegen.
+
+            long a = default, b = default;
+
+            BaseAPI api;
+            api.BranchOne = &a;
+            api.BranchTwo = &b;
+
+            new AJobWithSideEffects_CallingEndPointLikeAPI_WithStrongEndPoints_ImmediatelyConstructed
+            {
+                API = api
+            }.Run();
+
+            Assert.AreEqual(BaseAPI.ConstantForBranchOne, a);
+            Assert.Zero(b);
+
+            a = b = default;
+
+            new AJobWithSideEffects_CallingEndPointLikeAPI_WithMessageToData_Strong_ImmediatelyConstructed
+            {
+                API = api
+            }.Run();
+
+            Assert.AreEqual(BaseAPI.ConstantForBranchOne, a);
+            Assert.Zero(b);
+
+            a = b = default;
+
+            /* Throws exception, difficult to test
+            new AJobWithSideEffects_CallingEndPointLikeAPI_WithMessageToData_Strong_ImmediatelyConstructed_WithInvalidFeedback
+            {
+                API = api
+            }.Run();
+
+            Assert.Zero(a);
+            Assert.Zero(b);
+            */
+
+            new AJobWithSideEffects_CallingEndPointLikeAPI_WithStrongEndPoints_InvisiblyConstructed
+            {
+                API = api
+            }.Run();
+
+            Assert.AreEqual(BaseAPI.ConstantForBranchOne, a);
+            Assert.Zero(b);
+
+            a = b = default;
+
+            new AJobWithSideEffects_CallingEndPointLikeAPI_WithWeakEndPoints_ImmediatelyConstructed
+            {
+                API = api
+            }.Run();
+
+            Assert.Zero(a);
+            Assert.AreEqual(BaseAPI.ConstantForBranchTwo, b);
+
+            a = b = default;
+
+            new AJobWithSideEffects_CallingEndPointLikeAPI_WithWeakEndPoints_InvisiblyConstructed
+            {
+                API = api
+            }.Run();
+
+            Assert.Zero(a);
+            Assert.AreEqual(BaseAPI.ConstantForBranchTwo, b);
+        }
+
+
     }
 }

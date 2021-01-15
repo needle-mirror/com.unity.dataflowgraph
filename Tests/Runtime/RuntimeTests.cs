@@ -31,35 +31,34 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        [UnityTest]
-        public IEnumerator NodeDefinition_DeclaredManaged_CanRetainAndRelease_ManagedObjects()
+        [Test]
+        public void NodeDefinition_DeclaredManaged_CanRetainAndRelease_ManagedObjects()
         {
-            const float k_Time = 5;
+            const float k_Loops = 5;
+
+            Assert.Zero(MObject.Instances);
 
             using (var set = new NodeSet())
             {
-                Assert.Zero(MObject.Instances);
-
-                var handle = set.Create<NodeWithManagedData>();
-
-                Assert.AreEqual(1, MObject.Instances);
-
-                var currentTime = Time.realtimeSinceStartup;
-
-                while (Time.realtimeSinceStartup - currentTime < k_Time)
+                ManagedMemoryAllocatorTests.AssertManagedObjectsReleased(() =>
                 {
-                    GC.Collect();
+                    var handle = set.Create<NodeWithManagedData>();
+
                     Assert.AreEqual(1, MObject.Instances);
+
+                    for (var i = 0; i < k_Loops; ++i)
+                    {
+                        ManagedMemoryAllocatorTests.RequestGarbageCollection();
+                        Assert.AreEqual(1, MObject.Instances);
+                        set.Update();
+                    }
+
+                    Assert.AreEqual(1, MObject.Instances);
+
+                    set.Destroy(handle);
+
                     set.Update();
-                    yield return null;
-                }
-
-                Assert.AreEqual(1, MObject.Instances);
-
-                set.Destroy(handle);
-
-                set.Update();
-                yield return ManagedMemoryAllocatorTests.AssertManagedObjectsReleasedInTime();
+                });
             }
         }
     }

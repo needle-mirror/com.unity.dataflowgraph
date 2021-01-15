@@ -40,7 +40,7 @@ namespace Unity.DataFlowGraph.Tour
 
             struct NodeHandler : INodeData, IMsgHandler<float>
             {
-                public void HandleMessage(in MessageContext ctx, in float msg)
+                public void HandleMessage(MessageContext ctx, in float msg)
                 {
                     Debug.Log($"Child: Got a message {msg}");
                     ctx.EmitMessage(SimulationPorts.Output, msg * 2);
@@ -68,7 +68,7 @@ namespace Unity.DataFlowGraph.Tour
                  */
                 public NodeHandle<ChildNode> Child;
 
-                public void HandleMessage(in MessageContext ctx, in float msg)
+                public void HandleMessage(MessageContext ctx, in float msg)
                 {
                     Debug.Log($"Parent: Got a message {msg}");
                 }

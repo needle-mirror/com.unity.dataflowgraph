@@ -36,82 +36,84 @@ namespace Unity.DataFlowGraph.Tests
             public Buffer<BufferElement> SubBuffer2;
         }
 
-
         public unsafe class BufferNode : KernelNodeDefinition<BufferNode.KernelDefs>
         {
             public struct KernelDefs : IKernelPortDefinition
             {
                 public DataInput<BufferNode, Buffer<BufferElement>> Input;
                 public PortArray<DataInput<BufferNode, Aggregate>> InputArray;
+
                 public DataOutput<BufferNode, Aggregate> InputSumAsAggr;
                 public DataOutput<BufferNode, Buffer<BufferElement>> InputSumAsScalar;
                 public DataOutput<BufferNode, Buffer<BufferElement>> PortArraySum;
+                public PortArray<DataOutput<BufferNode, Aggregate>> PortArrayElementSumsAsAggr;
+                public PortArray<DataOutput<BufferNode, Buffer<BufferElement>>> PortArrayElementSumsAsScalar;
 
                 public long CheckIOAliasing(RenderContext c)
                 {
-                    if (InputSumAsAggr.m_Value.SubBuffer1.Ptr == PortArraySum.m_Value.Ptr)
+                    var resolvedInputSumAsAggr = c.Resolve(ref InputSumAsAggr);
+                    var resolvedInputSumAsScalar = c.Resolve(ref InputSumAsScalar);
+                    var resolvedPortArraySum = c.Resolve(ref PortArraySum);
+
+                    var outputPointers = new NativeList<IntPtr>(Allocator.Temp);
+                    outputPointers.Add(new IntPtr(InputSumAsAggr.m_Value.SubBuffer1.Ptr));
+                    outputPointers.Add(new IntPtr(InputSumAsAggr.m_Value.SubBuffer2.Ptr));
+                    outputPointers.Add(new IntPtr(InputSumAsScalar.m_Value.Ptr));
+                    outputPointers.Add(new IntPtr(PortArraySum.m_Value.Ptr));
+
+                    if (InputSumAsAggr.m_Value.SubBuffer1.Ptr != resolvedInputSumAsAggr.SubBuffer1.ToNative(c).GetUnsafePtr())
                         return 1;
-
-                    if (InputSumAsAggr.m_Value.SubBuffer2.Ptr == PortArraySum.m_Value.Ptr)
+                    if (InputSumAsAggr.m_Value.SubBuffer2.Ptr != resolvedInputSumAsAggr.SubBuffer2.ToNative(c).GetUnsafePtr())
                         return 2;
-
-                    if (InputSumAsAggr.m_Value.SubBuffer2.Ptr == InputSumAsAggr.m_Value.SubBuffer1.Ptr)
+                    if (InputSumAsScalar.m_Value.Ptr != resolvedInputSumAsScalar.GetUnsafePtr())
                         return 3;
-
-
-                    if (InputSumAsScalar.m_Value.Ptr == InputSumAsAggr.m_Value.SubBuffer1.Ptr)
+                    if (PortArraySum.m_Value.Ptr != resolvedPortArraySum.GetUnsafePtr())
                         return 4;
 
-                    if (InputSumAsScalar.m_Value.Ptr == InputSumAsAggr.m_Value.SubBuffer2.Ptr)
-                        return 5;
-
-                    if (InputSumAsScalar.m_Value.Ptr == PortArraySum.m_Value.Ptr)
-                        return 6;
-
-                    return
-                        CheckOutputNoAlias(c.Resolve(ref InputSumAsAggr).SubBuffer1.ToNative(c), c) * 8 +
-                        CheckOutputNoAlias(c.Resolve(ref InputSumAsAggr).SubBuffer2.ToNative(c), c) * 32 +
-                        CheckOutputNoAlias(c.Resolve(ref PortArraySum), c) * 128 +
-                        CheckOutputNoAlias(c.Resolve(ref InputSumAsScalar), c) * 512;
-                }
-
-                long CheckOutputNoAlias(NativeArray<BufferElement> output, RenderContext c)
-                {
-                    if (DoesOutputAliasInput(output, Input, c))
-                        return 1;
-
-                    var ports = c.Resolve(InputArray);
-
-                    for(int i = 0; i < ports.Length; ++i)
+                    var resolvedPortArrayElementSumsAsScalar = c.Resolve(ref PortArrayElementSumsAsScalar);
+                    for (int i = 0; i < resolvedPortArrayElementSumsAsScalar.Length; ++i)
                     {
-                        if (DoesOutputAliasInput(output, ports[i], c))
-                            return 1 + i;
+                        outputPointers.Add(new IntPtr(resolvedPortArrayElementSumsAsScalar[i].ToNative(c).GetUnsafePtr()));
                     }
 
+                    var resolvedPortArrayElementSumAsAggr = c.Resolve(ref PortArrayElementSumsAsAggr);
+                    for (int i = 0; i < resolvedPortArrayElementSumAsAggr.Length; ++i)
+                    {
+                        outputPointers.Add(new IntPtr(resolvedPortArrayElementSumAsAggr[i].SubBuffer1.ToNative(c).GetUnsafePtr()));
+                        outputPointers.Add(new IntPtr(resolvedPortArrayElementSumAsAggr[i].SubBuffer2.ToNative(c).GetUnsafePtr()));
+                    }
+
+                    // No non-null output pointers should alias one another.
+                    for (int i = 0; i < outputPointers.Length; ++i)
+                        for (int j = i + 1; j < outputPointers.Length && outputPointers[i] != new IntPtr(null); ++j)
+                            if (outputPointers[i] == outputPointers[j])
+                                return 1000000 + i * 1000 + j;
+
+                    var resolvedInput = c.Resolve(Input);
+                    var resolvedInputArray = c.Resolve(InputArray);
+
+                    var inputPointers = new NativeList<IntPtr>(Allocator.Temp);
+                    inputPointers.Add(new IntPtr(Input.Ptr));
+                    inputPointers.Add(new IntPtr(InputArray.Ptr));
+                    inputPointers.Add(new IntPtr(resolvedInput.GetUnsafeReadOnlyPtr()));
+                    for (int i = 0; i < resolvedInputArray.Length; ++i)
+                    {
+                        var port = resolvedInputArray[i];
+                        inputPointers.Add(new IntPtr(port.SubBuffer1.Ptr));
+                        inputPointers.Add(new IntPtr(port.SubBuffer2.Ptr));
+                        if (port.SubBuffer1.Ptr != port.SubBuffer1.ToNative(c).GetUnsafeReadOnlyPtr())
+                            return 2000000 + i * 1000 + 1;
+                        if (port.SubBuffer2.Ptr != port.SubBuffer2.ToNative(c).GetUnsafeReadOnlyPtr())
+                            return 2000000 + i * 1000 + 2;
+                    }
+
+                    // No inputs should alias non-null outputs.
+                    for (int i = 0; i < outputPointers.Length; ++i)
+                        for (int j = 0; j < inputPointers.Length && outputPointers[i] != new IntPtr(null); ++j)
+                            if (outputPointers[i] == inputPointers[j])
+                                return 3000000 + i * 1000 + j;
+
                     return 0;
-                }
-
-                bool DoesOutputAliasInput(NativeArray<BufferElement> output, DataInput<BufferNode, Buffer<BufferElement>> input, RenderContext c)
-                {
-                    if (output.GetUnsafePtr() == input.Ptr)
-                        return true;
-
-                    return DoesOutputAliasInput(output, c.Resolve(input));
-                }
-
-                bool DoesOutputAliasInput(NativeArray<BufferElement> output, NativeArray<BufferElement> inputResolved)
-                {
-                    if (output.GetUnsafePtr() == inputResolved.GetUnsafeReadOnlyPtr())
-                        return true;
-
-                    // TODO: add range overlap
-
-                    return false;
-                }
-
-                bool DoesOutputAliasInput(NativeArray<BufferElement> output, Aggregate input, RenderContext c)
-                {
-                    return DoesOutputAliasInput(output, input.SubBuffer1.ToNative(c)) || DoesOutputAliasInput(output, input.SubBuffer2.ToNative(c));
                 }
             }
 
@@ -123,7 +125,7 @@ namespace Unity.DataFlowGraph.Tests
             [BurstCompile(CompileSynchronously = true)]
             struct Kernel : IGraphKernel<Data, KernelDefs>
             {
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, in Data data, ref KernelDefs ports)
                 {
                     *data.AliasResult = ports.CheckIOAliasing(ctx);
 
@@ -153,15 +155,57 @@ namespace Unity.DataFlowGraph.Tests
 
                     var portArray = ctx.Resolve(ports.InputArray);
 
+                    var elemBuffer = ctx.Resolve(ref ports.PortArrayElementSumsAsScalar);
+                    for (int p = 0; p < elemBuffer.Length; ++p)
+                    {
+                        buffer = elemBuffer[p].ToNative(ctx);
+                        for (int i = 0; i < buffer.Length; ++i)
+                            buffer[i] = 0;
+                    }
+
+                    var elemAggr = ctx.Resolve(ref ports.PortArrayElementSumsAsAggr);
+                    for (int p = 0; p < elemAggr.Length; ++p)
+                    {
+                        aggr = elemAggr[p];
+                        buffer = aggr.SubBuffer1.ToNative(ctx);
+                        for (int i = 0; i < buffer.Length; ++i)
+                            buffer[i] = 0;
+                        buffer = aggr.SubBuffer2.ToNative(ctx);
+                        for (int i = 0; i < buffer.Length; ++i)
+                            buffer[i] = 0;
+                    }
+
                     for(int p = 0; p < portArray.Length; ++p)
                     {
+                        long elemSum = 0;
+
                         buffer = portArray[p].SubBuffer1.ToNative(ctx);
                         for (int i = 0; i < buffer.Length; ++i)
-                            sum += buffer[i];
+                            elemSum += buffer[i];
 
                         buffer = portArray[p].SubBuffer2.ToNative(ctx);
                         for (int i = 0; i < buffer.Length; ++i)
-                            sum += buffer[i];
+                            elemSum += buffer[i];
+
+                        sum += elemSum;
+
+                        if (p < elemBuffer.Length)
+                        {
+                            buffer = elemBuffer[p].ToNative(ctx);
+                            for (int i = 0; i < buffer.Length; ++i)
+                                buffer[i] += elemSum;
+                        }
+
+                        if (p < elemAggr.Length)
+                        {
+                            aggr = elemAggr[p];
+                            buffer = aggr.SubBuffer1.ToNative(ctx);
+                            for (int i = 0; i < buffer.Length; ++i)
+                                buffer[i] += elemSum;
+                            buffer = aggr.SubBuffer2.ToNative(ctx);
+                            for (int i = 0; i < buffer.Length; ++i)
+                                buffer[i] += elemSum * 2;
+                        }
                     }
 
                     buffer = ctx.Resolve(ref ports.PortArraySum);
@@ -189,7 +233,7 @@ namespace Unity.DataFlowGraph.Tests
             [BurstCompile(CompileSynchronously = true)]
             struct Kernel : IGraphKernel<Data, KernelDefs>
             {
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, in Data data, ref KernelDefs ports)
                 {
                     long sum = 0;
 
@@ -238,7 +282,7 @@ namespace Unity.DataFlowGraph.Tests
             [BurstCompile(CompileSynchronously = true)]
             struct Kernel : IGraphKernel<KernelData, KernelDefs>
             {
-                public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, in KernelData data, ref KernelDefs ports)
                 {
                     var aggr = ctx.Resolve(ref ports.AggregateOutput);
 
@@ -259,13 +303,13 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        unsafe class AliasResults : IDisposable
+        internal unsafe class PointerPool : IDisposable
         {
             BlitList<IntPtr> Pointers = new BlitList<IntPtr>(0);
 
             public long* CreateLong()
             {
-                var res = UnsafeUtility.Malloc(sizeof(long), 8, Allocator.Persistent);
+                var res = Utility.CAlloc<long>(Allocator.Persistent);
 
                 Pointers.Add((IntPtr)res);
 
@@ -293,7 +337,7 @@ namespace Unity.DataFlowGraph.Tests
                 }
             }
 
-            ~AliasResults() {
+            ~PointerPool() {
               Dispose(false);
             }
 
@@ -325,18 +369,21 @@ namespace Unity.DataFlowGraph.Tests
             public const int BufferSize = 3;
 
             public NodeSet Set;
-            AliasResults m_AliasResults = new AliasResults();
+            PointerPool m_AliasResults = new PointerPool();
 
-            public Fixture(NodeSet.RenderExecutionModel model)
+            public Fixture(NodeSet.RenderExecutionModel model, NodeSet.RenderOptimizations opt = default)
             {
                 Set = new NodeSet();
                 Set.RendererModel = model;
+                Set.RendererOptimizations = opt;
             }
-            public Fixture(UpdateSystem s, NodeSet.RenderExecutionModel model)
+
+            public Fixture(UpdateSystem s, NodeSet.RenderExecutionModel model, NodeSet.RenderOptimizations opt = default)
             {
                 Set = new NodeSet(s);
                 s.Set = Set;
                 Set.RendererModel = model;
+                Set.RendererOptimizations = opt;
             }
 
             public void Dispose()
@@ -358,6 +405,15 @@ namespace Unity.DataFlowGraph.Tests
                 Set.SetBufferSize(node, BufferNode.KernelPorts.InputSumAsScalar, Buffer<BufferElement>.SizeRequest(BufferSize));
 
                 Set.SetPortArraySize(node, BufferNode.KernelPorts.InputArray, BufferSize);
+
+                Set.SetPortArraySize(node, BufferNode.KernelPorts.PortArrayElementSumsAsScalar, BufferSize);
+                Set.SetPortArraySize(node, BufferNode.KernelPorts.PortArrayElementSumsAsAggr, BufferSize);
+
+                for (int i = 0; i < BufferSize; ++i)
+                {
+                    Set.SetBufferSize(node, BufferNode.KernelPorts.PortArrayElementSumsAsAggr, i, ag);
+                    Set.SetBufferSize(node, BufferNode.KernelPorts.PortArrayElementSumsAsScalar, i, Buffer<BufferElement>.SizeRequest(BufferSize));
+                }
 
                 Set.GetKernelData<BufferNode.Data>(node).AliasResult = m_AliasResults.CreateLong();
 
@@ -400,7 +456,8 @@ namespace Unity.DataFlowGraph.Tests
             public long GetAliasResult(NodeHandle<BufferNode> n)
             {
                 Set.DataGraph.SyncAnyRendering();
-                return *Set.GetKernelData<BufferNode.Data>(n).AliasResult;
+                var kernelData = Set.GetKernelData<BufferNode.Data>(n);
+                return *kernelData.AliasResult;
             }
 
         }
@@ -421,7 +478,9 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void SingleChainOfNodes_ComputesCorrectly_AndExhibits_NoAliasing([Values] NodeSet.RenderExecutionModel model)
+        public void SingleChainOfNodes_ComputesCorrectly_AndExhibits_NoAliasing(
+            [Values] NodeSet.RenderExecutionModel model,
+            [Values] NodeSet.RenderOptimizations optimizations)
         {
             /*
              * o -> o -> o -> o -> o -> o -> o (...)
@@ -431,7 +490,7 @@ namespace Unity.DataFlowGraph.Tests
             const int k_ScalarFill = 13;
             const int k_AggrFill = 7;
 
-            using (var fix = new Fixture(model))
+            using (var fix = new Fixture(model, optimizations))
             {
                 var start = fix.CreateStart(k_ScalarFill, k_AggrFill);
 
@@ -439,7 +498,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 var first = fix.CreateNode();
 
-                fix.Set.Connect(start, StartPoint.KernelPorts.AggregateOutput, first, BufferNode.KernelPorts.InputArray, 0);
+                fix.Set.Connect(start, StartPoint.KernelPorts.AggregateOutput, first, BufferNode.KernelPorts.InputArray, 1);
                 fix.Set.Connect(start, StartPoint.KernelPorts.ScalarOutput, first, BufferNode.KernelPorts.Input);
 
                 nodes.Add(first);
@@ -450,7 +509,8 @@ namespace Unity.DataFlowGraph.Tests
                 {
                     var current = fix.CreateNode();
 
-                    fix.Set.Connect(nodes[i - 1], BufferNode.KernelPorts.InputSumAsAggr, current, BufferNode.KernelPorts.InputArray, 0);
+                    fix.Set.Connect(nodes[i - 1], BufferNode.KernelPorts.InputSumAsAggr, current, BufferNode.KernelPorts.InputArray, 1);
+                    fix.Set.Connect(nodes[i - 1], BufferNode.KernelPorts.PortArrayElementSumsAsAggr, 1, current, BufferNode.KernelPorts.InputArray, 2);
                     fix.Set.Connect(nodes[i - 1], BufferNode.KernelPorts.PortArraySum, current, BufferNode.KernelPorts.Input);
 
                     nodes.Add(current);
@@ -458,6 +518,8 @@ namespace Unity.DataFlowGraph.Tests
 
                 var gvAggrSum = fix.Set.CreateGraphValue(nodes.Last(), BufferNode.KernelPorts.InputSumAsAggr);
                 var gvPortSum = fix.Set.CreateGraphValue(nodes.Last(), BufferNode.KernelPorts.PortArraySum);
+                var gvPortElemSum = fix.Set.CreateGraphValueArray(nodes.Last(), BufferNode.KernelPorts.PortArrayElementSumsAsScalar);
+                var gvPortElemAggrSum = fix.Set.CreateGraphValueArray(nodes.Last(), BufferNode.KernelPorts.PortArrayElementSumsAsAggr);
 
                 for(int n = 0; n < k_Updates; ++n)
                 {
@@ -471,21 +533,19 @@ namespace Unity.DataFlowGraph.Tests
                     var sub1 = c.Resolve(gvAggrSum).SubBuffer1.ToNative(c).Reinterpret<long>().ToArray();
                     var sub2 = c.Resolve(gvAggrSum).SubBuffer2.ToNative(c).Reinterpret<long>().ToArray();
                     var portSum = c.Resolve(gvPortSum).Reinterpret<long>().ToArray();
+                    var portElemSub1 = c.Resolve(gvPortElemAggrSum)[1].SubBuffer1.ToNative(c).Reinterpret<long>().ToArray();
+                    var portElemSub2 = c.Resolve(gvPortElemAggrSum)[1].SubBuffer2.ToNative(c).Reinterpret<long>().ToArray();
+                    var portElemSum = c.Resolve(gvPortElemSum)[1].ToNative(c).Reinterpret<long>().ToArray();
 
-                    CollectionAssert.AreEqual(
-                        Enumerable.Repeat(6908733, Fixture.BufferSize),
-                        sub1
-                    );
-
-                    CollectionAssert.AreEqual(
-                        Enumerable.Repeat(6908733 * 2, Fixture.BufferSize),
-                        sub2
-                    );
-
-                    CollectionAssert.AreEqual(
-                        Enumerable.Repeat(3720087, Fixture.BufferSize),
-                        portSum
-                    );
+                    for (int j = 0; j < Fixture.BufferSize; ++j)
+                    {
+                        Assert.AreEqual(80247591, sub1[j]);
+                        Assert.AreEqual(80247591 * 2, sub2[j]);
+                        Assert.AreEqual(182284263, portSum[j]);
+                        Assert.AreEqual(77058945, portElemSub1[j]);
+                        Assert.AreEqual(77058945 * 2, portElemSub2[j]);
+                        Assert.AreEqual(77058945, portElemSum[j]);
+                    }
 
                     for (int i = 1; i < k_ChainLength; ++i)
                     {
@@ -493,9 +553,8 @@ namespace Unity.DataFlowGraph.Tests
                     }
 
                     // (trigger topology change)
-                    fix.Set.Connect(start, StartPoint.KernelPorts.AggregateOutput, first, BufferNode.KernelPorts.InputArray, 2);
-                    fix.Set.Disconnect(start, StartPoint.KernelPorts.AggregateOutput, first, BufferNode.KernelPorts.InputArray, 2);
-
+                    fix.Set.Disconnect(start, StartPoint.KernelPorts.ScalarOutput, first, BufferNode.KernelPorts.Input);
+                    fix.Set.Connect(start, StartPoint.KernelPorts.ScalarOutput, first, BufferNode.KernelPorts.Input);
                 }
 
                 fix.Set.Destroy(start);
@@ -503,11 +562,15 @@ namespace Unity.DataFlowGraph.Tests
                 nodes.ForEach(n => fix.Set.Destroy(n));
                 fix.Set.ReleaseGraphValue(gvAggrSum);
                 fix.Set.ReleaseGraphValue(gvPortSum);
+                fix.Set.ReleaseGraphValueArray(gvPortElemSum);
+                fix.Set.ReleaseGraphValueArray(gvPortElemAggrSum);
             }
         }
 
         [Test]
-        public void SimpleDag_ComputesCorrectly_AndExhibits_NoAliasing([Values] NodeSet.RenderExecutionModel model)
+        public void SimpleDag_ComputesCorrectly_AndExhibits_NoAliasing(
+            [Values] NodeSet.RenderExecutionModel model,
+            [Values] NodeSet.RenderOptimizations optimizations)
         {
             /*
              * o -> o -> o -> o
@@ -519,7 +582,7 @@ namespace Unity.DataFlowGraph.Tests
             const int k_ChainLength = 3;
             const int k_Updates = 5;
 
-            using (var fix = new Fixture(model))
+            using (var fix = new Fixture(model, optimizations))
             {
                 var start = fix.CreateStart(k_ScalarFill, k_AggrFill);
 
@@ -528,7 +591,7 @@ namespace Unity.DataFlowGraph.Tests
                 var first = fix.CreateNode();
                 NodeHandle<BufferNode> last = default;
 
-                fix.Set.Connect(start, StartPoint.KernelPorts.AggregateOutput, first, BufferNode.KernelPorts.InputArray, 0);
+                fix.Set.Connect(start, StartPoint.KernelPorts.AggregateOutput, first, BufferNode.KernelPorts.InputArray, 1);
                 fix.Set.Connect(start, StartPoint.KernelPorts.ScalarOutput, first, BufferNode.KernelPorts.Input);
 
                 nodes.Add(first);
@@ -539,7 +602,8 @@ namespace Unity.DataFlowGraph.Tests
                 {
                     last = fix.CreateNode();
 
-                    fix.Set.Connect(nodes[i - 1], BufferNode.KernelPorts.InputSumAsAggr, last, BufferNode.KernelPorts.InputArray, 0);
+                    fix.Set.Connect(nodes[i - 1], BufferNode.KernelPorts.InputSumAsAggr, last, BufferNode.KernelPorts.InputArray, 1);
+                    fix.Set.Connect(nodes[i - 1], BufferNode.KernelPorts.PortArrayElementSumsAsAggr, 1, last, BufferNode.KernelPorts.InputArray, 2);
                     fix.Set.Connect(nodes[i - 1], BufferNode.KernelPorts.PortArraySum, last, BufferNode.KernelPorts.Input);
 
                     nodes.Add(last);
@@ -548,7 +612,8 @@ namespace Unity.DataFlowGraph.Tests
                 // insert fork and join
                 var fork = fix.CreateNode();
 
-                fix.Set.Connect(nodes[nodes.Count - k_ChainLength], BufferNode.KernelPorts.InputSumAsAggr, fork, BufferNode.KernelPorts.InputArray, 0);
+                fix.Set.Connect(nodes[nodes.Count - k_ChainLength], BufferNode.KernelPorts.InputSumAsAggr, fork, BufferNode.KernelPorts.InputArray, 1);
+                fix.Set.Connect(nodes[nodes.Count - k_ChainLength], BufferNode.KernelPorts.PortArrayElementSumsAsAggr, 1, fork, BufferNode.KernelPorts.InputArray, 2);
                 fix.Set.Connect(nodes[nodes.Count - k_ChainLength], BufferNode.KernelPorts.PortArraySum, fork, BufferNode.KernelPorts.Input);
 
                 nodes.Add(fork);
@@ -556,16 +621,18 @@ namespace Unity.DataFlowGraph.Tests
                 var join = fix.CreateNode();
 
                 // Anomaly: only use one output buffer, use two input port array contrary to rest
-                fix.Set.Connect(fork, BufferNode.KernelPorts.InputSumAsAggr, join, BufferNode.KernelPorts.InputArray, 0);
                 fix.Set.Connect(fork, BufferNode.KernelPorts.InputSumAsAggr, join, BufferNode.KernelPorts.InputArray, 1);
+                fix.Set.Connect(fork, BufferNode.KernelPorts.PortArrayElementSumsAsAggr, 1, join, BufferNode.KernelPorts.InputArray, 2);
+                fix.Set.Connect(fork, BufferNode.KernelPorts.PortArrayElementSumsAsScalar, 2, join, BufferNode.KernelPorts.Input);
 
-                fix.Set.Connect(join, BufferNode.KernelPorts.InputSumAsAggr, last, BufferNode.KernelPorts.InputArray, 1);
-                fix.Set.Connect(join, BufferNode.KernelPorts.InputSumAsAggr, last, BufferNode.KernelPorts.InputArray, 2);
+                fix.Set.Connect(join, BufferNode.KernelPorts.PortArrayElementSumsAsAggr, 1, last, BufferNode.KernelPorts.InputArray, 0);
 
                 nodes.Add(join);
 
                 var gvAggrSum = fix.Set.CreateGraphValue(last, BufferNode.KernelPorts.InputSumAsAggr);
                 var gvPortSum = fix.Set.CreateGraphValue(last, BufferNode.KernelPorts.PortArraySum);
+                var gvPortElemSum = fix.Set.CreateGraphValueArray(last, BufferNode.KernelPorts.PortArrayElementSumsAsScalar);
+                var gvPortElemAggrSum = fix.Set.CreateGraphValueArray(last, BufferNode.KernelPorts.PortArrayElementSumsAsAggr);
 
                 for(int n = 0; n < k_Updates; ++n)
                 {
@@ -578,25 +645,19 @@ namespace Unity.DataFlowGraph.Tests
                     var sub1 = c.Resolve(gvAggrSum).SubBuffer1.ToNative(c).Reinterpret<long>().ToArray();
                     var sub2 = c.Resolve(gvAggrSum).SubBuffer2.ToNative(c).Reinterpret<long>().ToArray();
                     var portSum = c.Resolve(gvPortSum).Reinterpret<long>().ToArray();
+                    var portElemSub1 = c.Resolve(gvPortElemAggrSum)[1].SubBuffer1.ToNative(c).Reinterpret<long>().ToArray();
+                    var portElemSub2 = c.Resolve(gvPortElemAggrSum)[1].SubBuffer2.ToNative(c).Reinterpret<long>().ToArray();
+                    var portElemSum = c.Resolve(gvPortElemSum)[1].ToNative(c).Reinterpret<long>().ToArray();
 
-                    /*Debug.Log(string.Join(",", sub1));
-                    Debug.Log(string.Join(",", sub2));
-                    Debug.Log(string.Join(",", portSum)); */
-
-                    CollectionAssert.AreEqual(
-                        Enumerable.Repeat(567, Fixture.BufferSize),
-                        sub1
-                    );
-
-                    CollectionAssert.AreEqual(
-                        Enumerable.Repeat(567 * 2, Fixture.BufferSize),
-                        sub2
-                    );
-
-                    CollectionAssert.AreEqual(
-                        Enumerable.Repeat(3159, Fixture.BufferSize),
-                        portSum
-                    );
+                    for (int j = 0; j < Fixture.BufferSize; ++j)
+                    {
+                        Assert.AreEqual(3726, sub1[j]);
+                        Assert.AreEqual(3726 * 2, sub2[j]);
+                        Assert.AreEqual(33291, portSum[j]);
+                        Assert.AreEqual(3159, portElemSub1[j]);
+                        Assert.AreEqual(3159 * 2, portElemSub2[j]);
+                        Assert.AreEqual(3159, portElemSum[j]);
+                    }
 
                     for (int i = 1; i < k_ChainLength; ++i)
                     {
@@ -604,21 +665,24 @@ namespace Unity.DataFlowGraph.Tests
                     }
 
                     // (trigger topology change)
-                    fix.Set.Connect(start, StartPoint.KernelPorts.AggregateOutput, first, BufferNode.KernelPorts.InputArray, 2);
-                    fix.Set.Disconnect(start, StartPoint.KernelPorts.AggregateOutput, first, BufferNode.KernelPorts.InputArray, 2);
+                    fix.Set.Disconnect(start, StartPoint.KernelPorts.ScalarOutput, first, BufferNode.KernelPorts.Input);
+                    fix.Set.Connect(start, StartPoint.KernelPorts.ScalarOutput, first, BufferNode.KernelPorts.Input);
                 }
-
 
                 fix.Set.Destroy(start);
 
                 nodes.ForEach(n => fix.Set.Destroy(n));
                 fix.Set.ReleaseGraphValue(gvAggrSum);
                 fix.Set.ReleaseGraphValue(gvPortSum);
+                fix.Set.ReleaseGraphValueArray(gvPortElemSum);
+                fix.Set.ReleaseGraphValueArray(gvPortElemAggrSum);
             }
         }
 
         [Test]
-        public void StableFeedback_CyclicGraph_ComputesCorrectly_AndExhibits_NoAliasing([Values] NodeSet.RenderExecutionModel model)
+        public void StableFeedback_CyclicGraph_ComputesCorrectly_AndExhibits_NoAliasing(
+            [Values] NodeSet.RenderExecutionModel model,
+            [Values] NodeSet.RenderOptimizations optimizations)
         {
             /*         <----
              *       /       \
@@ -631,7 +695,7 @@ namespace Unity.DataFlowGraph.Tests
             const int k_ChainLength = 4;
             const int k_Updates = 5;
 
-            using (var fix = new Fixture(model))
+            using (var fix = new Fixture(model, optimizations))
             {
                 var start = fix.CreateStart(k_ScalarFill, k_AggrFill);
 
@@ -640,7 +704,7 @@ namespace Unity.DataFlowGraph.Tests
                 var first = fix.CreateNode();
                 NodeHandle<BufferNode> last = default;
 
-                fix.Set.Connect(start, StartPoint.KernelPorts.AggregateOutput, first, BufferNode.KernelPorts.InputArray, 0);
+                fix.Set.Connect(start, StartPoint.KernelPorts.AggregateOutput, first, BufferNode.KernelPorts.InputArray, 1);
                 fix.Set.Connect(start, StartPoint.KernelPorts.ScalarOutput, first, BufferNode.KernelPorts.Input);
 
                 nodes.Add(first);
@@ -651,7 +715,8 @@ namespace Unity.DataFlowGraph.Tests
                 {
                     last = fix.CreateNode();
 
-                    fix.Set.Connect(nodes[i - 1], BufferNode.KernelPorts.InputSumAsAggr, last, BufferNode.KernelPorts.InputArray, 0);
+                    fix.Set.Connect(nodes[i - 1], BufferNode.KernelPorts.InputSumAsAggr, last, BufferNode.KernelPorts.InputArray, 1);
+                    fix.Set.Connect(nodes[i - 1], BufferNode.KernelPorts.PortArrayElementSumsAsAggr, 1, last, BufferNode.KernelPorts.InputArray, 2);
                     fix.Set.Connect(nodes[i - 1], BufferNode.KernelPorts.PortArraySum, last, BufferNode.KernelPorts.Input);
 
                     nodes.Add(last);
@@ -660,31 +725,32 @@ namespace Unity.DataFlowGraph.Tests
                 // insert fork and join
                 var fork = fix.CreateNode();
 
-                fix.Set.Connect(nodes[nodes.Count - k_ChainLength], BufferNode.KernelPorts.InputSumAsAggr, fork, BufferNode.KernelPorts.InputArray, 0);
+                fix.Set.Connect(nodes[nodes.Count - k_ChainLength], BufferNode.KernelPorts.InputSumAsAggr, fork, BufferNode.KernelPorts.InputArray, 1);
+                fix.Set.Connect(nodes[nodes.Count - k_ChainLength], BufferNode.KernelPorts.PortArrayElementSumsAsAggr, 1, fork, BufferNode.KernelPorts.InputArray, 2);
                 fix.Set.Connect(nodes[nodes.Count - k_ChainLength], BufferNode.KernelPorts.PortArraySum, fork, BufferNode.KernelPorts.Input);
 
                 var join = fix.CreateNode();
 
                 // Anomaly: only use one output buffer, use two input port array contrary to rest
-                fix.Set.Connect(fork, BufferNode.KernelPorts.InputSumAsAggr, join, BufferNode.KernelPorts.InputArray, 0);
                 fix.Set.Connect(fork, BufferNode.KernelPorts.InputSumAsAggr, join, BufferNode.KernelPorts.InputArray, 1);
+                fix.Set.Connect(fork, BufferNode.KernelPorts.PortArrayElementSumsAsAggr, 1, join, BufferNode.KernelPorts.InputArray, 2);
+                fix.Set.Connect(fork, BufferNode.KernelPorts.PortArrayElementSumsAsScalar, 2, join, BufferNode.KernelPorts.Input);
 
-                fix.Set.Connect(join, BufferNode.KernelPorts.InputSumAsAggr, nodes[nodes.Count - 1], BufferNode.KernelPorts.InputArray, 1);
-                fix.Set.Connect(join, BufferNode.KernelPorts.InputSumAsAggr, nodes[nodes.Count - 1], BufferNode.KernelPorts.InputArray, 2);
+                fix.Set.Connect(join, BufferNode.KernelPorts.PortArrayElementSumsAsAggr, 1, nodes[nodes.Count - 1], BufferNode.KernelPorts.InputArray, 0);
 
                 // Make cyclic connection from join to middle of chain
-                fix.Set.Connect(join, BufferNode.KernelPorts.InputSumAsAggr, nodes[nodes.Count - 3], BufferNode.KernelPorts.InputArray, 1, NodeSet.ConnectionType.Feedback);
-                fix.Set.Connect(join, BufferNode.KernelPorts.InputSumAsAggr, nodes[nodes.Count - 3], BufferNode.KernelPorts.InputArray, 2, NodeSet.ConnectionType.Feedback);
+                fix.Set.Connect(join, BufferNode.KernelPorts.InputSumAsAggr, nodes[nodes.Count - 3], BufferNode.KernelPorts.InputArray, 0, NodeSet.ConnectionType.Feedback);
 
                 // Make cyclic connection from midpoints of chain
-                fix.Set.Connect(nodes[nodes.Count - 2], BufferNode.KernelPorts.InputSumAsAggr, first, BufferNode.KernelPorts.InputArray, 1, NodeSet.ConnectionType.Feedback);
-                fix.Set.Connect(nodes[nodes.Count - 2], BufferNode.KernelPorts.InputSumAsAggr, first, BufferNode.KernelPorts.InputArray, 2, NodeSet.ConnectionType.Feedback);
+                fix.Set.Connect(nodes[nodes.Count - 2], BufferNode.KernelPorts.PortArrayElementSumsAsAggr, 2, first, BufferNode.KernelPorts.InputArray, 0, NodeSet.ConnectionType.Feedback);
 
                 nodes.Add(fork);
                 nodes.Add(join);
 
                 var gvAggrSum = fix.Set.CreateGraphValue(last, BufferNode.KernelPorts.InputSumAsAggr);
                 var gvPortSum = fix.Set.CreateGraphValue(last, BufferNode.KernelPorts.PortArraySum);
+                var gvPortElemSum = fix.Set.CreateGraphValueArray(last, BufferNode.KernelPorts.PortArrayElementSumsAsScalar);
+                var gvPortElemAggrSum = fix.Set.CreateGraphValueArray(last, BufferNode.KernelPorts.PortArrayElementSumsAsAggr);
 
                 for (int n = 0; n < k_Updates; ++n)
                 {
@@ -697,24 +763,24 @@ namespace Unity.DataFlowGraph.Tests
                     var sub1 = c.Resolve(gvAggrSum).SubBuffer1.ToNative(c).Reinterpret<long>().ToArray();
                     var sub2 = c.Resolve(gvAggrSum).SubBuffer2.ToNative(c).Reinterpret<long>().ToArray();
                     var portSum = c.Resolve(gvPortSum).Reinterpret<long>().ToArray();
+                    var portElemSub1 = c.Resolve(gvPortElemAggrSum)[1].SubBuffer1.ToNative(c).Reinterpret<long>().ToArray();
+                    var portElemSub2 = c.Resolve(gvPortElemAggrSum)[1].SubBuffer2.ToNative(c).Reinterpret<long>().ToArray();
+                    var portElemSum = c.Resolve(gvPortElemSum)[1].ToNative(c).Reinterpret<long>().ToArray();
 
                     // Second loop - feedback stabilizes
-                    var gold = n == 0 ? 9477 : 836163;
+                    var goldSub1 = n == 0 ? 14580 : 1254609;
+                    var goldPortSum = n == 0 ? 90396 : 8298207;
+                    var goldPortElemSub = n == 0 ? 33534 : 801171;
 
-                    CollectionAssert.AreEqual(
-                        Enumerable.Repeat(gold, Fixture.BufferSize),
-                        sub1
-                    );
-
-                    CollectionAssert.AreEqual(
-                        Enumerable.Repeat(gold * 2, Fixture.BufferSize),
-                        sub2
-                    );
-
-                    CollectionAssert.AreEqual(
-                        Enumerable.Repeat(5103, Fixture.BufferSize),
-                        portSum
-                    );
+                    for (int j = 0; j < Fixture.BufferSize; ++j)
+                    {
+                        Assert.AreEqual(goldSub1, sub1[j]);
+                        Assert.AreEqual(goldSub1 * 2, sub2[j]);
+                        Assert.AreEqual(goldPortSum, portSum[j]);
+                        Assert.AreEqual(goldPortElemSub, portElemSub1[j]);
+                        Assert.AreEqual(goldPortElemSub * 2, portElemSub2[j]);
+                        Assert.AreEqual(goldPortElemSub, portElemSum[j]);
+                    }
 
                     for (int i = 1; i < k_ChainLength; ++i)
                     {
@@ -722,21 +788,24 @@ namespace Unity.DataFlowGraph.Tests
                     }
 
                     // (trigger topology change)
-                    fix.Set.Disconnect(start, StartPoint.KernelPorts.AggregateOutput, first, BufferNode.KernelPorts.InputArray, 0);
-                    fix.Set.Connect(start, StartPoint.KernelPorts.AggregateOutput, first, BufferNode.KernelPorts.InputArray, 0);
+                    fix.Set.Disconnect(start, StartPoint.KernelPorts.ScalarOutput, first, BufferNode.KernelPorts.Input);
+                    fix.Set.Connect(start, StartPoint.KernelPorts.ScalarOutput, first, BufferNode.KernelPorts.Input);
                 }
-
 
                 fix.Set.Destroy(start);
 
                 nodes.ForEach(n => fix.Set.Destroy(n));
                 fix.Set.ReleaseGraphValue(gvAggrSum);
                 fix.Set.ReleaseGraphValue(gvPortSum);
+                fix.Set.ReleaseGraphValueArray(gvPortElemSum);
+                fix.Set.ReleaseGraphValueArray(gvPortElemAggrSum);
             }
         }
 
         [Test]
-        public void AccumulatingUnstableFeedback_CyclicGraph_WithComponentNodes_ComputesCorrectly_AndExhibits_NoAliasing([Values] NodeSet.RenderExecutionModel model)
+        public void AccumulatingUnstableFeedback_CyclicGraph_WithComponentNodes_ComputesCorrectly_AndExhibits_NoAliasing(
+            [Values] NodeSet.RenderExecutionModel model,
+            [Values] NodeSet.RenderOptimizations optimizations)
         {
             /*     ------------------
              *   /     <----          \
@@ -754,7 +823,7 @@ namespace Unity.DataFlowGraph.Tests
             {
                 var system = w.GetOrCreateSystem<UpdateSystem>();
 
-                using (var fix = new Fixture(system, model))
+                using (var fix = new Fixture(system, model, optimizations))
                 {
                     var e1 = w.EntityManager.CreateEntity();
                     var e2 = w.EntityManager.CreateEntity();
@@ -771,7 +840,7 @@ namespace Unity.DataFlowGraph.Tests
                     var first = fix.CreateNode();
 
                     // Connect splice to start of chain
-                    fix.Set.Connect(start, SpliceNode.KernelPorts.AggrSum, first, BufferNode.KernelPorts.InputArray, 0);
+                    fix.Set.Connect(start, SpliceNode.KernelPorts.AggrSum, first, BufferNode.KernelPorts.InputArray, 1);
                     fix.Set.Connect(start, SpliceNode.KernelPorts.ScalarSum, first, BufferNode.KernelPorts.Input);
 
                     NodeHandle<BufferNode> last = default;
@@ -784,7 +853,8 @@ namespace Unity.DataFlowGraph.Tests
                     {
                         last = fix.CreateNode();
 
-                        fix.Set.Connect(nodes[i - 1], BufferNode.KernelPorts.InputSumAsAggr, last, BufferNode.KernelPorts.InputArray, 0);
+                        fix.Set.Connect(nodes[i - 1], BufferNode.KernelPorts.InputSumAsAggr, last, BufferNode.KernelPorts.InputArray, 1);
+                        fix.Set.Connect(nodes[i - 1], BufferNode.KernelPorts.PortArrayElementSumsAsAggr, 1, last, BufferNode.KernelPorts.InputArray, 2);
                         fix.Set.Connect(nodes[i - 1], BufferNode.KernelPorts.PortArraySum, last, BufferNode.KernelPorts.Input);
 
                         nodes.Add(last);
@@ -793,27 +863,28 @@ namespace Unity.DataFlowGraph.Tests
                     // insert fork and join
                     var fork = fix.CreateNode();
 
-                    fix.Set.Connect(nodes[0], BufferNode.KernelPorts.InputSumAsAggr, fork, BufferNode.KernelPorts.InputArray, 0);
+                    fix.Set.Connect(nodes[0], BufferNode.KernelPorts.InputSumAsAggr, fork, BufferNode.KernelPorts.InputArray, 1);
+                    fix.Set.Connect(nodes[0], BufferNode.KernelPorts.PortArrayElementSumsAsAggr, 1, fork, BufferNode.KernelPorts.InputArray, 2);
                     fix.Set.Connect(nodes[0], BufferNode.KernelPorts.PortArraySum, fork, BufferNode.KernelPorts.Input);
 
                     var join = fix.CreateNode();
 
                     // Anomaly: only use one output buffer, use two input port array contrary to rest
-                    fix.Set.Connect(fork, BufferNode.KernelPorts.InputSumAsAggr, join, BufferNode.KernelPorts.InputArray, 0);
                     fix.Set.Connect(fork, BufferNode.KernelPorts.InputSumAsAggr, join, BufferNode.KernelPorts.InputArray, 1);
+                    fix.Set.Connect(fork, BufferNode.KernelPorts.PortArrayElementSumsAsAggr, 1, join, BufferNode.KernelPorts.InputArray, 2);
+                    fix.Set.Connect(fork, BufferNode.KernelPorts.PortArrayElementSumsAsScalar, 2, join, BufferNode.KernelPorts.Input);
 
-                    fix.Set.Connect(join, BufferNode.KernelPorts.InputSumAsAggr, nodes[nodes.Count - 2], BufferNode.KernelPorts.InputArray, 1);
-                    fix.Set.Connect(join, BufferNode.KernelPorts.InputSumAsAggr, nodes[nodes.Count - 2], BufferNode.KernelPorts.InputArray, 2);
+                    fix.Set.Connect(join, BufferNode.KernelPorts.PortArrayElementSumsAsAggr, 1, nodes[nodes.Count - 2], BufferNode.KernelPorts.InputArray, 0);
 
-                    // Make cyclic connection from midpoints of chain - TODO really cyclic?
-                    fix.Set.Connect(nodes[nodes.Count - 2], BufferNode.KernelPorts.InputSumAsAggr, nodes[0], BufferNode.KernelPorts.InputArray, 1, NodeSet.ConnectionType.Feedback);
-                    fix.Set.Connect(nodes[nodes.Count - 2], BufferNode.KernelPorts.InputSumAsAggr, nodes[0], BufferNode.KernelPorts.InputArray, 2, NodeSet.ConnectionType.Feedback);
+                    // Make cyclic connection from midpoints of chain
+                    fix.Set.Connect(nodes[nodes.Count - 2], BufferNode.KernelPorts.InputSumAsAggr, nodes[0], BufferNode.KernelPorts.InputArray, 0, NodeSet.ConnectionType.Feedback);
+                    fix.Set.Connect(nodes[nodes.Count - 2], BufferNode.KernelPorts.PortArrayElementSumsAsAggr, 1, nodes[0], BufferNode.KernelPorts.InputArray, 2, NodeSet.ConnectionType.Feedback);
 
                     nodes.Add(fork);
                     nodes.Add(join);
 
                     // from fork to E2, cyclic back to start
-                    fix.Set.Connect(fork, BufferNode.KernelPorts.InputSumAsScalar, ce2, ComponentNode.Input<BufferElement>());
+                    fix.Set.Connect(fork, BufferNode.KernelPorts.PortArrayElementSumsAsScalar, 1, ce2, ComponentNode.Input<BufferElement>());
                     fix.Set.Connect(ce2, ComponentNode.Output<BufferElement>(), start, SpliceNode.KernelPorts.Input2, NodeSet.ConnectionType.Feedback);
 
                     // from chain end to e1, cyclic back to start
@@ -836,11 +907,11 @@ namespace Unity.DataFlowGraph.Tests
 
                     var gold = new[]
                     {
-                        (10206, 567),
-                        (15431472, 857304),
-                        (23332385664, 1296243648),
-                        (35278567123968, 1959920395776),
-                        (53341193491439616, 2963399638413312)
+                        (7290, 243),
+                        (5688387, 19683),
+                        (4314769479, 1594323),
+                        (3263127987591, 129140163),
+                        (2467018901797623, 10460353203)
                     };
 
                     for (int n = 0; n < k_Updates; ++n)
@@ -850,26 +921,20 @@ namespace Unity.DataFlowGraph.Tests
                         var sub1 = w.EntityManager.GetBuffer<BufferElement>(e1).AsNativeArray().Reinterpret<long>().ToArray();
                         var portSum = w.EntityManager.GetBuffer<BufferElement>(e2).AsNativeArray().Reinterpret<long>().ToArray();
 
-                        //Debug.Log(string.Join(",", sub1));
-                        //Debug.Log(string.Join(",", portSum));
-
-                        CollectionAssert.AreEqual(
-                            Enumerable.Repeat(gold[n].Item1, Fixture.BufferSize),
-                            sub1
-                        );
-                        CollectionAssert.AreEqual(
-                            Enumerable.Repeat(gold[n].Item2, Fixture.BufferSize),
-                            portSum
-                        );
+                        for (int j = 0; j < Fixture.BufferSize; ++j)
+                        {
+                            Assert.AreEqual(gold[n].Item1, sub1[j]);
+                            Assert.AreEqual(gold[n].Item2, portSum[j]);
+                        }
 
                         for (int i = 1; i < k_ChainLength; ++i)
                         {
-                            Assert.Zero(fix.GetAliasResult(nodes[i]));
+                            Assert.Zero(fix.GetAliasResult(nodes[i]), $"update {n}");
                         }
 
                         // (trigger topology change)
-                        fix.Set.Disconnect(fork, BufferNode.KernelPorts.InputSumAsAggr, join, BufferNode.KernelPorts.InputArray, 0);
-                        fix.Set.Connect(fork, BufferNode.KernelPorts.InputSumAsAggr, join, BufferNode.KernelPorts.InputArray, 0);
+                        fix.Set.Disconnect(start, SpliceNode.KernelPorts.ScalarSum, first, BufferNode.KernelPorts.Input);
+                        fix.Set.Connect(start, SpliceNode.KernelPorts.ScalarSum, first, BufferNode.KernelPorts.Input);
                     }
 
                     fix.Set.Destroy(start, ce1, ce2);

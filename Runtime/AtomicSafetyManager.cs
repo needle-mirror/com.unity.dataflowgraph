@@ -279,6 +279,24 @@ namespace Unity.DataFlowGraph
 #endif
         }
 
+        [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
+        public void MarkNativeSliceAsReadOnly<T>(ref NativeSlice<T> slice)
+            where T : struct
+        {
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+            NativeSliceUnsafeUtility.SetAtomicSafetyHandle(ref slice, m_TemporaryRead);
+#endif
+        }
+
+        [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
+        public void MarkNativeSliceAsReadWrite<T>(ref NativeSlice<T> array)
+            where T : struct
+        {
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+            NativeSliceUnsafeUtility.SetAtomicSafetyHandle(ref array, m_TemporaryReadWrite);
+#endif
+        }
+
         public static JobHandle MarkScopeAsWrittenTo(JobHandle dependency, BufferProtectionScope scope)
         {
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
@@ -311,12 +329,12 @@ namespace Unity.DataFlowGraph
         }
 
         /// <summary>
-        /// Returns a job handle that until resolved protects the given handles 
+        /// Returns a job handle that until resolved protects the given handles
         /// by marking them in use.
-        /// 
+        ///
         /// Should be used to mark any "buffers" exposed out of the <see cref="NodeSetAPI"/> for the duration
         /// of a "render" to detect whenever someone uses buffers concurrently erroneously,
-        /// e.g. scheduling a job using a future buffer against a <see cref="NodeSetAPI"/>, but not properly inserting 
+        /// e.g. scheduling a job using a future buffer against a <see cref="NodeSetAPI"/>, but not properly inserting
         /// back dependencies such that rendering of that <see cref="NodeSetAPI"/> and that job could overlap.
         /// In that case, this system will throw a legible exception.
         /// </summary>
@@ -332,7 +350,7 @@ namespace Unity.DataFlowGraph
             // when a job is scheduled with "buffers" on them.
             // Unfortunately, this is the primary safety feature on AtomicSafetyHandle (beyond R/W protection):
             // The race condition system that throws exceptions when you didn't schedule your jobs correctly.
-            // So here we emulate it with a combination of faux jobs to handle a dynamic amount of 
+            // So here we emulate it with a combination of faux jobs to handle a dynamic amount of
             // handles to be marked.
 
             int handledJobs = 0;

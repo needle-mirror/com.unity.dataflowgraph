@@ -78,9 +78,9 @@ namespace Unity.DataFlowGraph.TimeExample
             float m_Speed;
             KernelData m_KernelData;
 
-            public void HandleMessage(in MessageContext ctx, in SeekMessage msg) => m_Time = msg.Time;
-            public void HandleMessage(in MessageContext ctx, in SpeedMessage msg) => m_Speed = msg.Scale;
-            public void HandleMessage(in MessageContext ctx, in PlayStateMessage msg)
+            public void HandleMessage(MessageContext ctx, in SeekMessage msg) => m_Time = msg.Time;
+            public void HandleMessage(MessageContext ctx, in SpeedMessage msg) => m_Speed = msg.Scale;
+            public void HandleMessage(MessageContext ctx, in PlayStateMessage msg)
             {
                 if (msg.ShouldPlay)
                     ctx.RegisterForUpdate();
@@ -88,13 +88,13 @@ namespace Unity.DataFlowGraph.TimeExample
                     ctx.RemoveFromUpdate();
             }
 
-            public void HandleMessage(in MessageContext ctx, in StreamType msg)
+            public void HandleMessage(MessageContext ctx, in StreamType msg)
             {
                 m_KernelData.Mask = msg;
                 ctx.UpdateKernelData(m_KernelData);
             }
 
-            public void Update(in UpdateContext ctx)
+            public void Update(UpdateContext ctx)
             {
                 m_Time += Time.deltaTime * m_Speed;
                 m_KernelData.Time = m_Time;
@@ -104,7 +104,7 @@ namespace Unity.DataFlowGraph.TimeExample
 
         struct Kernel : IGraphKernel<KernelData, KernelDefs>
         {
-            public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
+            public void Execute(RenderContext ctx, in KernelData data, ref KernelDefs ports)
             {
                 math.sincos(data.Time * 2 * (float)Math.PI, out float x, out float y);
                 ctx.Resolve(ref ports.Output) = data.Mask * new StreamType(x, y);
@@ -125,7 +125,7 @@ namespace Unity.DataFlowGraph.TimeExample
 
         struct Data : INodeData, IMsgHandler<WeightMessage>
         {
-            public void HandleMessage(in MessageContext ctx, in WeightMessage msg) 
+            public void HandleMessage(MessageContext ctx, in WeightMessage msg) 
                 => ctx.UpdateKernelData(new KernelData { Gradient = msg.Gradient });
         }
 
@@ -145,7 +145,7 @@ namespace Unity.DataFlowGraph.TimeExample
 
         struct Kernel : IGraphKernel<KernelData, KernelDefs>
         {
-            public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
+            public void Execute(RenderContext ctx, in KernelData data, ref KernelDefs ports)
             {
                 ctx.Resolve(ref ports.Output) = math.lerp(ctx.Resolve(ports.Left), ctx.Resolve(ports.Right), data.Gradient);
             }
@@ -193,19 +193,19 @@ namespace Unity.DataFlowGraph.TimeExample
             bool m_IsPlaying;
             bool m_WasPlaying;
 
-            public void HandleMessage(in MessageContext ctx, in SeekMessage msg)
+            public void HandleMessage(MessageContext ctx, in SeekMessage msg)
             {
                 m_Time = msg.Time;
                 ctx.EmitMessage(SimulationPorts.SeekOut, new SeekMessage { Time = m_Time - m_Origin });
             }
 
-            public void HandleMessage(in MessageContext ctx, in SpeedMessage msg)
+            public void HandleMessage(MessageContext ctx, in SpeedMessage msg)
             {
                 m_Speed = msg.Scale;
                 ctx.EmitMessage(SimulationPorts.SpeedOut, msg);
             }
 
-            public void HandleMessage(in MessageContext ctx, in PlayStateMessage msg)
+            public void HandleMessage(MessageContext ctx, in PlayStateMessage msg)
             {
                 if (m_IsPlaying)
                     ctx.RemoveFromUpdate();
@@ -215,9 +215,9 @@ namespace Unity.DataFlowGraph.TimeExample
                 m_IsPlaying = msg.ShouldPlay;
             }
 
-            public void HandleMessage(in MessageContext ctx, in TimeOffsetMessage msg) => m_Origin = msg.Origin;
+            public void HandleMessage(MessageContext ctx, in TimeOffsetMessage msg) => m_Origin = msg.Origin;
 
-            public void Update(in UpdateContext ctx)
+            public void Update(UpdateContext ctx)
             {
                 if (m_IsPlaying)
                 {
@@ -261,9 +261,9 @@ namespace Unity.DataFlowGraph.TimeExample
 
         struct Data : INodeData, IMsgHandler<SeekMessage>, IMsgHandler<SpeedMessage>, IMsgHandler<PlayStateMessage>
         {
-            public void HandleMessage(in MessageContext ctx, in SeekMessage msg) => ctx.EmitMessage(SimulationPorts.SeekOut, msg);
-            public void HandleMessage(in MessageContext ctx, in SpeedMessage msg) => ctx.EmitMessage(SimulationPorts.SpeedOut, msg);
-            public void HandleMessage(in MessageContext ctx, in PlayStateMessage msg) => ctx.EmitMessage(SimulationPorts.PlayOut, msg);
+            public void HandleMessage(MessageContext ctx, in SeekMessage msg) => ctx.EmitMessage(SimulationPorts.SeekOut, msg);
+            public void HandleMessage(MessageContext ctx, in SpeedMessage msg) => ctx.EmitMessage(SimulationPorts.SpeedOut, msg);
+            public void HandleMessage(MessageContext ctx, in PlayStateMessage msg) => ctx.EmitMessage(SimulationPorts.PlayOut, msg);
         }
 
         InputPortID ITaskPort<ISeekable>.GetPort(NodeHandle handle) => (InputPortID)SimulationPorts.SeekPort;

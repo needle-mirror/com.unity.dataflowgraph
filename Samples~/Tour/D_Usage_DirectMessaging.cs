@@ -49,7 +49,7 @@ namespace Unity.DataFlowGraph.Tour
                  * readonly in parameter (the last argument). The context provides additional information, like which
                  * port it arrived on, which is useful if you have multiple port declarations of the same type.
                  */
-                public void HandleMessage(in MessageContext ctx, in double msg)
+                public void HandleMessage(MessageContext ctx, in double msg)
                 {
                     if(ctx.Port == SimulationPorts.MyFirstInput)
                     {

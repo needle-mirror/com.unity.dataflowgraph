@@ -16,7 +16,7 @@ namespace Unity.DataFlowGraph
             where TSource : NodeDefinition
             where TDestination : NodeDefinition
         {
-            Connect(((uint)PortDescription.Category.Message, typeof(TMsg), ConnectionType.Normal), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePort.Port)), new InputPair(this, destHandle, new InputPortArrayID(destPort.Port)));
+            Connect(((uint)PortDescription.Category.Message, default, ConnectionType.Normal), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePort.Port)), new InputPair(this, destHandle, new InputPortArrayID(destPort.Port)));
         }
 
         /// <summary>
@@ -34,7 +34,7 @@ namespace Unity.DataFlowGraph
             where TSource : NodeDefinition
             where TDestination : NodeDefinition
         {
-            Connect(((uint)PortDescription.Category.Message, typeof(TMsg), ConnectionType.Normal), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePort.Port)), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.GetPortID(), destArrayIndex)));
+            Connect(((uint)PortDescription.Category.Message, default, ConnectionType.Normal), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePort.Port)), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.GetPortID(), destArrayIndex)));
         }
 
         /// <summary>
@@ -52,7 +52,7 @@ namespace Unity.DataFlowGraph
             where TSource : NodeDefinition
             where TDestination : NodeDefinition
         {
-            Connect(((uint)PortDescription.Category.Message, typeof(TMsg), ConnectionType.Normal), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePortArray.GetPortID(), sourceArrayIndex)), new InputPair(this, destHandle, new InputPortArrayID(destPort.Port)));
+            Connect(((uint)PortDescription.Category.Message, default, ConnectionType.Normal), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePortArray.GetPortID(), sourceArrayIndex)), new InputPair(this, destHandle, new InputPortArrayID(destPort.Port)));
         }
 
         /// <summary>
@@ -71,7 +71,7 @@ namespace Unity.DataFlowGraph
             where TSource : NodeDefinition
             where TDestination : NodeDefinition
         {
-            Connect(((uint)PortDescription.Category.Message, typeof(TMsg), ConnectionType.Normal), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePortArray.GetPortID(), sourceArrayIndex)), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.GetPortID(), destArrayIndex)));
+            Connect(((uint)PortDescription.Category.Message, default, ConnectionType.Normal), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePortArray.GetPortID(), sourceArrayIndex)), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.GetPortID(), destArrayIndex)));
         }
 
         /// <summary>
@@ -87,7 +87,7 @@ namespace Unity.DataFlowGraph
             where TDestination : NodeDefinition
             where TMsg : struct
         {
-            Connect((PortDescription.MessageToDataConnectionCategory, typeof(TMsg), ConnectionType.Normal), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePort.Port)), new InputPair(this, destHandle, new InputPortArrayID(destPort.Port)));
+            Connect((PortDescription.MessageToDataConnectionCategory, default, ConnectionType.Normal), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePort.Port)), new InputPair(this, destHandle, new InputPortArrayID(destPort.Port)));
         }
 
         /// <summary>
@@ -106,7 +106,7 @@ namespace Unity.DataFlowGraph
             where TDestination : NodeDefinition
             where TMsg : struct
         {
-            Connect((PortDescription.MessageToDataConnectionCategory, typeof(TMsg), ConnectionType.Normal), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePortArray.GetPortID(), sourceArrayIndex)), new InputPair(this, destHandle, new InputPortArrayID(destPort.Port)));
+            Connect((PortDescription.MessageToDataConnectionCategory, default, ConnectionType.Normal), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePortArray.GetPortID(), sourceArrayIndex)), new InputPair(this, destHandle, new InputPortArrayID(destPort.Port)));
         }
 
         /// <summary>
@@ -125,7 +125,7 @@ namespace Unity.DataFlowGraph
             where TDestination : NodeDefinition
             where TMsg : struct
         {
-            Connect((PortDescription.MessageToDataConnectionCategory, typeof(TMsg), ConnectionType.Normal), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePort.Port)), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.GetPortID(), destArrayIndex)));
+            Connect((PortDescription.MessageToDataConnectionCategory, default, ConnectionType.Normal), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePort.Port)), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.GetPortID(), destArrayIndex)));
         }
 
         /// <summary>
@@ -145,7 +145,7 @@ namespace Unity.DataFlowGraph
             where TDestination : NodeDefinition
             where TMsg : struct
         {
-            Connect((PortDescription.MessageToDataConnectionCategory, typeof(TMsg), ConnectionType.Normal), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePortArray.GetPortID(), sourceArrayIndex)), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.GetPortID(), destArrayIndex)));
+            Connect((PortDescription.MessageToDataConnectionCategory, default, ConnectionType.Normal), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePortArray.GetPortID(), sourceArrayIndex)), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.GetPortID(), destArrayIndex)));
         }
 
         /// <summary>
@@ -162,7 +162,7 @@ namespace Unity.DataFlowGraph
             where TDSLHandler : DSLHandler<TDSL>, new()
             where TDSL : class
         {
-            Connect(((uint)PortDescription.Category.DomainSpecific, typeof(TDSLHandler), ConnectionType.Normal), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePort.Port)), new InputPair(this, destHandle, new InputPortArrayID(destPort.Port)));
+            Connect(((uint)PortDescription.Category.DomainSpecific, DSLTypeMap.StaticHashNoRegister<TDSLHandler>(), ConnectionType.Normal), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePort.Port)), new InputPair(this, destHandle, new InputPortArrayID(destPort.Port)));
         }
 
         /// <summary>
@@ -179,7 +179,7 @@ namespace Unity.DataFlowGraph
             where TDestination : NodeDefinition
             where TType : struct
         {
-            Connect(((uint)PortDescription.Category.Data, typeof(TType), connectionType), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePort.Port)), new InputPair(this, destHandle, new InputPortArrayID(destPort.Port)));
+            Connect(((uint)PortDescription.Category.Data, default, connectionType), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePort.Port)), new InputPair(this, destHandle, new InputPortArrayID(destPort.Port)));
         }
 
         /// <summary>
@@ -199,7 +199,48 @@ namespace Unity.DataFlowGraph
             where TDestination : NodeDefinition
             where TType : struct
         {
-            Connect(((uint)PortDescription.Category.Data, typeof(TType), connectionType), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePort.Port)), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.GetPortID(), destArrayIndex)));
+            Connect(((uint)PortDescription.Category.Data, default, connectionType), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePort.Port)), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.GetPortID(), destArrayIndex)));
+        }
+
+        /// <summary>
+        /// Overload of <see cref="Connect(NodeHandle, OutputPortID, NodeHandle, InputPortID, ConnectionType)"/>
+        /// with a source port array with an index parameter.
+        /// </summary>
+        /// <exception cref="IndexOutOfRangeException">Thrown if the index is out of range with respect to the port array.</exception>
+        public void Connect<TType, TSource, TDestination>(
+            NodeHandle<TSource> sourceHandle,
+            PortArray<DataOutput<TSource, TType>> sourcePortArray,
+            int sourceArrayIndex,
+            NodeHandle<TDestination> destHandle,
+            DataInput<TDestination, TType> destPort,
+            ConnectionType connectionType = ConnectionType.Normal
+        )
+            where TSource : NodeDefinition
+            where TDestination : NodeDefinition
+            where TType : struct
+        {
+            Connect(((uint)PortDescription.Category.Data, default, connectionType), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePortArray.GetPortID(), sourceArrayIndex)), new InputPair(this, destHandle, new InputPortArrayID(destPort.Port)));
+        }
+
+        /// <summary>
+        /// Overload of <see cref="Connect(NodeHandle, OutputPortID, NodeHandle, InputPortID, ConnectionType)"/>
+        /// with a source port array with an index parameter and targeting a destination port array with an index parameter.
+        /// </summary>
+        /// <exception cref="IndexOutOfRangeException">Thrown if the index is out of range with respect to a port array.</exception>
+        public void Connect<TType, TSource, TDestination>(
+            NodeHandle<TSource> sourceHandle,
+            PortArray<DataOutput<TSource, TType>> sourcePortArray,
+            int sourceArrayIndex,
+            NodeHandle<TDestination> destHandle,
+            PortArray<DataInput<TDestination, TType>> destPortArray,
+            int destArrayIndex,
+            ConnectionType connectionType = ConnectionType.Normal
+        )
+            where TSource : NodeDefinition
+            where TDestination : NodeDefinition
+            where TType : struct
+        {
+            Connect(((uint)PortDescription.Category.Data, default, connectionType), new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePortArray.GetPortID(), sourceArrayIndex)), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.GetPortID(), destArrayIndex)));
         }
 
         /// <summary>
@@ -399,6 +440,45 @@ namespace Unity.DataFlowGraph
         }
 
         /// <summary>
+        /// Overload of <see cref="Disconnect(NodeHandle, OutputPortID, NodeHandle, InputPortID)"/>
+        /// with a source port array with an index parameter.
+        /// </summary>
+        /// <exception cref="IndexOutOfRangeException">Thrown if the index is out of range with respect to the port array.</exception>
+        public void Disconnect<TType, TSource, TDestination>(
+            NodeHandle<TSource> sourceHandle,
+            PortArray<DataOutput<TSource, TType>> sourcePortArray,
+            int sourceArrayIndex,
+            NodeHandle<TDestination> destHandle,
+            DataInput<TDestination, TType> destPort
+        )
+            where TSource : NodeDefinition
+            where TDestination : NodeDefinition
+            where TType : struct
+        {
+            Disconnect(new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePortArray.GetPortID(), sourceArrayIndex)), new InputPair(this, destHandle, new InputPortArrayID(destPort.Port)));
+        }
+
+        /// <summary>
+        /// Overload of <see cref="Disconnect(NodeHandle, OutputPortID, NodeHandle, InputPortID)"/>
+        /// with a source port array with an index parameter and targeting a destination port array with an index parameter.
+        /// </summary>
+        /// <exception cref="IndexOutOfRangeException">Thrown if the index is out of range with respect to a port array.</exception>
+        public void Disconnect<TType, TSource, TDestination>(
+            NodeHandle<TSource> sourceHandle,
+            PortArray<DataOutput<TSource, TType>> sourcePortArray,
+            int sourceArrayIndex,
+            NodeHandle<TDestination> destHandle,
+            PortArray<DataInput<TDestination, TType>> destPortArray,
+            int destArrayIndex
+        )
+            where TSource : NodeDefinition
+            where TDestination : NodeDefinition
+            where TType : struct
+        {
+            Disconnect(new OutputPair(this, sourceHandle, new OutputPortArrayID(sourcePortArray.GetPortID(), sourceArrayIndex)), new InputPair(this, destHandle, new InputPortArrayID(destPortArray.GetPortID(), destArrayIndex)));
+        }
+
+        /// <summary>
         /// See <see cref="DisconnectAndRetainValue(NodeHandle,vOutputPortID, NodeHandle, InputPortID)"/>
         /// </summary>
         public void DisconnectAndRetainValue<TType, TSource, TDestination>(
@@ -431,6 +511,45 @@ namespace Unity.DataFlowGraph
             where TType : struct
         {
             DisconnectAndRetainValue(sourceHandle, new OutputPortArrayID(sourcePort.Port), destHandle, new InputPortArrayID(destPortArray.GetPortID(), destArrayIndex));
+        }
+
+        /// <summary>
+        /// Overload of <see cref="DisconnectAndRetainValue(NodeHandle, OutputPortID, NodeHandle, InputPortID)"/>
+        /// with a source port array with an index parameter.
+        /// </summary>
+        /// <exception cref="IndexOutOfRangeException">Thrown if the index is out of range with respect to the port array.</exception>
+        public void DisconnectAndRetainValue<TType, TSource, TDestination>(
+            NodeHandle<TSource> sourceHandle,
+            PortArray<DataOutput<TSource, TType>> sourcePortArray,
+            int sourceArrayIndex,
+            NodeHandle<TDestination> destHandle,
+            DataInput<TDestination, TType> destPort
+        )
+            where TSource : NodeDefinition, new()
+            where TDestination : NodeDefinition, new()
+            where TType : struct
+        {
+            DisconnectAndRetainValue(sourceHandle, new OutputPortArrayID(sourcePortArray.GetPortID(), sourceArrayIndex), destHandle, new InputPortArrayID(destPort.Port));
+        }
+
+        /// <summary>
+        /// Overload of <see cref="DisconnectAndRetainValue(NodeHandle, OutputPortID, NodeHandle, InputPortID)"/>
+        /// with a source port array with an index parameter and targeting a destination port array with an index parameter.
+        /// </summary>
+        /// <exception cref="IndexOutOfRangeException">Thrown if the index is out of range with respect to a port array.</exception>
+        public void DisconnectAndRetainValue<TType, TSource, TDestination>(
+            NodeHandle<TSource> sourceHandle,
+            PortArray<DataOutput<TSource, TType>> sourcePortArray,
+            int sourceArrayIndex,
+            NodeHandle<TDestination> destHandle,
+            PortArray<DataInput<TDestination, TType>> destPortArray,
+            int destArrayIndex
+        )
+            where TSource : NodeDefinition, new()
+            where TDestination : NodeDefinition, new()
+            where TType : struct
+        {
+            DisconnectAndRetainValue(sourceHandle, new OutputPortArrayID(sourcePortArray.GetPortID(), sourceArrayIndex), destHandle, new InputPortArrayID(destPortArray.GetPortID(), destArrayIndex));
         }
 
         public void Connect<TTask, TDSLHandler, TDSL, TSource, TDestination>(

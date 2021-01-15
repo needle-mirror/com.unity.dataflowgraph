@@ -44,7 +44,7 @@ namespace Unity.DataFlowGraph.CodeGen
         }
 
         /// <summary>
-        /// Create a matching <code>NodeTraits<></code> type given a <paramref name="kind"/>
+        /// Create a matching <see cref="NodeTraitsBase"/> type given a <paramref name="kind"/>
         /// </summary>
         GenericInstanceType CreateTraitsType(DFGLibrary.NodeTraitsKind kind)
         {
@@ -117,11 +117,7 @@ namespace Unity.DataFlowGraph.CodeGen
 
         PropertyDefinition CreateBaseTraitsOverride(Diag d, FieldDefinition def)
         {
-            var newMethod = new MethodDefinition(
-                m_Lib.Get_BaseTraitsDefinition.Name,
-                DFGLibrary.MethodProtectedOverrideFlags | MethodAttributes.SpecialName,
-                m_Lib.NodeTraitsBaseDefinition
-            ) { HasThis = true };
+            var newMethod = CreateEmptyProtectedInternalMethodOverride(m_Lib.Get_BaseTraitsDefinition);
 
             //  protected override NodeTraitsBase BaseTraits => {
             //      return this.{CG}m_Traits;
@@ -141,11 +137,7 @@ namespace Unity.DataFlowGraph.CodeGen
 
         void CreateSimulationStorageTraitsOverride(Diag d)
         {
-            var newMethod = new MethodDefinition(
-                m_Lib.Get_SimulationStorageTraits.Name,
-                DFGLibrary.MethodProtectedOverrideFlags | MethodAttributes.SpecialName,
-                m_Lib.SimulationStorageDefinitionType
-            ) { HasThis = true };
+            var newMethod = CreateEmptyProtectedInternalMethodOverride(m_Lib.Get_SimulationStorageTraits);
 
             newMethod.Body.InitLocals = true;
             newMethod.Body.Variables.Add(new VariableDefinition(m_Lib.SimulationStorageDefinitionType));
@@ -161,7 +153,6 @@ namespace Unity.DataFlowGraph.CodeGen
             {
                 var nodeDataIsManaged = NodeDataImplementation.Resolve().CustomAttributes.Any(a => a.AttributeType.RefersToSame(m_Lib.ManagedNodeDataAttribute));
                 il.Emit(nodeDataIsManaged ? OpCodes.Ldc_I4_1 : OpCodes.Ldc_I4_0);
-                il.Emit(Kind.Value.IsScaffolded() ? OpCodes.Ldc_I4_1 : OpCodes.Ldc_I4_0);
 
                 if (SimulationPortImplementation != null)
                     genMethod = m_Lib.SimulationStorageDefinitionCreateMethod.MakeGenericInstanceMethod(DefinitionRoot, NodeDataImplementation, SimulationPortImplementation);
@@ -186,11 +177,7 @@ namespace Unity.DataFlowGraph.CodeGen
 
         void CreateKernelStorageTraitsOverride(Diag d)
         {
-            var newMethod = new MethodDefinition(
-                m_Lib.Get_KernelStorageTraits.Name,
-                DFGLibrary.MethodProtectedOverrideFlags | MethodAttributes.SpecialName,
-                m_Lib.KernelStorageDefinitionType
-            ) { HasThis = true };
+            var newMethod = CreateEmptyProtectedInternalMethodOverride(m_Lib.Get_KernelStorageTraits);
 
             newMethod.Body.InitLocals = true;
             newMethod.Body.Variables.Add(new VariableDefinition(m_Lib.KernelStorageDefinitionType));
@@ -203,6 +190,9 @@ namespace Unity.DataFlowGraph.CodeGen
 
             var isComponentNode = DefinitionRoot.RefersToSame(m_Lib.InternalComponentNodeType);
             il.Emit(isComponentNode ? OpCodes.Ldc_I4_1 : OpCodes.Ldc_I4_0);
+
+            var causesSideEffects = GraphKernelImplementation.Resolve().CustomAttributes.Any(ca => ca.AttributeType.RefersToSame(m_Lib.CausesSideEffectsAttributeType));
+            il.Emit(causesSideEffects ? OpCodes.Ldc_I4_1 : OpCodes.Ldc_I4_0);
 
             var genMethod = m_Lib.KernelStorageDefinitionCreateMethod.MakeGenericInstanceMethod(DefinitionRoot, KernelDataImplementation, KernelPortImplementation, GraphKernelImplementation);
             il.Emit(OpCodes.Call, genMethod);

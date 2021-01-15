@@ -3,6 +3,12 @@ using NUnit.Framework;
 
 namespace Unity.DataFlowGraph.Tests
 {
+    public enum APIType
+    {
+        StronglyTyped,
+        WeaklyTyped
+    }
+
     public class UtilityAssert
     {
         public static void ThrowsEither<E1, E2>(Action expression)

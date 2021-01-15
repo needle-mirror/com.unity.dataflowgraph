@@ -17,17 +17,11 @@ namespace Unity.DataFlowGraph.Tests
             return (set.Create<T>(), set.GetDefinition<T>());
         }
 
-        public struct MessageContent
-        {
-        }
-
-        public struct NodeData : INodeData
-        {
-        }
+        public struct MessageContent { }
 
         public class MessageTaskPortHandlerNode
-            : NodeDefinition<NodeData, MessageTaskPortHandlerNode.SimPorts>
-            , ITaskPortMsgHandler<MessageTaskPortHandlerNode, MessageContent>
+            : SimulationNodeDefinition<MessageTaskPortHandlerNode.SimPorts>
+            , ITaskPort<MessageTaskPortHandlerNode>
         {
             public struct SimPorts : ISimulationPortDefinition
             {
@@ -39,12 +33,13 @@ namespace Unity.DataFlowGraph.Tests
                 return (InputPortID)SimulationPorts.Input;
             }
 
-            public void HandleMessage(in MessageContext ctx, in MessageContent msg)
+            struct NodeData : INodeData, IMsgHandler<MessageContent>
             {
+                public void HandleMessage(MessageContext ctx, in MessageContent msg) { }
             }
         }
 
-        public class MessageOutputNode : NodeDefinition<NodeData, MessageOutputNode.SimPorts>
+        public class MessageOutputNode : SimulationNodeDefinition<MessageOutputNode.SimPorts>
         {
             public struct SimPorts : ISimulationPortDefinition
             {
@@ -67,12 +62,12 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        interface IMessageTaskPort : ITaskPortMsgHandler<IMessageTaskPort, MessageContent>
+        interface IMessageTaskPort : ITaskPort<IMessageTaskPort>
         {
         }
 
         public class MessageTaskPortNode
-            : NodeDefinition<NodeData, MessageTaskPortNode.SimPorts>
+            : SimulationNodeDefinition<MessageTaskPortNode.SimPorts>
             , IMessageTaskPort
         {
             public struct SimPorts : ISimulationPortDefinition
@@ -85,8 +80,10 @@ namespace Unity.DataFlowGraph.Tests
                 return SimulationPorts.Input.Port;
             }
 
-            public void HandleMessage(in MessageContext ctx, in MessageContent msg)
-            { }
+            struct NodeData : INodeData, IMsgHandler<MessageContent>
+            {
+                public void HandleMessage(MessageContext ctx, in MessageContent msg) { }
+            }
         }
 
         [Test]
@@ -116,23 +113,19 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        public class DataOutputNode : NodeDefinition<NodeData, DataOutputNode.KernelData, DataOutputNode.KernelPortDefinition, DataOutputNode.Kernel>
+        public class DataOutputNode : KernelNodeDefinition<DataOutputNode.KernelPortDefinition>
         {
-            public struct KernelData : IKernelData
-            {
-            }
-
             public struct KernelPortDefinition : IKernelPortDefinition
             {
                 public DataOutput<DataOutputNode, MessageContent> Output;
             }
 
+            struct KernelData : IKernelData { }
+
             [BurstCompile(CompileSynchronously = true)]
-            public struct Kernel : IGraphKernel<KernelData, KernelPortDefinition>
+            struct Kernel : IGraphKernel<KernelData, KernelPortDefinition>
             {
-                public void Execute(RenderContext ctx, KernelData data, ref KernelPortDefinition ports)
-                {
-                }
+                public void Execute(RenderContext ctx, in KernelData data, ref KernelPortDefinition ports) { }
             }
         }
 
@@ -141,24 +134,20 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         public class DataInputTaskNode
-            : NodeDefinition<NodeData, DataInputTaskNode.KernelData, DataInputTaskNode.KernelPortDefinition, DataInputTaskNode.Kernel>
+            : KernelNodeDefinition<DataInputTaskNode.KernelPortDefinition>
             , IDataTaskPort
         {
-            public struct KernelData : IKernelData
-            {
-            }
-
             public struct KernelPortDefinition : IKernelPortDefinition
             {
                 public DataInput<DataInputTaskNode, MessageContent> Input;
             }
 
+            struct KernelData : IKernelData { }
+
             [BurstCompile(CompileSynchronously = true)]
-            public struct Kernel : IGraphKernel<KernelData, KernelPortDefinition>
+            struct Kernel : IGraphKernel<KernelData, KernelPortDefinition>
             {
-                public void Execute(RenderContext ctx, KernelData data, ref KernelPortDefinition ports)
-                {
-                }
+                public void Execute(RenderContext ctx, in KernelData data, ref KernelPortDefinition ports) { }
             }
 
             public InputPortID GetPort(NodeHandle node)
@@ -194,7 +183,7 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        class DSLOutputNode : NodeDefinition<NodeData, DSLOutputNode.SimPorts>, TestDSL
+        class DSLOutputNode : SimulationNodeDefinition<DSLOutputNode.SimPorts>, TestDSL
         {
             public struct SimPorts : ISimulationPortDefinition
             {
@@ -209,7 +198,7 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         class DSLInputTaskNode
-            : NodeDefinition<NodeData, DSLInputTaskNode.SimPorts>
+            : SimulationNodeDefinition<DSLInputTaskNode.SimPorts>
             , IDSLTaskPort
             , TestDSL
         {
@@ -256,13 +245,10 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        interface IOtherMessageTaskPort
-            : ITaskPortMsgHandler<IOtherMessageTaskPort, MessageContent>
-        {
-        }
+        interface IOtherMessageTaskPort : ITaskPort<IOtherMessageTaskPort> { }
 
         public class MultipleNodeMessageTaskPortNode
-            : NodeDefinition<NodeData, MultipleNodeMessageTaskPortNode.SimPorts>
+            : SimulationNodeDefinition<MultipleNodeMessageTaskPortNode.SimPorts>
             , IMessageTaskPort
             , IOtherMessageTaskPort
         {
@@ -282,12 +268,12 @@ namespace Unity.DataFlowGraph.Tests
                 return (InputPortID)SimulationPorts.SecondInput;
             }
 
-            public void HandleMessage(in MessageContext ctx, in MessageContent msg)
+            struct NodeData : INodeData, IMsgHandler<MessageContent>
             {
-                Assert.That(
-                    ctx.Port == (this as IMessageTaskPort).GetPort(ctx.Handle) ||
-                    ctx.Port == (this as IOtherMessageTaskPort).GetPort(ctx.Handle)
-                );
+                public void HandleMessage(MessageContext ctx, in MessageContent msg)
+                {
+                    Assert.That(ctx.Port == SimulationPorts.FirstInput || ctx.Port == SimulationPorts.SecondInput);
+                }
             }
         }
 
@@ -307,13 +293,10 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        interface IFloatTask
-            : ITaskPortMsgHandler<IFloatTask, float>
-        {
-        }
+        interface IFloatTask : ITaskPort<IFloatTask> { }
 
         public class MultipleMessageTypesTaskPortNode
-            : NodeDefinition<NodeData, MultipleMessageTypesTaskPortNode.SimPorts>
+            : SimulationNodeDefinition<MultipleMessageTypesTaskPortNode.SimPorts>
             , IMessageTaskPort
             , IFloatTask
         {
@@ -333,18 +316,21 @@ namespace Unity.DataFlowGraph.Tests
                 return (InputPortID)SimulationPorts.FloatInput;
             }
 
-            public void HandleMessage(in MessageContext ctx, in MessageContent msg)
+            struct NodeData : INodeData, IMsgHandler<MessageContent>, IMsgHandler<float>
             {
-                Assert.That(ctx.Port == (this as IMessageTaskPort).GetPort(ctx.Handle));
-            }
+                public void HandleMessage(MessageContext ctx, in MessageContent msg)
+                {
+                    Assert.That(ctx.Port == SimulationPorts.NodeMessageInput);
+                }
 
-            public void HandleMessage(in MessageContext ctx, in float msg)
-            {
-                Assert.That(ctx.Port == (this as IFloatTask).GetPort(ctx.Handle));
+                public void HandleMessage(MessageContext ctx, in float msg)
+                {
+                    Assert.That(ctx.Port == SimulationPorts.FloatInput);
+                }
             }
         }
 
-        public class MultipleMessageTypeOutputNode : NodeDefinition<NodeData, MultipleMessageTypeOutputNode.SimPorts>
+        public class MultipleMessageTypeOutputNode : SimulationNodeDefinition<MultipleMessageTypeOutputNode.SimPorts>
         {
             public struct SimPorts : ISimulationPortDefinition
             {
@@ -404,7 +390,7 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         public class OtherMessageTaskPortNode
-            : NodeDefinition<NodeData, OtherMessageTaskPortNode.SimPorts>
+            : SimulationNodeDefinition<OtherMessageTaskPortNode.SimPorts>
             , IOtherMessageTaskPort
         {
             public struct SimPorts : ISimulationPortDefinition
@@ -416,8 +402,10 @@ namespace Unity.DataFlowGraph.Tests
             {
                 return (InputPortID)SimulationPorts.Input;
             }
-            public void HandleMessage(in MessageContext ctx, in MessageContent msg)
+
+            struct NodeData : INodeData, IMsgHandler<MessageContent>
             {
+                public void HandleMessage(MessageContext ctx, in MessageContent msg) { }
             }
         }
 

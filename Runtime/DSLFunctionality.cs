@@ -116,22 +116,52 @@ namespace Unity.DataFlowGraph
         public virtual void Dispose() { }
     }
 
+    static class DSLTypeMap
+    {
+        static Dictionary<TypeHash, Func<IDSLHandler>> s_DSLFactory = new Dictionary<TypeHash, Func<IDSLHandler>>();
+
+        static class PerTypeRegistry<TDSLHandler>
+            where TDSLHandler : class, IDSLHandler, new()
+        {
+            static public readonly TypeHash Key = StaticHashNoRegister<TDSLHandler>();
+
+            static PerTypeRegistry()
+            {
+                s_DSLFactory[Key] = () => new TDSLHandler();
+            }
+        }
+
+        static public TypeHash RegisterDSL<TDSLHandler>()
+            where TDSLHandler : class, IDSLHandler, new()
+        {
+            return PerTypeRegistry<TDSLHandler>.Key;
+        }
+
+        static public TypeHash StaticHashNoRegister<TDSLHandler>()
+            where TDSLHandler : class, IDSLHandler, new()
+        {
+            return TypeHash.Create<TDSLHandler>();
+        }
+
+        static public IDSLHandler Instantiate(TypeHash hash)
+        {
+#if DFG_ASSERTIONS
+            if(!s_DSLFactory.ContainsKey(hash))
+                throw new AssertionException($"Unknown DSL for typehash {hash}");
+#endif
+            return s_DSLFactory[hash]();
+        }
+    }
+
     public partial class NodeSetAPI
     {
-        // TODO: Change all this to use type index lookup instead of associative lookup
+        Dictionary<TypeHash, IDSLHandler> m_ConnectionHandlerMap = new Dictionary<TypeHash, IDSLHandler>();
 
-        Dictionary<Type, IDSLHandler> m_ConnectionHandlerMap = new Dictionary<Type, IDSLHandler>();
-
-        internal IDSLHandler GetDSLHandler(Type type)
+        internal IDSLHandler GetDSLHandler(TypeHash type)
         {
             if (!m_ConnectionHandlerMap.TryGetValue(type, out IDSLHandler handler))
             {
-                // FIXME: IWBN to get rid of this variant of GetDSLHandler taking a runtime type and exclusively use
-                // the generic method version which has a constraint requiring interface IDSLHandler
-                if (!typeof(IDSLHandler).IsAssignableFrom(type))
-                    throw new ArgumentException($"Cannot get DSL handler for non IDSLHandler type ({type})");
-
-                handler = m_ConnectionHandlerMap[type] = (IDSLHandler)Activator.CreateInstance(type);
+                handler = m_ConnectionHandlerMap[type] = DSLTypeMap.Instantiate(type);
             }
 
             return handler;

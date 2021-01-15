@@ -100,10 +100,11 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
         {
             CheckDiagnostics();
 
+#if DFG_VERBOSE
             // Dump out transcript on success.
             foreach (var message in Diagnostic.Messages)
                 Debug.Log($"Encountered expected diagnostic {message.DiagnosticType}: {message.MessageData}");
-
+#endif
             m_CecilAssembly.Dispose();
         }
 

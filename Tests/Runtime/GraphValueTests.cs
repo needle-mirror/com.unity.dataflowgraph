@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using NUnit.Framework;
 using Unity.Burst;
@@ -15,58 +16,43 @@ namespace Unity.DataFlowGraph.Tests
             Untyped
         }
 
-        public struct Data : INodeData
-        {
-
-        }
-
-        public struct KernelData : IKernelData
-        {
-            public float Input;
-        }
-
-        public enum KernelUpdateMode
-        {
-            GetKernelData,
-            UpdateKernelData
-        }
-
-        public struct FloatButWithMode
-        {
-            public KernelUpdateMode Mode;
-            public float Value;
-        }
-
         public class RenderPipe
-            : NodeDefinition<Data, RenderPipe.SimPorts, KernelData, RenderPipe.Ports, RenderPipe.Kernel>
-            , IMsgHandler<FloatButWithMode>
+            : SimulationKernelNodeDefinition<RenderPipe.SimPorts, RenderPipe.Ports>
         {
-
             public struct SimPorts : ISimulationPortDefinition
             {
-                public MessageInput<RenderPipe, FloatButWithMode> Input;
+                public MessageInput<RenderPipe, float> Input;
             }
 
             public struct Ports : IKernelPortDefinition
             {
                 public DataOutput<RenderPipe, float> Output;
+                public PortArray<DataOutput<RenderPipe, float>> OutputArray;
+            }
+
+            public struct KernelData : IKernelData
+            {
+                public float Input;
             }
 
             [BurstCompile(CompileSynchronously = true)]
             public struct Kernel : IGraphKernel<KernelData, Ports>
             {
-                public void Execute(RenderContext ctx, KernelData data, ref Ports ports)
+                public void Execute(RenderContext ctx, in KernelData data, ref Ports ports)
                 {
                     ctx.Resolve(ref ports.Output) = data.Input;
+                    var portArray = ctx.Resolve(ref ports.OutputArray);
+                    for(int p = 0; p < portArray.Length; ++p)
+                        portArray[p] = data.Input + p;
                 }
             }
 
-            public void HandleMessage(in MessageContext ctx, in FloatButWithMode msg)
+            struct Node : INodeData, IMsgHandler<float>
             {
-                if (msg.Mode == KernelUpdateMode.GetKernelData)
-                    GetKernelData(ctx.Handle).Input = msg.Value;
-                else
-                    ctx.UpdateKernelData(new KernelData { Input = msg.Value });
+                public void HandleMessage(MessageContext ctx, in float msg)
+                {
+                    ctx.UpdateKernelData(new KernelData { Input = msg });
+                }
             }
         }
 
@@ -92,7 +78,7 @@ namespace Unity.DataFlowGraph.Tests
             [BurstCompile(CompileSynchronously = true)]
             struct Kernel : IGraphKernel<KernelData, Ports>
             {
-                public void Execute(RenderContext ctx, KernelData data, ref Ports ports)
+                public void Execute(RenderContext ctx, in KernelData data, ref Ports ports)
                 {
                     ctx.Resolve(ref ports.Output) = ctx.Resolve(ports.Input) * data.Input;
                 }
@@ -100,7 +86,7 @@ namespace Unity.DataFlowGraph.Tests
 
             struct Node : INodeData, IMsgHandler<float>
             {
-                public void HandleMessage(in MessageContext ctx, in float msg)
+                public void HandleMessage(MessageContext ctx, in float msg)
                 {
                     ctx.UpdateKernelData(new KernelData {Input = msg});
                 }
@@ -117,6 +103,20 @@ namespace Unity.DataFlowGraph.Tests
 
                 set.Destroy(node);
                 set.ReleaseGraphValue(value);
+            }
+        }
+
+        [Test]
+        public void CanCreate_GraphValueFromKernelPortArray()
+        {
+            using (var set = new NodeSet())
+            {
+                var node = set.Create<RenderPipe>();
+
+                var value = set.CreateGraphValueArray(node, RenderPipe.KernelPorts.OutputArray);
+
+                set.Destroy(node);
+                set.ReleaseGraphValueArray(value);
             }
         }
 
@@ -308,12 +308,12 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void GraphValue_OnAlreadyRoundtrippedNode_DefaultsValue_UntilAnotherUpdate([Values] KernelUpdateMode mode)
+        public void GraphValue_OnAlreadyRoundtrippedNode_DefaultsValue_UntilAnotherUpdate()
         {
             using (var set = new NodeSet())
             {
                 var node = set.Create<RenderPipe>();
-                set.SendMessage(node, RenderPipe.SimulationPorts.Input, new FloatButWithMode { Value = 3.14f, Mode = mode });
+                set.SendMessage(node, RenderPipe.SimulationPorts.Input, 3.14f);
                 set.Update();
 
                 var value = set.CreateGraphValue(node, RenderPipe.KernelPorts.Output);
@@ -328,34 +328,115 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void CanSynchronouslyPumpValues_ThroughMessages_AndRetrieve_AfterUpdate_ThroughGraphValue([Values] NodeSet.RenderExecutionModel computeType, [Values] KernelUpdateMode mode)
+        public void CanSynchronouslyPumpValues_ThroughMessages_AndRetrieve_AfterUpdate_ThroughGraphValue([Values] NodeSet.RenderExecutionModel computeType)
         {
             using (var set = new RenderGraphTests.PotentiallyJobifiedNodeSet(computeType))
             {
                 var node = set.Create<RenderPipe>();
                 var value = set.CreateGraphValue(node, RenderPipe.KernelPorts.Output);
+                set.SetPortArraySize(node, RenderPipe.KernelPorts.OutputArray, 2);
+                var arrayValue = set.CreateGraphValueArray(node, RenderPipe.KernelPorts.OutputArray);
 
                 for (int i = 1; i < 100; ++i)
                 {
-                    set.SendMessage(node, RenderPipe.SimulationPorts.Input, new FloatButWithMode { Value = i, Mode = mode });
+                    set.SendMessage(node, RenderPipe.SimulationPorts.Input, i);
 
                     set.Update();
 
                     var graphValue = set.GetValueBlocking(value);
+                    var arrayGraphValue = set.GetTestingValueBlocking(arrayValue);
 
                     Assert.AreEqual(i, graphValue);
+                    Assert.AreEqual(i + 1, arrayGraphValue[1]);
                 }
 
                 set.Destroy(node);
                 set.ReleaseGraphValue(value);
+                set.ReleaseGraphValueArray(arrayValue);
+            }
+        }
+
+        [Test]
+        public void GraphValueArrays_CanBeResolved_AndRemainValid_WhenResizing([Values] NodeSet.RenderExecutionModel computeType)
+        {
+            using (var set = new RenderGraphTests.PotentiallyJobifiedNodeSet(computeType))
+            {
+                var node = set.Create<RenderPipe>();
+
+                var values = new List<GraphValueArray<float>>();
+
+                for (int i = 1; i < 100; ++i)
+                {
+                    set.SetPortArraySize(node, RenderPipe.KernelPorts.OutputArray, i);
+                    values.Add(set.CreateGraphValueArray(node, RenderPipe.KernelPorts.OutputArray));
+
+                    set.SendMessage(node, RenderPipe.SimulationPorts.Input, i);
+
+                    set.Update();
+
+                    for (int j = 0; j < i; ++j)
+                        Assert.AreEqual(j + i, set.GetTestingValueBlocking(values[j])[j]);
+                }
+
+                for (int i = 98; i >= 0; --i)
+                {
+                    set.SetPortArraySize(node, RenderPipe.KernelPorts.OutputArray, i);
+
+                    set.SendMessage(node, RenderPipe.SimulationPorts.Input, i);
+
+                    set.Update();
+
+                    for (int j = 0; j < i; ++j)
+                        Assert.AreEqual(j + i, set.GetTestingValueBlocking(values[j])[j]);
+                }
+
+                set.Destroy(node);
+                foreach (var value in values)
+                    set.ReleaseGraphValueArray(value);
+            }
+        }
+
+        [Test]
+        public void GraphValueArray_ResolvedReturnType_HasCorrectSize()
+        {
+            using (var set = new NodeSet())
+            {
+                var node = set.Create<RenderPipe>();
+                set.SetPortArraySize(node, RenderPipe.KernelPorts.OutputArray, 3);
+                var value = set.CreateGraphValueArray(node, RenderPipe.KernelPorts.OutputArray);
+
+                set.Update();
+
+                float dummy;
+                Assert.AreEqual(3, set.GetTestingValueBlocking(value).Length);
+                Assert.DoesNotThrow(() => dummy = set.GetTestingValueBlocking(value)[2]);
+
+                set.SetPortArraySize(node, RenderPipe.KernelPorts.OutputArray, 2);
+
+                set.Update();
+
+                Assert.AreEqual(2, set.GetTestingValueBlocking(value).Length);
+
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+                Assert.Throws<IndexOutOfRangeException>(() => dummy = set.GetTestingValueBlocking(value)[2]);
+#endif
+
+                set.SetPortArraySize(node, RenderPipe.KernelPorts.OutputArray, 3);
+
+                set.Update();
+
+                Assert.AreEqual(3, set.GetTestingValueBlocking(value).Length);
+                Assert.DoesNotThrow(() => dummy = set.GetTestingValueBlocking(value)[2]);
+
+                set.Destroy(node);
+                set.ReleaseGraphValueArray(value);
             }
         }
 
         [Test]
         public void CanSynchronouslyReadValues_InTreeStructure_AndRetrieve_AfterUpdate_ThroughGraphValue(
             [Values] NodeSet.RenderExecutionModel computeType,
-            [Values] GraphValueType typedNess,
-            [Values] KernelUpdateMode mode)
+            [Values] GraphValueType typedNess)
         {
             using (var set = new RenderGraphTests.PotentiallyJobifiedNodeSet(computeType))
             {
@@ -376,26 +457,27 @@ namespace Unity.DataFlowGraph.Tests
                 }
                 else
                 {
-                    rootValue = set.CreateGraphValue<float>((NodeHandle)root, (OutputPortID)RenderPipe.KernelPorts.Output);
-                    childValue1 = set.CreateGraphValue<float>((NodeHandle)child1, (OutputPortID)RenderAdder.KernelPorts.Output);
-                    childValue2 = set.CreateGraphValue<float>((NodeHandle)child2, (OutputPortID)RenderAdder.KernelPorts.Output);
+                    rootValue = set.CreateGraphValue<float>(root, (OutputPortID)RenderPipe.KernelPorts.Output);
+                    childValue1 = set.CreateGraphValue<float>(child1, (OutputPortID)RenderAdder.KernelPorts.Output);
+                    childValue2 = set.CreateGraphValue<float>(child2, (OutputPortID)RenderAdder.KernelPorts.Output);
                 }
 
                 set.SendMessage(child1, RenderAdder.SimulationPorts.Scale, 10);
                 set.SendMessage(child2, RenderAdder.SimulationPorts.Scale, 20);
 
+                set.SetPortArraySize(root, RenderPipe.KernelPorts.OutputArray, 2);
                 set.Connect(root, RenderPipe.KernelPorts.Output, child1, RenderAdder.KernelPorts.Input);
-                set.Connect(root, RenderPipe.KernelPorts.Output, child2, RenderAdder.KernelPorts.Input);
+                set.Connect(root, RenderPipe.KernelPorts.OutputArray, 1, child2, RenderAdder.KernelPorts.Input);
 
                 for (int i = 0; i < 100; ++i)
                 {
-                    set.SendMessage(root, RenderPipe.SimulationPorts.Input, new FloatButWithMode { Value = i, Mode = mode });
+                    set.SendMessage(root, RenderPipe.SimulationPorts.Input, i);
 
                     set.Update();
 
                     Assert.AreEqual(i, set.GetValueBlocking(rootValue));
                     Assert.AreEqual(i * 10, set.GetValueBlocking(childValue1));
-                    Assert.AreEqual(i * 20, set.GetValueBlocking(childValue2));
+                    Assert.AreEqual((i + 1) * 20, set.GetValueBlocking(childValue2));
                 }
 
                 set.Destroy(root, child1, child2);
@@ -430,6 +512,51 @@ namespace Unity.DataFlowGraph.Tests
                 Assert.Throws<InvalidOperationException>(() => set.CreateGraphValue<float>((NodeHandle)node, (OutputPortID)NodeWithAllTypesOfPorts.KernelPorts.OutputScalar));
 
                 set.Destroy(node);
+            }
+        }
+
+        [Test]
+        public void CannotCreateWeaklyTypedGraphValue_WithPortArrayMismatch()
+        {
+            using (var set = new NodeSet())
+            {
+                var node = set.Create<RenderPipe>();
+                Assert.Throws<InvalidOperationException>(() => set.CreateGraphValue<float>(node, (OutputPortID)RenderPipe.KernelPorts.OutputArray));
+                Assert.Throws<InvalidOperationException>(() => set.CreateGraphValueArray<float>(node, (OutputPortID)RenderPipe.KernelPorts.Output));
+
+                set.Destroy(node);
+            }
+        }
+
+        [Test]
+        public void CreatingGraphValue_MarksNodeAsObservable([Values] NodeSet.RenderExecutionModel computeType)
+        {
+            using (var set = new RenderGraphTests.PotentiallyJobifiedNodeSet(computeType))
+            {
+                set.RendererOptimizations |= NodeSet.RenderOptimizations.ObservabilityCulling;
+
+                var root = set.Create<RenderPipe>();
+                GraphValue<float> rootValue;
+
+                set.Update();
+                set.DataGraph.SyncAnyRendering();
+
+                ref readonly var knode = ref set.DataGraph.GetInternalData()[root.VHandle.Index];
+
+                Assert.True((knode.RunState & RenderGraph.KernelNode.Flags.Enabled) == 0);
+                Assert.True((knode.RunState & RenderGraph.KernelNode.Flags.HasGraphValue) == 0);
+
+                rootValue = set.CreateGraphValue(root, RenderPipe.KernelPorts.Output);
+
+                set.Update();
+                set.DataGraph.SyncAnyRendering();
+
+                Assert.True((knode.RunState & RenderGraph.KernelNode.Flags.Enabled) != 0);
+                Assert.True((knode.RunState & RenderGraph.KernelNode.Flags.HasGraphValue) != 0);
+                Assert.True((knode.RunState & RenderGraph.KernelNode.Flags.Observable) != 0);
+                
+                set.Destroy(root);
+                set.ReleaseGraphValue(rootValue);
             }
         }
     }

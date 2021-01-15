@@ -40,7 +40,7 @@ namespace Unity.DataFlowGraph
        where TKernelPortDefinition : IKernelPortDefinition
        where TKernelData : IKernelData
     {
-        void Execute(RenderContext ctx, TKernelData data, ref TKernelPortDefinition ports);
+        void Execute(RenderContext ctx, in TKernelData data, ref TKernelPortDefinition ports);
     }
 
     unsafe struct RenderKernelFunction : IVirtualFunctionDeclaration

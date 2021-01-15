@@ -36,7 +36,7 @@ namespace Unity.DataFlowGraph.Tests
             [BurstCompile(CompileSynchronously = true)]
             struct Kernel : IGraphKernel<Data, KernelDefs>
             {
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports) { }
+                public void Execute(RenderContext ctx, in Data data, ref KernelDefs ports) { }
             }
         }
 
@@ -108,7 +108,7 @@ namespace Unity.DataFlowGraph.Tests
             {
                 int m_State;
 
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, in Data data, ref KernelDefs ports)
                 {
                     ctx.Resolve(ref ports.Output) = m_State++;
                 }
@@ -270,7 +270,7 @@ namespace Unity.DataFlowGraph.Tests
             [BurstCompile(CompileSynchronously = true)]
             struct Kernel : IGraphKernel<Data, KernelDefs>
             {
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports) =>
+                public void Execute(RenderContext ctx, in Data data, ref KernelDefs ports) =>
                     ctx.Resolve(ref ports.Output) = ctx.Resolve(ports.ValueInput) + 1;
             }
 
@@ -290,7 +290,7 @@ namespace Unity.DataFlowGraph.Tests
             [BurstCompile(CompileSynchronously = true)]
             struct Kernel : IGraphKernel<Data, KernelDefs>
             {
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports) => ctx.Resolve(ref ports.Output) = ctx.Resolve(ports.Input) * 3;
+                public void Execute(RenderContext ctx, in Data data, ref KernelDefs ports) => ctx.Resolve(ref ports.Output) = ctx.Resolve(ports.Input) * 3;
             }
 
             public OutputPortID OutputPort => (OutputPortID)KernelPorts.Output;
@@ -310,7 +310,7 @@ namespace Unity.DataFlowGraph.Tests
             [BurstCompile(CompileSynchronously = true)]
             struct Kernel : IGraphKernel<Data, KernelDefs>
             {
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports) => ctx.Resolve(ref ports.Output) = ctx.Resolve(ports.InputA) + ctx.Resolve(ports.InputB);
+                public void Execute(RenderContext ctx, in Data data, ref KernelDefs ports) => ctx.Resolve(ref ports.Output) = ctx.Resolve(ports.InputA) + ctx.Resolve(ports.InputB);
             }
 
             public OutputPortID OutputPort => (OutputPortID)KernelPorts.Output;
@@ -358,9 +358,9 @@ namespace Unity.DataFlowGraph.Tests
                 {
                     ref var value = ref set.GetOutputValues()[graph.RootGVs[root].Handle];
                     if (model == NodeSet.RenderExecutionModel.Synchronous)
-                        Assert.AreEqual(value.Dependency, new JobHandle());
+                        Assert.AreEqual(set.DataGraph.ComputeDependency(value), new JobHandle());
                     else
-                        Assert.AreNotEqual(value.Dependency, new JobHandle());
+                        Assert.AreNotEqual(set.DataGraph.ComputeDependency(value), new JobHandle());
 
                     var kernelNodes = set.DataGraph.GetInternalData();
                     Assert.True(RenderGraph.StillExists(ref kernelNodes, value.Source));
@@ -436,14 +436,14 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        public class UserStructValueNode
-            : SimulationKernelNodeDefinition<UserStructValueNode.SimPorts, UserStructValueNode.KernelDefs>
+        public class SideEffectUserStructValueNode
+            : SimulationKernelNodeDefinition<SideEffectUserStructValueNode.SimPorts, SideEffectUserStructValueNode.KernelDefs>
         {
             public struct KernelDefs : IKernelPortDefinition { }
 
             public struct SimPorts : ISimulationPortDefinition
             {
-                public MessageInput<UserStructValueNode, int> Input;
+                public MessageInput<SideEffectUserStructValueNode, int> Input;
             }
 
             public struct Data : IKernelData
@@ -462,12 +462,12 @@ namespace Unity.DataFlowGraph.Tests
                 public int value;
             }
 
-            [BurstCompile(CompileSynchronously = true)]
+            [BurstCompile(CompileSynchronously = true), CausesSideEffects]
             struct Kernel : IGraphKernel<Data, KernelDefs>
             {
                 SwappedData privateData;
 
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, in Data data, ref KernelDefs ports)
                 {
                     privateData.value = data.value + 1;
                 }
@@ -475,7 +475,7 @@ namespace Unity.DataFlowGraph.Tests
 
             struct Node : INodeData, IMsgHandler<int>
             {
-                public void HandleMessage(in MessageContext ctx, in int msg) => ctx.UpdateKernelData(new Data{ value = msg });
+                public void HandleMessage(MessageContext ctx, in int msg) => ctx.UpdateKernelData(new Data{ value = msg });
             }
         }
 
@@ -486,7 +486,7 @@ namespace Unity.DataFlowGraph.Tests
         {
             using (var set = new PotentiallyJobifiedNodeSet(model))
             {
-                var node = set.Create<UserStructValueNode>();
+                var node = set.Create<SideEffectUserStructValueNode>();
 
                 set.Update();
 
@@ -496,20 +496,39 @@ namespace Unity.DataFlowGraph.Tests
                 Assert.GreaterOrEqual(knodes.Count, 1);
 
                 ref var knode = ref knodes[node.VHandle.Index];
-                var kernelData = (UserStructValueNode.Data*)knode.Instance.Data;
-                var kernel = (UserStructValueNode.SwappedData*)knode.Instance.Kernel;
+                var kernelData = (SideEffectUserStructValueNode.Data*)knode.Instance.Data;
+                var kernel = (SideEffectUserStructValueNode.SwappedData*)knode.Instance.Kernel;
 
                 Assert.AreEqual(0, kernelData->value);
                 Assert.AreEqual(1, kernel->value);
 
                 for (int i = 0; i < 1300; i = i + 1)
                 {
-                    set.SendMessage(node, UserStructValueNode.SimulationPorts.Input, i);
+                    set.SendMessage(node, SideEffectUserStructValueNode.SimulationPorts.Input, i);
                     set.Update();
                     set.DataGraph.SyncAnyRendering();
                     Assert.AreEqual(i, kernelData->value);
                     Assert.AreEqual(i + 1, kernel->value);
                 }
+
+                set.Destroy(node);
+            }
+        }
+
+        [Test]
+        public unsafe void ImpureStructs_AreMarkedToBeRunning([Values] NodeSet.RenderExecutionModel model)
+        {
+            using (var set = new PotentiallyJobifiedNodeSet(model))
+            {
+                var node = set.Create<SideEffectUserStructValueNode>();
+
+                set.Update();
+
+                var knodes = set.DataGraph.GetInternalData();
+                set.DataGraph.SyncAnyRendering();
+
+                Assert.GreaterOrEqual(knodes.Count, 1);
+                Assert.True((knodes[node.VHandle.Index].RunState & RenderGraph.KernelNode.Flags.WillRun) != 0);
 
                 set.Destroy(node);
             }
@@ -565,7 +584,7 @@ namespace Unity.DataFlowGraph.Tests
 
             struct Kernel : IGraphKernel<Data, KernelDefs>
             {
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, in Data data, ref KernelDefs ports)
                 {
                     System.Threading.Thread.Sleep(25);
                     System.Threading.Interlocked.Increment(ref s_RenderCount);

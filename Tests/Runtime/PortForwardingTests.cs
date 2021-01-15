@@ -28,7 +28,7 @@ namespace Unity.DataFlowGraph.Tests
             {
                 public int Contents;
 
-                public void HandleMessage(in MessageContext ctx, in Message msg)
+                public void HandleMessage(MessageContext ctx, in Message msg)
                 {
                     Assert.That(ctx.Port == SimulationPorts.Input);
                     Contents += msg.Contents;
@@ -49,7 +49,7 @@ namespace Unity.DataFlowGraph.Tests
             {
                 public NodeHandle<InOutTestNode> ChildNode;
 
-                public void HandleMessage(in MessageContext ctx, in Message msg) => throw new NotImplementedException();
+                public void HandleMessage(MessageContext ctx, in Message msg) => throw new NotImplementedException();
 
                 public void Init(InitContext ctx)
                 {
@@ -188,7 +188,7 @@ namespace Unity.DataFlowGraph.Tests
             {
                 public NodeHandle<NestedUberNodeMiddle> Child;
 
-                public void HandleMessage(in MessageContext ctx, in Message msg) => throw new NotImplementedException();
+                public void HandleMessage(MessageContext ctx, in Message msg) => throw new NotImplementedException();
 
                 public void Init(InitContext ctx)
                 {
@@ -221,7 +221,7 @@ namespace Unity.DataFlowGraph.Tests
             {
                 public NodeHandle<InOutTestNode> Child;
 
-                public void HandleMessage(in MessageContext ctx, in Message msg) => throw new NotImplementedException();
+                public void HandleMessage(MessageContext ctx, in Message msg) => throw new NotImplementedException();
 
                 public void Init(InitContext ctx)
                 {
@@ -355,7 +355,7 @@ namespace Unity.DataFlowGraph.Tests
             {
                 public NodeHandle<InOutTestNode> Child;
 
-                public void HandleMessage(in MessageContext ctx, in Message msg) => throw new NotImplementedException();
+                public void HandleMessage(MessageContext ctx, in Message msg) => throw new NotImplementedException();
 
                 public void Init(InitContext ctx)
                 {
@@ -399,7 +399,7 @@ namespace Unity.DataFlowGraph.Tests
 
             struct Data : INodeData, IInit, IMsgHandler<Message> {
 
-                public void HandleMessage(in MessageContext ctx, in Message msg) => throw new NotImplementedException();
+                public void HandleMessage(MessageContext ctx, in Message msg) => throw new NotImplementedException();
 
                 public void Init(InitContext ctx)
                 {
@@ -472,38 +472,42 @@ namespace Unity.DataFlowGraph.Tests
                         inputPort = NodeWithAllTypesOfPorts.KernelPorts.InputScalar.Port;
                         outputPort = NodeWithAllTypesOfPorts.KernelPorts.OutputScalar.Port;
                         inputArrayPort = NodeWithAllTypesOfPorts.KernelPorts.InputArrayScalar.GetPortID();
+                        outputArrayPort = NodeWithAllTypesOfPorts.KernelPorts.OutputArrayScalar.GetPortID();
 
                         ctx.ForwardInput(NodeWithAllTypesOfPorts.KernelPorts.InputScalar, dest, NodeWithAllTypesOfPorts.KernelPorts.InputScalar);
                         ctx.ForwardOutput(NodeWithAllTypesOfPorts.KernelPorts.OutputScalar, dest, NodeWithAllTypesOfPorts.KernelPorts.OutputScalar);
                         ctx.ForwardInput(NodeWithAllTypesOfPorts.KernelPorts.InputArrayScalar, dest, NodeWithAllTypesOfPorts.KernelPorts.InputArrayScalar);
+                        ctx.ForwardOutput(NodeWithAllTypesOfPorts.KernelPorts.OutputArrayScalar, dest, NodeWithAllTypesOfPorts.KernelPorts.OutputArrayScalar);
                         break;
                     case PortTypes.DataBuffer:
                         inputPort = NodeWithAllTypesOfPorts.KernelPorts.InputBuffer.Port;
                         outputPort = NodeWithAllTypesOfPorts.KernelPorts.OutputBuffer.Port;
                         inputArrayPort = NodeWithAllTypesOfPorts.KernelPorts.InputArrayBuffer.GetPortID();
+                        outputArrayPort = NodeWithAllTypesOfPorts.KernelPorts.OutputArrayBuffer.GetPortID();
 
                         ctx.ForwardInput(NodeWithAllTypesOfPorts.KernelPorts.InputBuffer, dest, NodeWithAllTypesOfPorts.KernelPorts.InputBuffer);
                         ctx.ForwardOutput(NodeWithAllTypesOfPorts.KernelPorts.OutputBuffer, dest, NodeWithAllTypesOfPorts.KernelPorts.OutputBuffer);
                         ctx.ForwardInput(NodeWithAllTypesOfPorts.KernelPorts.InputArrayBuffer, dest, NodeWithAllTypesOfPorts.KernelPorts.InputArrayBuffer);
+                        ctx.ForwardOutput(NodeWithAllTypesOfPorts.KernelPorts.OutputArrayBuffer, dest, NodeWithAllTypesOfPorts.KernelPorts.OutputArrayBuffer);
                         break;
                     default:
                         throw new ArgumentOutOfRangeException(nameof(type), type, null);
                 }
 
                 Assert.IsTrue(ports.IsCreated);
-                Assert.AreEqual(type == PortTypes.DSL ? 2 : type == PortTypes.Message ? 4 : 3, ports.Count);
+                Assert.AreEqual(type == PortTypes.DSL ? 2 : 4, ports.Count);
 
                 var input = ports[0];
                 var output = ports[1];
 
                 Assert.IsTrue(input.IsInput);
                 Assert.AreEqual((NodeHandle)dest, input.Replacement);
-                Assert.AreEqual(inputPort.Storage.DFGPortIndex, input.OriginPortID);
+                Assert.AreEqual(inputPort.Storage.DFGPort, input.OriginPortID);
                 Assert.AreEqual(inputPort.Storage, input.ReplacedPortID);
 
                 Assert.IsFalse(output.IsInput);
                 Assert.AreEqual((NodeHandle)dest, output.Replacement);
-                Assert.AreEqual(outputPort.Storage.DFGPortIndex, output.OriginPortID);
+                Assert.AreEqual(outputPort.Storage.DFGPort, output.OriginPortID);
                 Assert.AreEqual(outputPort.Storage, output.ReplacedPortID);
 
                 if (type != PortTypes.DSL)
@@ -511,16 +515,14 @@ namespace Unity.DataFlowGraph.Tests
                     var inputArray = ports[2];
                     Assert.IsTrue(inputArray.IsInput);
                     Assert.AreEqual((NodeHandle)dest, inputArray.Replacement);
-                    Assert.AreEqual(inputArrayPort.Storage.DFGPortIndex, inputArray.OriginPortID);
+                    Assert.AreEqual(inputArrayPort.Storage.DFGPort, inputArray.OriginPortID);
                     Assert.AreEqual(inputArrayPort.Storage, inputArray.ReplacedPortID);
-                    if (type == PortTypes.Message)
-                    {
-                        var outputArray = ports[3];
-                        Assert.IsFalse(outputArray.IsInput);
-                        Assert.AreEqual((NodeHandle)dest, outputArray.Replacement);
-                        Assert.AreEqual(outputArrayPort.Storage.DFGPortIndex, outputArray.OriginPortID);
-                        Assert.AreEqual(outputArrayPort.Storage, outputArray.ReplacedPortID);
-                    }
+
+                    var outputArray = ports[3];
+                    Assert.IsFalse(outputArray.IsInput);
+                    Assert.AreEqual((NodeHandle)dest, outputArray.Replacement);
+                    Assert.AreEqual(outputArrayPort.Storage.DFGPort, outputArray.OriginPortID);
+                    Assert.AreEqual(outputArrayPort.Storage, outputArray.ReplacedPortID);
                 }
             }
             finally
@@ -544,7 +546,7 @@ namespace Unity.DataFlowGraph.Tests
             {
                 public NodeHandle<InOutTestNode> Child;
 
-                public void HandleMessage(in MessageContext ctx, in Message msg)
+                public void HandleMessage(MessageContext ctx, in Message msg)
                 {
                     ctx.EmitMessage(SimulationPorts.ForwardedOutput, msg);
                 }
@@ -627,9 +629,9 @@ namespace Unity.DataFlowGraph.Tests
                     ctx.ForwardInput(SimulationPorts.ForwardedInput, Child, InOutTestNode.SimulationPorts.Input);
                 }
 
-                public void HandleMessage(in MessageContext ctx, in bool _) => ctx.Set.Destroy(Child);
+                public void HandleMessage(MessageContext ctx, in bool _) => ctx.Set.Destroy(Child);
 
-                public void HandleMessage(in MessageContext ctx, in Message msg) => throw new NotImplementedException();
+                public void HandleMessage(MessageContext ctx, in Message msg) => throw new NotImplementedException();
             }
         }
 
@@ -684,7 +686,7 @@ namespace Unity.DataFlowGraph.Tests
                 }
 
                 public void Destroy(DestroyContext ctx) => ctx.Set.Destroy(Child);
-                public void HandleMessage(in MessageContext ctx, in Message msg) => throw new NotImplementedException();
+                public void HandleMessage(MessageContext ctx, in Message msg) => throw new NotImplementedException();
             }
         }
 
@@ -710,7 +712,7 @@ namespace Unity.DataFlowGraph.Tests
 
             struct Node : INodeData, IMsgHandler<Message>
             {
-                public void HandleMessage(in MessageContext ctx, in Message msg)
+                public void HandleMessage(MessageContext ctx, in Message msg)
                 {
                     if (ctx.Port == SimulationPorts.Input)
                         throw new AllIsGoodException();
@@ -754,7 +756,7 @@ namespace Unity.DataFlowGraph.Tests
             [BurstCompile(CompileSynchronously = true)]
             struct Kernel : IGraphKernel<KernelData, KernelDefs>
             {
-                public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, in KernelData data, ref KernelDefs ports)
                 {
                     throw new NotImplementedException();
                 }
@@ -764,7 +766,7 @@ namespace Unity.DataFlowGraph.Tests
             {
                 public NodeHandle<NodeWithAllTypesOfPorts> Child;
 
-                public void HandleMessage(in MessageContext ctx, in Message msg) => throw new NotImplementedException();
+                public void HandleMessage(MessageContext ctx, in Message msg) => throw new NotImplementedException();
 
                 public void Init(InitContext ctx)
                 {
@@ -868,7 +870,7 @@ namespace Unity.DataFlowGraph.Tests
                 set.SendTest(uber, (UberNodeWithDataForwarding.Data data) =>
                     Assert.AreEqual((NodeHandle)data.Child, value.Source.ToPublicHandle()));
 
-                ref readonly var traits = ref set.GetLLTraits()[set.Nodes[value.Source.Versioned].TraitsIndex].Resolve();
+                ref readonly var traits = ref set.GetNodeTraits(value.Source.ToPublicHandle());
                 ref readonly var outputPort = ref traits.DataPorts.FindOutputDataPort(NodeWithAllTypesOfPorts.KernelPorts.OutputBuffer.Port);
                 Assert.True(UnsafeUtilityExtensions.AddressOf(outputPort) == value.OutputDeclaration);
 
@@ -924,7 +926,7 @@ namespace Unity.DataFlowGraph.Tests
                 }
 
                 public void Destroy(DestroyContext ctx) => ctx.Set.Destroy(Child);
-                public void HandleMessage(in MessageContext ctx, in Message msg) => throw new NotImplementedException();
+                public void HandleMessage(MessageContext ctx, in Message msg) => throw new NotImplementedException();
             }
         }
 
@@ -954,7 +956,7 @@ namespace Unity.DataFlowGraph.Tests
 
             struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
             {
-                public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports) { }
+                public void Execute(RenderContext ctx, in KernelData data, ref KernelDefs ports) { }
             }
 
             internal struct Data : INodeData, IInit, IDestroy

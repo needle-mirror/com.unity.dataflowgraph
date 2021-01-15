@@ -11,7 +11,7 @@ namespace Unity.DataFlowGraph
         {
             public void Init(InitContext ctx) => throw new NotImplementedException();
             public void Destroy(DestroyContext ctx) => throw new NotImplementedException();
-            public void Update(in UpdateContext ctx) => throw new NotImplementedException();
+            public void Update(UpdateContext ctx) => throw new NotImplementedException();
         }
     }
 }

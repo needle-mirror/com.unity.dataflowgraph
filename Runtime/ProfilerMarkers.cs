@@ -17,13 +17,16 @@ namespace Unity.DataFlowGraph
             public static ProfilerMarker WaitForSchedulingDependenciesProfilerMarker = new ProfilerMarker("NodeSet.RenderGraph.WaitForSchedulingDependencies");
 
             // Jobs
+            public static ProfilerMarker ComputeCullingCandidates = new ProfilerMarker("NodeSet.RenderGraph.ComputeCullingCandidates");
+            public static ProfilerMarker SweepActiveState = new ProfilerMarker("NodeSet.RenderGraph.SweepActiveCullingNodeState");
+            public static ProfilerMarker IterativeObservabilityPass = new ProfilerMarker("NodeSet.RenderGraph.IterativeObservabilityPass");
+
             public static ProfilerMarker AnalyseLiveNodes = new ProfilerMarker("NodeSet.RenderGraph.AnalyseLiveNodes");
             public static ProfilerMarker UpdateInputDataPorts = new ProfilerMarker("NodeSet.RenderGraph.UpdateInputDataPorts");
+            public static ProfilerMarker ResizeOutputDataPortArrays = new ProfilerMarker("NodeSet.RenderGraph.ResizeOutputDataPortArrays");
             public static ProfilerMarker ResizeOutputDataBuffers = new ProfilerMarker("NodeSet.RenderGraph.ResizeOutputDataBuffers");
             public static ProfilerMarker ComputeValueChunkAndResizeBuffers = new ProfilerMarker("NodeSet.RenderGraph.ComputeValueChunkAndResizeBuffers");
             public static ProfilerMarker CopyValueDependencies = new ProfilerMarker("NodeSet.RenderGraph.CopyGraphValueDependencies");
-            public static ProfilerMarker AssignInputBatch = new ProfilerMarker("NodeSet.RenderGraph.AssignInputBatch");
-            public static ProfilerMarker RemoveInputBatch = new ProfilerMarker("NodeSet.RenderGraph.RemoveInputBatch");
         }
 
     }

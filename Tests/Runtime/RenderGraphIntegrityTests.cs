@@ -28,7 +28,9 @@ namespace Unity.DataFlowGraph.Tests
                 public DataInput<KernelNode, int> Input1, Input2;
                 public PortArray<DataInput<KernelNode, int>> InputArray;
                 public DataInput<KernelNode, int> Input3;
-                public DataOutput<KernelNode, int> Output1, Output2, Output3;
+                public DataOutput<KernelNode, int> Output1, Output2;
+                public PortArray<DataOutput<KernelNode, int>> OutputArray;
+                public DataOutput<KernelNode, int> Output3;
             }
 
             struct Data : IKernelData { }
@@ -36,7 +38,7 @@ namespace Unity.DataFlowGraph.Tests
             [BurstCompile(CompileSynchronously = true)]
             struct Kernel : IGraphKernel<Data, KernelDefs>
             {
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, in Data data, ref KernelDefs ports)
                 {
                     ctx.Resolve(ref ports.Output1) = ctx.Resolve(ports.Input1);
                     ctx.Resolve(ref ports.Output2) = ctx.Resolve(ports.Input2);
@@ -164,7 +166,7 @@ namespace Unity.DataFlowGraph.Tests
             [BurstCompile(CompileSynchronously = true)]
             struct Kernel : IGraphKernel<Data, KernelDefs>
             {
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, in Data data, ref KernelDefs ports)
                 {
                     var input = ctx.Resolve(ports.Input);
                     var output = ctx.Resolve(ref ports.Output);
@@ -488,9 +490,13 @@ namespace Unity.DataFlowGraph.Tests
                     set.Connect(parent, KernelNode.KernelPorts.Output3, child, KernelNode.KernelPorts.Input2, connectionType);
                     set.Connect(parent, KernelNode.KernelPorts.Output3, child, KernelNode.KernelPorts.Input3, connectionType);
 
-                    set.SetPortArraySize(child, KernelNode.KernelPorts.InputArray, 2);
-                    set.Connect(parent, KernelNode.KernelPorts.Output3, child, KernelNode.KernelPorts.InputArray, 0, connectionType);
-                    set.Connect(parent, KernelNode.KernelPorts.Output3, child, KernelNode.KernelPorts.InputArray, 1, connectionType);
+                    set.SetPortArraySize(parent, KernelNode.KernelPorts.OutputArray, 2);
+                    set.SetPortArraySize(child, KernelNode.KernelPorts.InputArray, 4);
+                    set.Connect(parent, KernelNode.KernelPorts.OutputArray, 1, child, KernelNode.KernelPorts.InputArray, 0, connectionType);
+                    set.Connect(parent, KernelNode.KernelPorts.OutputArray, 1, child, KernelNode.KernelPorts.InputArray, 1, connectionType);
+
+                    set.Connect(parent, KernelNode.KernelPorts.Output2, child, KernelNode.KernelPorts.InputArray, 2, connectionType);
+                    set.Connect(parent, KernelNode.KernelPorts.Output2, child, KernelNode.KernelPorts.InputArray, 3, connectionType);
 
                     parents.Add(parent);
                     nodes.Add(child);
@@ -511,8 +517,11 @@ namespace Unity.DataFlowGraph.Tests
                     Assert.IsTrue(childPorts.Input2.Ptr == UnsafeUtility.AddressOf(ref parentPorts.Output3.m_Value));
                     Assert.IsTrue(childPorts.Input3.Ptr == UnsafeUtility.AddressOf(ref parentPorts.Output3.m_Value));
 
-                    Assert.IsTrue(childPorts.InputArray.GetRef(0).Ptr == UnsafeUtility.AddressOf(ref parentPorts.Output3.m_Value));
-                    Assert.IsTrue(childPorts.InputArray.GetRef(1).Ptr == UnsafeUtility.AddressOf(ref parentPorts.Output3.m_Value));
+                    Assert.IsTrue(childPorts.InputArray.GetRef(0).Ptr == UnsafeUtility.AddressOf(ref parentPorts.OutputArray.GetRef(1)));
+                    Assert.IsTrue(childPorts.InputArray.GetRef(1).Ptr == UnsafeUtility.AddressOf(ref parentPorts.OutputArray.GetRef(1)));
+
+                    Assert.IsTrue(childPorts.InputArray.GetRef(2).Ptr == UnsafeUtility.AddressOf(ref parentPorts.Output2.m_Value));
+                    Assert.IsTrue(childPorts.InputArray.GetRef(3).Ptr == UnsafeUtility.AddressOf(ref parentPorts.Output2.m_Value));
                 }
 
                 nodes.ForEach(n => set.Destroy(n));
@@ -533,13 +542,15 @@ namespace Unity.DataFlowGraph.Tests
                     var child = set.Create<KernelNode>();
                     var parent = set.Create<KernelNode>();
 
+                    set.SetPortArraySize(parent, KernelNode.KernelPorts.OutputArray, 2);
                     set.Connect(parent, KernelNode.KernelPorts.Output1, child, KernelNode.KernelPorts.Input1, connectionType);
                     set.Connect(parent, KernelNode.KernelPorts.Output2, child, KernelNode.KernelPorts.Input2, connectionType);
-                    set.Connect(parent, KernelNode.KernelPorts.Output3, child, KernelNode.KernelPorts.Input3, connectionType);
+                    set.Connect(parent, KernelNode.KernelPorts.OutputArray, 0, child, KernelNode.KernelPorts.Input3, connectionType);
 
-                    set.SetPortArraySize(child, KernelNode.KernelPorts.InputArray, 2);
+                    set.SetPortArraySize(child, KernelNode.KernelPorts.InputArray, 3);
                     set.Connect(parent, KernelNode.KernelPorts.Output1, child, KernelNode.KernelPorts.InputArray, 0, connectionType);
                     set.Connect(parent, KernelNode.KernelPorts.Output2, child, KernelNode.KernelPorts.InputArray, 1, connectionType);
+                    set.Connect(parent, KernelNode.KernelPorts.OutputArray, 1, child, KernelNode.KernelPorts.InputArray, 2, connectionType);
 
                     parents.Add(parent);
                     nodes.Add(child);
@@ -558,10 +569,11 @@ namespace Unity.DataFlowGraph.Tests
 
                     Assert.IsTrue(childPorts.Input1.Ptr == UnsafeUtility.AddressOf(ref parentPorts.Output1.m_Value));
                     Assert.IsTrue(childPorts.Input2.Ptr == UnsafeUtility.AddressOf(ref parentPorts.Output2.m_Value));
-                    Assert.IsTrue(childPorts.Input3.Ptr == UnsafeUtility.AddressOf(ref parentPorts.Output3.m_Value));
+                    Assert.IsTrue(childPorts.Input3.Ptr == UnsafeUtility.AddressOf(ref parentPorts.OutputArray.GetRef(0)));
 
                     Assert.IsTrue(childPorts.InputArray.GetRef(0).Ptr == UnsafeUtility.AddressOf(ref parentPorts.Output1.m_Value));
                     Assert.IsTrue(childPorts.InputArray.GetRef(1).Ptr == UnsafeUtility.AddressOf(ref parentPorts.Output2.m_Value));
+                    Assert.IsTrue(childPorts.InputArray.GetRef(2).Ptr == UnsafeUtility.AddressOf(ref parentPorts.OutputArray.GetRef(1)));
                 }
 
                 nodes.ForEach(n => set.Destroy(n));
@@ -592,8 +604,10 @@ namespace Unity.DataFlowGraph.Tests
                     set.Connect(parent3, KernelNode.KernelPorts.Output3, child, KernelNode.KernelPorts.Input3, connectionType);
 
                     set.SetPortArraySize(child, KernelNode.KernelPorts.InputArray, 2);
-                    set.Connect(parent4, KernelNode.KernelPorts.Output1, child, KernelNode.KernelPorts.InputArray, 0, connectionType);
-                    set.Connect(parent5, KernelNode.KernelPorts.Output2, child, KernelNode.KernelPorts.InputArray, 1, connectionType);
+                    set.SetPortArraySize(parent4, KernelNode.KernelPorts.OutputArray, 1);
+                    set.SetPortArraySize(parent5, KernelNode.KernelPorts.OutputArray, 2);
+                    set.Connect(parent4, KernelNode.KernelPorts.OutputArray, 0, child, KernelNode.KernelPorts.InputArray, 0, connectionType);
+                    set.Connect(parent5, KernelNode.KernelPorts.OutputArray, 1, child, KernelNode.KernelPorts.InputArray, 1, connectionType);
 
                     parents.Add(parent1);
                     parents.Add(parent2);
@@ -624,12 +638,61 @@ namespace Unity.DataFlowGraph.Tests
                     Assert.IsTrue(childPorts.Input2.Ptr == UnsafeUtility.AddressOf(ref parent2Ports.Output2.m_Value));
                     Assert.IsTrue(childPorts.Input3.Ptr == UnsafeUtility.AddressOf(ref parent3Ports.Output3.m_Value));
 
-                    Assert.IsTrue(childPorts.InputArray.GetRef(0).Ptr == UnsafeUtility.AddressOf(ref parent4Ports.Output1.m_Value));
-                    Assert.IsTrue(childPorts.InputArray.GetRef(1).Ptr == UnsafeUtility.AddressOf(ref parent5Ports.Output2.m_Value));
+                    Assert.IsTrue(childPorts.InputArray.GetRef(0).Ptr == UnsafeUtility.AddressOf(ref parent4Ports.OutputArray.GetRef(0)));
+                    Assert.IsTrue(childPorts.InputArray.GetRef(1).Ptr == UnsafeUtility.AddressOf(ref parent5Ports.OutputArray.GetRef(1)));
                 }
 
                 nodes.ForEach(n => set.Destroy(n));
                 parents.ForEach(n => set.Destroy(n));
+            }
+        }
+
+        [Test]
+        public unsafe void ResizingConnectedDataPortArrays_CorrectlyPachesInputs_ToOutputs()
+        {
+            using (var set = new NodeSet())
+            {
+                var parent = set.Create<KernelNode>();
+                var child = set.Create<KernelNode>();
+
+                set.SetPortArraySize(parent, KernelNode.KernelPorts.OutputArray, 3);
+                set.SetPortArraySize(child, KernelNode.KernelPorts.InputArray, 3);
+                set.Connect(parent, KernelNode.KernelPorts.OutputArray, 1, child, KernelNode.KernelPorts.Input1);
+                set.Connect(parent, KernelNode.KernelPorts.OutputArray, 2, child, KernelNode.KernelPorts.InputArray, 1);
+                set.Connect(parent, KernelNode.KernelPorts.Output1, child, KernelNode.KernelPorts.InputArray, 2);
+
+                var lastArrayPtrs = new void*[4];
+                foreach (var size in new [] {10, 20, 30, 20, 10})
+                {
+                    set.SetPortArraySize(parent, KernelNode.KernelPorts.OutputArray, size);
+                    set.SetPortArraySize(child, KernelNode.KernelPorts.InputArray, size);
+
+                    set.Update();
+                    set.DataGraph.SyncAnyRendering();
+                    var knodes = set.DataGraph.GetInternalData();
+
+                    ref var childPorts = ref UnsafeUtility.AsRef<KernelNode.KernelDefs>(knodes[((NodeHandle)child).VHandle.Index].Instance.Ports);
+                    ref var parentPorts = ref UnsafeUtility.AsRef<KernelNode.KernelDefs>(knodes[((NodeHandle)parent).VHandle.Index].Instance.Ports);
+
+                    var arrayPtrs = new[]
+                    {
+                        UnsafeUtility.AddressOf(ref parentPorts.OutputArray.GetRef(1)),
+                        UnsafeUtility.AddressOf(ref parentPorts.OutputArray.GetRef(2)),
+                        childPorts.InputArray.GetRef(1).Ptr,
+                        childPorts.InputArray.GetRef(2).Ptr
+                    };
+
+                    Assert.IsTrue(arrayPtrs[0] == childPorts.Input1.Ptr);
+                    Assert.IsTrue(arrayPtrs[1] == arrayPtrs[2]);
+                    Assert.IsTrue(UnsafeUtility.AddressOf(ref parentPorts.Output1.m_Value) == arrayPtrs[3]);
+
+                    for (int i = 0; i < 3; ++i)
+                        Assert.IsFalse(lastArrayPtrs[i] == arrayPtrs[i]);
+
+                    lastArrayPtrs = arrayPtrs;
+                }
+
+                set.Destroy(parent, child);
             }
         }
 
@@ -652,7 +715,7 @@ namespace Unity.DataFlowGraph.Tests
             [BurstCompile(CompileSynchronously = true)]
             struct Kernel : IGraphKernel<Data, KernelDefs>
             {
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, in Data data, ref KernelDefs ports)
                 {
                 }
             }
@@ -913,7 +976,7 @@ namespace Unity.DataFlowGraph.Tests
             [BurstCompile(CompileSynchronously = true)]
             struct Kernel : IGraphKernel<Data, KernelDefs>
             {
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, in Data data, ref KernelDefs ports)
                 {
                 }
             }
@@ -1104,6 +1167,12 @@ namespace Unity.DataFlowGraph.Tests
                 Assert.Zero(ports.InputArrayBuffer.Size);
                 Assert.IsTrue(ports.InputArrayBuffer.Ptr == null);
 
+                Assert.Zero(ports.OutputArrayScalar.Size);
+                Assert.IsTrue(ports.OutputArrayScalar.Ptr == null);
+
+                Assert.Zero(ports.OutputArrayBuffer.Size);
+                Assert.IsTrue(ports.OutputArrayScalar.Ptr == null);
+
                 set.Destroy(node);
             }
         }
@@ -1116,6 +1185,8 @@ namespace Unity.DataFlowGraph.Tests
                 var node = set.Create<NodeWithAllTypesOfPorts>();
                 set.SetPortArraySize(node, NodeWithAllTypesOfPorts.KernelPorts.InputArrayScalar, (ushort)size);
                 set.SetPortArraySize(node, NodeWithAllTypesOfPorts.KernelPorts.InputArrayBuffer, (ushort)size);
+                set.SetPortArraySize(node, NodeWithAllTypesOfPorts.KernelPorts.OutputArrayScalar, (ushort)size);
+                set.SetPortArraySize(node, NodeWithAllTypesOfPorts.KernelPorts.OutputArrayBuffer, (ushort)size);
 
                 set.Update();
                 set.DataGraph.SyncAnyRendering();
@@ -1129,6 +1200,10 @@ namespace Unity.DataFlowGraph.Tests
                 Assert.AreEqual(size == 0, ports.InputArrayScalar.Ptr == null);
                 Assert.AreEqual((ushort)size, ports.InputArrayBuffer.Size);
                 Assert.AreEqual(size == 0, ports.InputArrayBuffer.Ptr == null);
+                Assert.AreEqual((ushort)size, ports.OutputArrayScalar.Size);
+                Assert.AreEqual(size == 0, ports.OutputArrayScalar.Ptr == null);
+                Assert.AreEqual((ushort)size, ports.OutputArrayBuffer.Size);
+                Assert.AreEqual(size == 0, ports.OutputArrayBuffer.Ptr == null);
 
                 set.Destroy(node);
             }
@@ -1142,11 +1217,15 @@ namespace Unity.DataFlowGraph.Tests
                 var node = set.Create<NodeWithAllTypesOfPorts>();
                 set.SetPortArraySize(node, NodeWithAllTypesOfPorts.KernelPorts.InputArrayScalar, (ushort)initialSize);
                 set.SetPortArraySize(node, NodeWithAllTypesOfPorts.KernelPorts.InputArrayBuffer, (ushort)initialSize);
+                set.SetPortArraySize(node, NodeWithAllTypesOfPorts.KernelPorts.OutputArrayScalar, (ushort)initialSize);
+                set.SetPortArraySize(node, NodeWithAllTypesOfPorts.KernelPorts.OutputArrayBuffer, (ushort)initialSize);
 
                 set.Update();
 
                 set.SetPortArraySize(node, NodeWithAllTypesOfPorts.KernelPorts.InputArrayScalar, (ushort)finalSize);
                 set.SetPortArraySize(node, NodeWithAllTypesOfPorts.KernelPorts.InputArrayBuffer, (ushort)finalSize);
+                set.SetPortArraySize(node, NodeWithAllTypesOfPorts.KernelPorts.OutputArrayScalar, (ushort)finalSize);
+                set.SetPortArraySize(node, NodeWithAllTypesOfPorts.KernelPorts.OutputArrayBuffer, (ushort)finalSize);
 
                 set.Update();
                 set.DataGraph.SyncAnyRendering();
@@ -1160,6 +1239,10 @@ namespace Unity.DataFlowGraph.Tests
                 Assert.AreEqual(finalSize == 0, ports.InputArrayScalar.Ptr == null);
                 Assert.AreEqual((ushort)finalSize, ports.InputArrayBuffer.Size);
                 Assert.AreEqual(finalSize == 0, ports.InputArrayBuffer.Ptr == null);
+                Assert.AreEqual((ushort)finalSize, ports.OutputArrayScalar.Size);
+                Assert.AreEqual(finalSize == 0, ports.OutputArrayScalar.Ptr == null);
+                Assert.AreEqual((ushort)finalSize, ports.OutputArrayBuffer.Size);
+                Assert.AreEqual(finalSize == 0, ports.OutputArrayBuffer.Ptr == null);
 
                 set.Destroy(node);
             }

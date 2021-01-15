@@ -18,7 +18,7 @@
 
         public struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
         {
-            public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports) { }
+            public void Execute(RenderContext ctx, in KernelData data, ref KernelDefs ports) { }
         }
     }
 
@@ -31,60 +31,7 @@
 
         public struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
         {
-            public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports) { }
+            public void Execute(RenderContext ctx, in KernelData data, ref KernelDefs ports) { }
         }
     }
-
-    class Scaffold_1_Node : NodeDefinition<Scaffold_2_Node.SimPorts>
-    {
-        public struct SimPorts : ISimulationPortDefinition { }
-    }
-
-    class Scaffold_2_Node : NodeDefinition<Scaffold_2_Node.NodeData, Scaffold_2_Node.SimPorts>
-    {
-        public struct SimPorts : ISimulationPortDefinition { }
-        public struct NodeData : INodeData { }
-    }
-
-    class Scaffold_3_Node : NodeDefinition<Scaffold_3_Node.KernelData, Scaffold_3_Node.KernelDefs, Scaffold_3_Node.GraphKernel>
-    {
-        public struct KernelDefs : IKernelPortDefinition { }
-
-        public struct KernelData : IKernelData { }
-
-        public struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
-        {
-            public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports) { }
-        }
-    }
-
-    class Scaffold_4_Node : NodeDefinition<Scaffold_4_Node.NodeData, Scaffold_4_Node.KernelData, Scaffold_4_Node.KernelDefs, Scaffold_4_Node.GraphKernel>
-    {
-        public struct NodeData : INodeData { }
-
-        public struct KernelDefs : IKernelPortDefinition { }
-
-        public struct KernelData : IKernelData { }
-
-        public struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
-        {
-            public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports) { }
-        }
-    }
-
-    class Scaffold_5_Node : NodeDefinition<Scaffold_5_Node.NodeData, Scaffold_5_Node.SimPorts, Scaffold_5_Node.KernelData, Scaffold_5_Node.KernelDefs, Scaffold_5_Node.GraphKernel>
-    {
-        public struct NodeData : INodeData { }
-        public struct SimPorts : ISimulationPortDefinition { }
-
-        public struct KernelDefs : IKernelPortDefinition { }
-
-        public struct KernelData : IKernelData { }
-
-        public struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
-        {
-            public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports) { }
-        }
-    }
-        
 }

@@ -1,4 +1,5 @@
-﻿using Mono.Cecil;
+﻿using System;
+using Mono.Cecil;
 
 namespace Unity.DataFlowGraph.CodeGen
 {
@@ -52,6 +53,7 @@ namespace Unity.DataFlowGraph.CodeGen
         /// <summary>
         /// Using both old/new handlers
         /// </summary>
+        [Obsolete]
         public void DFG_UE_10(IDefinitionContext context, MemberLocationContext oldStyleHandler)
         {
             Error(nameof(DFG_UE_10), context,$"Definition declares new style handlers, but still implements old style handler", oldStyleHandler);
@@ -80,6 +82,7 @@ namespace Unity.DataFlowGraph.CodeGen
             Error(nameof(DFG_UE_14), context, $"{portDefinitionInterface} must be defined within the node definition scope", seq);
         }
 
+        [Obsolete]
         public void DFG_UE_15(IDefinitionContext context, TypeReference newInterface, MemberLocationContext oldStyleHandler)
         {
             Error(nameof(DFG_UE_15), context, $"New-style definition implementing old style handler ({newInterface.PrettyName()} should be implemented on an {nameof(INodeData)} struct within the definition)", oldStyleHandler);

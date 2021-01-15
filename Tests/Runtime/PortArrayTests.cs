@@ -1,14 +1,18 @@
 using System;
+using System.Collections.Generic;
 using NUnit.Framework;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
+using UnityEngine.Scripting;
 using static Unity.DataFlowGraph.Tests.ComponentNodeSetTests;
 
 namespace Unity.DataFlowGraph.Tests
 {
-    using TestBytePortArray = PortArray<DataInput<InvalidDefinitionSlot, byte>>;
-    using TestDoublePortArray = PortArray<DataInput<InvalidDefinitionSlot, double>>;
+    using TestInputBytePortArray = PortArray<DataInput<InvalidDefinitionSlot, byte>>;
+    using TestInputDoublePortArray = PortArray<DataInput<InvalidDefinitionSlot, double>>;
+    using TestOutputBytePortArray = PortArray<DataOutput<InvalidDefinitionSlot, byte>>;
+    using TestOutputDoublePortArray = PortArray<DataOutput<InvalidDefinitionSlot, double>>;
 
     public class PortArrayTests
     {
@@ -32,6 +36,7 @@ namespace Unity.DataFlowGraph.Tests
                 public PortArray<DataInput<ArrayIONode, Buffer<int>>> InputBufferOfInts;
                 public PortArray<DataInput<ArrayIONode, Aggregate>> InputAggregate;
 
+                public PortArray<DataOutput<ArrayIONode, int>> OutputInt;
                 public DataOutput<ArrayIONode, int> SumInt;
                 public DataOutput<ArrayIONode, Buffer<int>> OutputBufferOfInts;
                 public DataOutput<ArrayIONode, Aggregate> OutputAggregate;
@@ -42,7 +47,7 @@ namespace Unity.DataFlowGraph.Tests
             [BurstCompile(CompileSynchronously = true)]
             struct Kernel : IGraphKernel<EmptyKernelData, KernelDefs>
             {
-                public void Execute(RenderContext ctx, EmptyKernelData data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, in EmptyKernelData data, ref KernelDefs ports)
                 {
                     ref var outInt = ref ctx.Resolve(ref ports.SumInt);
                     outInt = 0;
@@ -81,7 +86,7 @@ namespace Unity.DataFlowGraph.Tests
             {
                 public (int, int) LastReceivedMsg;
 
-                public void HandleMessage(in MessageContext ctx, in int msg)
+                public void HandleMessage(MessageContext ctx, in int msg)
                 {
                     LastReceivedMsg = (ctx.ArrayIndex, msg);
                     ctx.EmitMessage(SimulationPorts.Outputs, ctx.ArrayIndex, msg);
@@ -324,48 +329,58 @@ namespace Unity.DataFlowGraph.Tests
             (ushort)1u,
             (ushort)4u,
             (ushort)13u,
-            TestBytePortArray.MaxSize >> 1
+            TestInputBytePortArray.MaxSize >> 1
         };
 
+        unsafe void ResizeNonBufferOutputArray(ref UntypedDataOutputPortArray array, ushort newSize, SimpleType elementType, Allocator allocator)
+        {
+            // Note: output array resizing requires intimate knowledge of Buffer<T> layout within the array element type.
+            // Since we know we are dealing with a type that does not contain any buffers, provide the minimal information
+            // required to achieve the resize using a fake DataPortDeclarations.OutputDeclaration.
+            var portArrayDecl =
+                new DataPortDeclarations.OutputDeclaration(elementType, default, 0, (0, 0), true);
+            array.Resize(null, default, portArrayDecl, default, newSize, allocator);
+        }
+
+        unsafe void FreeNonBufferOutputArray(ref UntypedDataOutputPortArray array, Allocator allocator)
+        {
+            // Note: output array deallocation requires intimate knowledge of Buffer<T> layout within the array element type.
+            // Since we know we are dealing with a type that does not contain any buffers, provide the minimal information
+            // required to achieve the deallocation using a fake DataPortDeclarations.OutputDeclaration.
+            var portArrayDecl =
+                new DataPortDeclarations.OutputDeclaration(default, default, 0, (0, 0), true);
+            array.Free(null, default, portArrayDecl, allocator);
+        }
+
         [Test]
-        public unsafe void CanResize_DefaultConstructed_DataPortArray([ValueSource("s_ResizeParameters")] UInt16 size)
+        public unsafe void CanResize_DefaultConstructed_DataPortArrays([ValueSource("s_ResizeParameters")] UInt16 size)
         {
             using (var sd = new RenderGraph.SharedData(SimpleType.MaxAlignment))
             {
-                var array = new TestBytePortArray();
+                var inputArray = new TestInputBytePortArray();
+                var untypedInput = inputArray.AsUntyped();
 
-                array.Resize(size, sd.BlankPage, Allocator.Temp);
-                array.Free(Allocator.Temp);
+                untypedInput.Resize(size, sd.BlankPage, Allocator.Temp);
+                untypedInput.Free(Allocator.Temp);
+
+                var outputArray = new TestOutputBytePortArray();
+                var untypedOutput = outputArray.AsUntyped();
+
+                ResizeNonBufferOutputArray(ref untypedOutput, size, outputArray.GetElementType(), Allocator.Temp);
+                FreeNonBufferOutputArray(ref untypedOutput, Allocator.Temp);
             }
         }
-
-#if DFG_ASSERTIONS
-        [Test]
-        public unsafe void CannotSizeADataPortArray_ToMaxSize()
-        {
-            using (var sd = new RenderGraph.SharedData(SimpleType.MaxAlignment))
-            {
-                var array = new TestBytePortArray();
-
-                Assert.Throws<AssertionException>(
-                    () => array.Resize(TestBytePortArray.MaxSize, sd.BlankPage, Allocator.Temp)
-                );
-
-                array.Free(Allocator.Temp);
-            }
-        }
-#endif
 
         static int[] s_InvalidResizeParameters = new int[] {
-            -TestBytePortArray.MaxSize - 2,
-            -TestBytePortArray.MaxSize - 1,
-            -TestBytePortArray.MaxSize,
-            -TestBytePortArray.MaxSize + 1,
+            -TestInputBytePortArray.MaxSize - 2,
+            -TestInputBytePortArray.MaxSize - 1,
+            -TestInputBytePortArray.MaxSize,
+            -TestInputBytePortArray.MaxSize + 1,
             -2,
             -1,
-            TestBytePortArray.MaxSize,
-            TestBytePortArray.MaxSize + 1,
-            TestBytePortArray.MaxSize << 1
+            TestInputBytePortArray.MaxSize,
+            TestInputBytePortArray.MaxSize + 1,
+            TestInputBytePortArray.MaxSize << 1
         };
 
         [Test]
@@ -378,24 +393,26 @@ namespace Unity.DataFlowGraph.Tests
                 Assert.Throws<ArgumentException>(() => set.SetPortArraySize(node, ArrayIONode.SimulationPorts.Inputs, size));
                 Assert.Throws<ArgumentException>(() => set.SetPortArraySize(node, ArrayIONode.SimulationPorts.Outputs, size));
                 Assert.Throws<ArgumentException>(() => set.SetPortArraySize(node, ArrayIONode.KernelPorts.InputInt, size));
+                Assert.Throws<ArgumentException>(() => set.SetPortArraySize(node, ArrayIONode.KernelPorts.OutputInt, size));
 
                 set.Destroy(node);
             }
         }
 
         [Test]
-        public unsafe void CanContinuouslyResize_TheSameDataPortArray()
+        public unsafe void CanContinuouslyResize_TheSameDataInputPortArray()
         {
             void* blank = (void*)0x10;
             const int k_Times = 100;
             var rng = new Mathematics.Random(seed: 0xFF);
-            var array = new TestBytePortArray();
+            var array = new TestInputBytePortArray();
+            ref var untyped = ref array.AsUntyped();
 
             for (int i = 0; i < k_Times; ++i)
             {
-                var size = (UInt16)rng.NextUInt(0, TestBytePortArray.MaxSize);
+                var size = (UInt16)rng.NextUInt(0, TestInputBytePortArray.MaxSize);
 
-                array.Resize(size, blank, Allocator.Temp);
+                untyped.Resize(size, blank, Allocator.Temp);
 
                 Assert.AreEqual(size, array.Size);
                 Assert.IsTrue(array.Ptr != null);
@@ -404,7 +421,28 @@ namespace Unity.DataFlowGraph.Tests
                     Assert.IsTrue(blank == array.GetRef(n).Ptr);
             }
 
-            array.Free(Allocator.Temp);
+            untyped.Free(Allocator.Temp);
+        }
+
+        [Test]
+        public unsafe void CanContinuouslyResize_TheSameDataOutputPortArray()
+        {
+            const int k_Times = 100;
+            var rng = new Mathematics.Random(seed: 0xFF);
+            var array = new TestOutputBytePortArray();
+            ref var untyped = ref array.AsUntyped();
+
+            for (int i = 0; i < k_Times; ++i)
+            {
+                var size = (UInt16)rng.NextUInt(0, TestInputBytePortArray.MaxSize);
+
+                ResizeNonBufferOutputArray(ref untyped, size, array.GetElementType(), Allocator.Temp);
+
+                Assert.AreEqual(size, array.Size);
+                Assert.IsTrue(array.Ptr != null);
+            }
+
+            FreeNonBufferOutputArray(ref untyped, Allocator.Temp);
         }
 
         [Test]
@@ -412,61 +450,54 @@ namespace Unity.DataFlowGraph.Tests
         {
             const int k_Times = 100;
             var rng = new Mathematics.Random(seed: 0xFF);
-            var array = new TestBytePortArray();
+            var array = new TestInputBytePortArray();
+            ref var untyped = ref array.AsUntyped();
 
             for (int i = 0; i < k_Times; ++i)
             {
                 var oldSize = array.Size;
-                var size = (UInt16)rng.NextUInt(0, TestBytePortArray.MaxSize);
+                var size = (UInt16)rng.NextUInt(0, TestInputBytePortArray.MaxSize);
 
-                array.Resize(size, (void*)(i * 8), Allocator.Temp);
+                untyped.Resize(size, (void*)(i * 8), Allocator.Temp);
 
                 for (ushort n = oldSize; n < size; ++n)
                     Assert.IsTrue((void*)(i * 8) == array.GetRef(n).Ptr);
 
             }
 
-            array.Free(Allocator.Temp);
+            untyped.Free(Allocator.Temp);
         }
 
         [Test]
-        public unsafe void CanResizeDataInputPortArray_ThroughUntypedAlias()
+        public unsafe void ResizingPortArrays_ToSameSize_DoesNotReallocate()
         {
-            var original = new TestDoublePortArray();
+            var inputArray = new TestInputDoublePortArray();
+            ref var inputUntyped = ref inputArray.AsUntyped();
             void* blank = (void*)0x10;
 
-            original.Resize(27, blank, Allocator.Temp);
+            inputUntyped.Resize(27, blank, Allocator.Temp);
+            var oldPtr = inputArray.Ptr;
+            inputUntyped.Resize(27, blank, Allocator.Temp);
+            Assert.IsTrue(oldPtr == inputArray.Ptr);
 
-            Assert.AreEqual(27, original.Size);
+            inputUntyped.Free(Allocator.Temp);
 
-            ref var alias = ref original.AsUntyped();
+            var outputArray = new TestOutputDoublePortArray();
+            ref var outputUntyped = ref outputArray.AsUntyped();
 
-            alias.Resize(53, blank, Allocator.Temp);
+            var portArrayDecl =
+                new DataPortDeclarations.OutputDeclaration(outputArray.GetElementType(), outputArray.GetElementType(), 0, (0, 0), true);
 
-            Assert.AreEqual(53, original.Size);
+            outputUntyped.Resize(null,default, portArrayDecl, default, 27, Allocator.Temp);
+            oldPtr = outputArray.Ptr;
+            outputUntyped.Resize(null,default, portArrayDecl, default, 27, Allocator.Temp);
+            Assert.IsTrue(oldPtr == outputArray.Ptr);
 
-            for (ushort n = 0; n < original.Size; ++n)
-                Assert.IsTrue(blank == original.GetRef(n).Ptr);
-
-            original.Free(Allocator.Temp);
-        }
-
-        [Test]
-        public unsafe void ResizingPortArray_ToSameSize_DoesNotReallocate()
-        {
-            var array = new TestDoublePortArray();
-            void* blank = (void*)0x10;
-
-            array.Resize(27, blank, Allocator.Temp);
-            var oldPtr = array.Ptr;
-            array.Resize(27, blank, Allocator.Temp);
-            Assert.IsTrue(oldPtr == array.Ptr);
-
-            array.Free(Allocator.Temp);
+            outputUntyped.Free(null, default, portArrayDecl, Allocator.Temp);
         }
 
         public class UberNodeWithPortArrayForwarding
-            : NodeDefinition<UberNodeWithPortArrayForwarding.Data, UberNodeWithPortArrayForwarding.SimPorts, UberNodeWithPortArrayForwarding.KernelData, UberNodeWithPortArrayForwarding.KernelDefs, UberNodeWithPortArrayForwarding.Kernel>, IMsgHandler<int>
+            : SimulationKernelNodeDefinition<UberNodeWithPortArrayForwarding.SimPorts, UberNodeWithPortArrayForwarding.KernelDefs>
         {
             public struct SimPorts : ISimulationPortDefinition
             {
@@ -485,40 +516,39 @@ namespace Unity.DataFlowGraph.Tests
 
             }
 
-            public struct Data : INodeData
-            {
-                public NodeHandle<ArrayIONode> Child;
-            }
-
-            public struct KernelData : IKernelData { }
+            struct KernelData : IKernelData { }
 
             [BurstCompile(CompileSynchronously = true)]
-            public struct Kernel : IGraphKernel<KernelData, KernelDefs>
+            struct Kernel : IGraphKernel<KernelData, KernelDefs>
             {
-                public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, in KernelData data, ref KernelDefs ports)
                 {
                 }
             }
 
-            protected internal override void Init(InitContext ctx)
+            public struct Data : INodeData, IInit, IDestroy, IMsgHandler<int>
             {
-                ref var data = ref GetNodeData(ctx.Handle);
-                data.Child = Set.Create<ArrayIONode>();
+                public NodeHandle<ArrayIONode> Child;
 
-                ctx.ForwardInput(SimulationPorts.ForwardedMsgInputs, data.Child, ArrayIONode.SimulationPorts.Inputs);
-                ctx.ForwardInput(KernelPorts.ForwardedDataInput, data.Child, ArrayIONode.KernelPorts.InputInt);
-                ctx.ForwardOutput(SimulationPorts.ForwardedMsgOutputs, data.Child, ArrayIONode.SimulationPorts.Outputs);
-                ctx.ForwardOutput(KernelPorts.ForwardedDataOutputSum, data.Child, ArrayIONode.KernelPorts.SumInt);
-            }
+                public void Init(InitContext ctx)
+                {
+                    Child = ctx.Set.Create<ArrayIONode>();
 
-            protected internal override void Destroy(DestroyContext ctx)
-            {
-                Set.Destroy(GetNodeData(ctx.Handle).Child);
-            }
+                    ctx.ForwardInput(SimulationPorts.ForwardedMsgInputs, Child, ArrayIONode.SimulationPorts.Inputs);
+                    ctx.ForwardInput(KernelPorts.ForwardedDataInput, Child, ArrayIONode.KernelPorts.InputInt);
+                    ctx.ForwardOutput(SimulationPorts.ForwardedMsgOutputs, Child, ArrayIONode.SimulationPorts.Outputs);
+                    ctx.ForwardOutput(KernelPorts.ForwardedDataOutputSum, Child, ArrayIONode.KernelPorts.SumInt);
+                }
 
-            public void HandleMessage(in MessageContext ctx, in int msg)
-            {
-                throw new NotImplementedException();
+                public void Destroy(DestroyContext ctx)
+                {
+                    ctx.Set.Destroy(Child);
+                }
+
+                public void HandleMessage(MessageContext ctx, in int msg)
+                {
+                    throw new NotImplementedException();
+                }
             }
         }
 
@@ -594,6 +624,126 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
+        [Test]
+        public void CanConnectPortArray_ToEntityNode([Values] FixtureSystemType systemType)
+        {
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
+            {
+                var entity = f.EM.CreateEntity(typeof(ECSInt));
+                var entityNode = f.Set.CreateComponentNode(entity);
+                var outputNode = f.Set.Create<KernelArrayOutputNode>();
+
+                for(int i = 1; i < 10; ++i)
+                {
+                    f.Set.SetPortArraySize(outputNode, KernelArrayOutputNode.KernelPorts.Outputs, (ushort)i);
+
+                    if (i % 2 == 1) // only change connectivity every other update to ensure patching works independently of topology changes.
+                        f.Set.Connect(outputNode, KernelArrayOutputNode.KernelPorts.Outputs, i - 1, entityNode, ComponentNode.Input<ECSInt>());
+
+                    f.System.Update();
+
+                    Assert.AreEqual((i-1) / 2 * 2 + i, f.EM.GetComponentData<ECSInt>(entity).Value);
+
+                    if (i % 2 == 0)
+                        f.Set.Disconnect(outputNode, KernelArrayOutputNode.KernelPorts.Outputs, i - 2, entityNode, ComponentNode.Input<ECSInt>());
+                }
+
+                f.Set.Destroy(entityNode, outputNode);
+            }
+        }
+
+        public interface ITestable
+        {
+            void Test();
+        }
+
+        public class DataOutputPortArrays_HaveExpectedAlignment_Node<T>
+            : KernelNodeDefinition<DataOutputPortArrays_HaveExpectedAlignment_Node<T>.Ports>
+            , ITestable
+                where T : struct
+        {
+            const int k_PortArraySize = 2;
+
+            public struct Ports : IKernelPortDefinition
+            {
+                public PortArray<DataOutput<DataOutputPortArrays_HaveExpectedAlignment_Node<T>, T>> Array;
+                public DataOutput<DataOutputPortArrays_HaveExpectedAlignment_Node<T>, long> FirstItemPtr, SecondItemPtr;
+            }
+
+            struct EmptyKernelData : IKernelData {}
+
+            [BurstCompile(CompileSynchronously = true)]
+            struct Kernel : IGraphKernel<EmptyKernelData, Ports>
+            {
+                public unsafe void Execute(RenderContext ctx, in EmptyKernelData data, ref Ports ports)
+                {
+                    var resolved = ctx.Resolve(ref ports.Array);
+                    ctx.Resolve(ref ports.FirstItemPtr) = (long)resolved.GetUnsafePtr();
+                    ctx.Resolve(ref ports.SecondItemPtr) = (long)resolved.GetUnsafePtr() + resolved.Stride;
+                }
+            }
+
+            public override string ToString() => typeof(T).Name;
+
+            public void Test()
+            {
+                using (var set = new NodeSet())
+                {
+                    var node = set.Create<DataOutputPortArrays_HaveExpectedAlignment_Node<T>>();
+                    set.SetPortArraySize(node, KernelPorts.Array, k_PortArraySize);
+                    var gvs = new[]
+                    {
+                        set.CreateGraphValue(node, KernelPorts.FirstItemPtr),
+                        set.CreateGraphValue(node, KernelPorts.SecondItemPtr)
+                    };
+
+                    set.Update();
+                    var ptrs = new[] {set.GetValueBlocking(gvs[0]), set.GetValueBlocking(gvs[1])};
+
+                    var simpleType = SimpleType.Create<bool>();
+                    var expectedType = KernelPorts.Array.GetElementType();
+                    for (int i = 0; i < k_PortArraySize; ++i)
+                    {
+                        Assert.Zero(ptrs[i] % DataInputStorage.MinimumInputAlignment);
+                        Assert.Zero(ptrs[i] % simpleType.Align);
+                        Assert.Zero(ptrs[i] % expectedType.Align);
+                    }
+
+                    Assert.AreEqual(expectedType.Size, ptrs[1] - ptrs[0]);
+
+                    set.ReleaseGraphValue(gvs[0]);
+                    set.ReleaseGraphValue(gvs[1]);
+                    set.Destroy(node);
+                }
+            }
+        }
+
+        [Preserve]
+        public static IEnumerable<ITestable> DataOutputPortArrays_HaveExpectedAlignment_TestCases()
+        {
+            yield return new DataOutputPortArrays_HaveExpectedAlignment_Node<bool>();
+            yield return new DataOutputPortArrays_HaveExpectedAlignment_Node<byte>();
+            yield return new DataOutputPortArrays_HaveExpectedAlignment_Node<short>();
+            yield return new DataOutputPortArrays_HaveExpectedAlignment_Node<int>();
+            yield return new DataOutputPortArrays_HaveExpectedAlignment_Node<float>();
+            yield return new DataOutputPortArrays_HaveExpectedAlignment_Node<double>();
+            yield return new DataOutputPortArrays_HaveExpectedAlignment_Node<long>();
+            yield return new DataOutputPortArrays_HaveExpectedAlignment_Node<LowLevelNodeTraitsTests.ThreeByteStruct>();
+            yield return new DataOutputPortArrays_HaveExpectedAlignment_Node<LowLevelNodeTraitsTests.ShortAndByteStruct>();
+            yield return new DataOutputPortArrays_HaveExpectedAlignment_Node<LowLevelNodeTraitsTests.PointerStruct>();
+            yield return new DataOutputPortArrays_HaveExpectedAlignment_Node<LowLevelNodeTraitsTests.TwoPointersStruct>();
+            yield return new DataOutputPortArrays_HaveExpectedAlignment_Node<LowLevelNodeTraitsTests.ThreePointersStruct>();
+            yield return new DataOutputPortArrays_HaveExpectedAlignment_Node<LowLevelNodeTraitsTests.ThreePointersAndAByteStruct>();
+            yield return new DataOutputPortArrays_HaveExpectedAlignment_Node<LowLevelNodeTraitsTests.ThreePointersAndAShortStruct>();
+            yield return new DataOutputPortArrays_HaveExpectedAlignment_Node<LowLevelNodeTraitsTests.BigStructWithPointers>();
+            yield return new DataOutputPortArrays_HaveExpectedAlignment_Node<LowLevelNodeTraitsTests.EmptyStruct>();
+        }
+
+        [TestCaseSource(nameof(DataOutputPortArrays_HaveExpectedAlignment_TestCases))]
+        public void DataOutputPortArrays_HaveExpectedAlignment(ITestable test)
+            => test.Test();
+
+
         public class PortArrayDebugNode : SimulationKernelNodeDefinition<PortArrayDebugNode.SimPorts, PortArrayDebugNode.KernelDefs>
         {
             public struct SimPorts : ISimulationPortDefinition
@@ -605,6 +755,7 @@ namespace Unity.DataFlowGraph.Tests
             public struct KernelDefs : IKernelPortDefinition
             {
                 public PortArray<DataInput<PortArrayDebugNode, int>> Inputs;
+                public PortArray<DataOutput<PortArrayDebugNode, int>> Outputs;
                 public DataOutput<PortArrayDebugNode, bool> AllGood;
             }
 
@@ -612,17 +763,17 @@ namespace Unity.DataFlowGraph.Tests
 
             struct Kernel : IGraphKernel<EmptyKernelData, KernelDefs>
             {
-                public unsafe void Execute(RenderContext ctx, EmptyKernelData data, ref KernelDefs ports)
+                public unsafe void Execute(RenderContext ctx, in EmptyKernelData data, ref KernelDefs ports)
                 {
                     ctx.Resolve(ref ports.AllGood) = false;
 
-                    // Check ResolvedPortArrayDebugView.
+                    // Check ResolvedInputPortArrayDebugView.
                     var inputs = ctx.Resolve(ports.Inputs);
-                    var dbgResolvedView = new RenderContext.ResolvedPortArrayDebugView<PortArrayDebugNode, int>(inputs);
-                    if (inputs.Length == dbgResolvedView.Items.Length)
+                    var dbgResolvedInputView = new RenderContext.ResolvedInputPortArrayDebugView<PortArrayDebugNode, int>(inputs);
+                    if (inputs.Length == dbgResolvedInputView.Items.Length)
                     {
                         for (var i = 0; i < inputs.Length; ++i)
-                            if (inputs[i] != dbgResolvedView.Items[i])
+                            if (inputs[i] != dbgResolvedInputView.Items[i])
                                 return;
                     }
 
@@ -641,7 +792,7 @@ namespace Unity.DataFlowGraph.Tests
 
             struct Node : INodeData, IMsgHandler<int>
             {
-                public void HandleMessage(in MessageContext ctx, in int msg) {}
+                public void HandleMessage(MessageContext ctx, in int msg) {}
             }
         }
 
@@ -651,6 +802,7 @@ namespace Unity.DataFlowGraph.Tests
             Assert.Zero(new PortArrayDebugView<MessageInput<PortArrayDebugNode, int>>(PortArrayDebugNode.SimulationPorts.Inputs).Items.Length);
             Assert.Zero(new PortArrayDebugView<MessageOutput<PortArrayDebugNode, int>>(PortArrayDebugNode.SimulationPorts.Outputs).Items.Length);
             Assert.Zero(new PortArrayDebugView<DataInput<PortArrayDebugNode, int>>(PortArrayDebugNode.KernelPorts.Inputs).Items.Length);
+            Assert.Zero(new PortArrayDebugView<DataOutput<PortArrayDebugNode, int>>(PortArrayDebugNode.KernelPorts.Outputs).Items.Length);
         }
 
         [Test]
@@ -663,6 +815,7 @@ namespace Unity.DataFlowGraph.Tests
                 var gv = set.CreateGraphValue(node, PortArrayDebugNode.KernelPorts.AllGood);
 
                 set.SetPortArraySize(node, PortArrayDebugNode.KernelPorts.Inputs, 17);
+                set.SetPortArraySize(node, PortArrayDebugNode.KernelPorts.Outputs, 21);
                 for (int i=0; i<17; ++i)
                     set.SetData(node, PortArrayDebugNode.KernelPorts.Inputs, i, (i+1) * 10);
 

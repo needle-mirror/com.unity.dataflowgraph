@@ -4,7 +4,11 @@ using Unity.Jobs.LowLevel.Unsafe;
 
 namespace Unity.DataFlowGraph
 {
-    interface IGraphNodeExecutor : IJob { }
+    [JobProducerType(typeof(IGraphNodeExecutorExtensions.JobStruct<>))]
+    interface IGraphNodeExecutor
+    {
+        void Execute();
+    }
 
     interface IVirtualFunctionDeclaration
     {

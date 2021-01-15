@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using Unity.Collections.LowLevel.Unsafe;
 using System.Diagnostics;
 using Unity.Entities;
+using Unity.Mathematics;
 #if ENABLE_IL2CPP
 using UnityEngine.Scripting;
 #endif
@@ -25,84 +26,13 @@ namespace Unity.DataFlowGraph
     /// </summary>
     interface IPortID { }
 
-    [DebuggerDisplay("{ToString(), nq}")]
-    readonly struct PortStorage
-    {
-        // TODO: Changed to TypeManager.ManagedComponentFlag once ECS 2.0 is available.
-        internal const int IsECSPortFlag = TypeManager.SharedComponentTypeFlag;
-        internal const int IsDFGPortFlag = IsECSPortFlag << 1;
-
-        readonly int m_TypeOrPort;
-
-        public PortStorage(ushort dfgPortIndex)
-        {
-            m_TypeOrPort = dfgPortIndex | IsDFGPortFlag;
-        }
-
-        public PortStorage(ComponentType ecsType)
-        {
-#if DFG_ASSERTIONS
-            if((ecsType.TypeIndex & IsECSPortFlag) != 0)
-                throw new AssertionException("Port storage being created with an incompatible ECS type (flag being reused)");
-#endif
-            m_TypeOrPort = ecsType.TypeIndex | IsECSPortFlag;
-        }
-
-        // unsigned modulo 32 bits -> 8 bits chops off IsDFGPortFlag.
-        public ushort DFGPortIndex
-        {
-            get {
-#if DFG_ASSERTIONS
-                if(!IsDFGPort)
-                    throw new AssertionException("Retrieving DFG port from a storage containing an ECS type");
-#endif
-                return (ushort)m_TypeOrPort;
-            }
-        }
-
-        public int ECSTypeIndex
-        {
-            get {
-#if DFG_ASSERTIONS
-                if(!IsECSPort)
-                    throw new AssertionException("Retrieving ECS type from a storage containing an DFG type");
-#endif
-                return m_TypeOrPort & (~IsECSPortFlag);
-            }
-        }
-
-        public ComponentType ReadOnlyComponentType =>
-            new ComponentType { TypeIndex = ECSTypeIndex, AccessModeType = ComponentType.AccessMode.ReadOnly };
-
-        public ComponentType ReadWriteComponentType =>
-            new ComponentType { TypeIndex = ECSTypeIndex, AccessModeType = ComponentType.AccessMode.ReadWrite };
-
-        public bool IsECSPort => (m_TypeOrPort & IsECSPortFlag) != 0;
-        public bool IsDFGPort => (m_TypeOrPort & IsDFGPortFlag) != 0 && !IsECSPort;
-
-        public static bool operator ==(PortStorage left, PortStorage right)
-        {
-            return left.m_TypeOrPort == right.m_TypeOrPort;
-        }
-
-        public static bool operator !=(PortStorage left, PortStorage right)
-        {
-            return left.m_TypeOrPort != right.m_TypeOrPort;
-        }
-
-        public override string ToString()
-        {
-            return IsECSPort ? $"ECS: {ReadOnlyComponentType}" : IsDFGPort ? $"DFG: {DFGPortIndex}" : "<INVALID>";
-        }
-    }
-
     /// <summary>
     /// Weakly typed identifier for a given input port of a node.
     /// </summary>
     [DebuggerDisplay("{ToString(), nq}")]
     public readonly struct InputPortID : IPortID
     {
-        internal ushort Port => Storage.DFGPortIndex;
+        internal PortStorage.EncodedDFGPort Port => Storage.DFGPort;
         internal ComponentType ECSType => Storage.ReadOnlyComponentType;
 
         internal readonly PortStorage Storage;
@@ -180,7 +110,7 @@ namespace Unity.DataFlowGraph
     [DebuggerDisplay("{ToString(), nq}")]
     public readonly struct OutputPortID : IPortID, IEquatable<OutputPortID>
     {
-        internal ushort Port => Storage.DFGPortIndex;
+        internal PortStorage.EncodedDFGPort Port => Storage.DFGPort;
         internal ComponentType ECSType => Storage.ReadWriteComponentType;
 
         internal readonly PortStorage Storage;
@@ -255,7 +185,7 @@ namespace Unity.DataFlowGraph
     }
 
     /// <summary>
-    /// Base interface all input port types that are allowed in <see cref="PortArray"/>s.
+    /// Base interface for all input port types that are allowed in <see cref="PortArray"/>s.
     /// </summary>
     public interface IInputPort : IIndexablePort {}
 
@@ -291,15 +221,15 @@ namespace Unity.DataFlowGraph
         {
             return input.Port;
         }
+        public static void ILPP_Create(out MessageInput<TDefinition, TMsg> port, ushort counter)
+            => port = new MessageInput<TDefinition, TMsg> { Port = new InputPortID(new PortStorage(counter, PortStorage.Category.Message)) };
 
-        internal static MessageInput<TDefinition, TMsg> Create(InputPortID port)
-        {
-            return new MessageInput<TDefinition, TMsg> { Port = port };
-        }
+        public static void ILPP_CreatePortArray(out PortArray<MessageInput<TDefinition, TMsg>> port, ushort counter)
+            => port = PortArray<MessageInput<TDefinition, TMsg>>.Create(new InputPortID(new PortStorage(counter, PortStorage.Category.Message)));
     }
 
     /// <summary>
-    /// Base interface all output port types that are allowed in <see cref="PortArray"/>s.
+    /// Base interface for all output port types that are allowed in <see cref="PortArray"/>s.
     /// </summary>
     public interface IOutputPort : IIndexablePort {}
 
@@ -332,10 +262,11 @@ namespace Unity.DataFlowGraph
             return output.Port;
         }
 
-        internal static MessageOutput<TDefinition, TMsg> Create(OutputPortID port)
-        {
-            return new MessageOutput<TDefinition, TMsg> { Port = port };
-        }
+        public static void ILPP_Create(out MessageOutput<TDefinition, TMsg> port, ushort counter)
+            => port = new MessageOutput<TDefinition, TMsg> { Port = new OutputPortID(new PortStorage(counter, PortStorage.Category.Message)) };
+
+        public static void ILPP_CreatePortArray(out PortArray<MessageOutput<TDefinition, TMsg>> port, ushort counter)
+            => port = PortArray<MessageOutput<TDefinition, TMsg>>.Create(new OutputPortID(new PortStorage(counter, PortStorage.Category.Message)));
     }
 
     /// <summary>
@@ -358,23 +289,13 @@ namespace Unity.DataFlowGraph
     {
         internal InputPortID Port;
 
-#if ENABLE_IL2CPP
-        [Preserve]
-        IDSLHandler DontStripConstructor()
-        {
-            return new TDSLDefinition();
-        }
-#endif
-
         public static explicit operator InputPortID(DSLInput<TNodeDefinition, TDSLDefinition, IDSL> input)
         {
             return input.Port;
         }
 
-        internal static DSLInput<TNodeDefinition, TDSLDefinition, IDSL> Create(InputPortID port)
-        {
-            return new DSLInput<TNodeDefinition, TDSLDefinition, IDSL> { Port = port };
-        }
+        public static void ILPP_Create(out DSLInput<TNodeDefinition, TDSLDefinition, IDSL> port, ushort counter)
+            => port = new DSLInput<TNodeDefinition, TDSLDefinition, IDSL> { Port = new InputPortID(new PortStorage(counter, PortStorage.Category.DSL)) };
     }
 
     /// <summary>
@@ -397,22 +318,18 @@ namespace Unity.DataFlowGraph
     {
         internal OutputPortID Port;
 
-#if ENABLE_IL2CPP
-        [Preserve]
-        IDSLHandler DontStripConstructor()
-        {
-            return new TDSLDefinition();
-        }
-#endif
-
         public static explicit operator OutputPortID(DSLOutput<TNodeDefinition, TDSLDefinition, IDSL> output)
         {
             return output.Port;
         }
 
-        internal static DSLOutput<TNodeDefinition, TDSLDefinition, IDSL> Create(OutputPortID port)
+        public static void ILPP_Create(out DSLOutput<TNodeDefinition, TDSLDefinition, IDSL> port, ushort counter)
         {
-            return new DSLOutput<TNodeDefinition, TDSLDefinition, IDSL> { Port = port };
+            // We only ever need to instantiate a DSL handler if a node containing such ports are created.
+            // Additionally, DSL is equivalent be it right-hand-side or left-hand-side, and since both are
+            // required to create a connection, we only bother to register it one of the places.
+            DSLTypeMap.RegisterDSL<TDSLDefinition>();
+            port = new DSLOutput<TNodeDefinition, TDSLDefinition, IDSL> { Port = new OutputPortID(new PortStorage(counter, PortStorage.Category.DSL)) };
         }
     }
 
@@ -483,6 +400,9 @@ namespace Unity.DataFlowGraph
             => GetMemoryOwnership() != Ownership.None;
     }
 
+    /// <summary>
+    /// Base interface for all data input port types.
+    /// </summary>
     public interface IDataInputPort : IInputPort {}
 
     /// <summary>
@@ -531,18 +451,19 @@ namespace Unity.DataFlowGraph
         /// </summary>
         internal DataInput(InputPortID port) => Storage = new DataInputStorage(port);
 
-        /// <summary>
-        /// Creates a DataInput that must only be used as a <see cref="InputPortID"/>
-        /// <seealso cref="Port"/>
-        /// <seealso cref="DataInput(InputPortID)"/>
-        /// </summary>
-        internal static DataInput<TDefinition, TType> Create(InputPortID port)
-        {
-            return new DataInput<TDefinition, TType>(port);
-        }
+        internal static void ILPP_Create(out DataInput<TDefinition, TType> port, ushort counter)
+            => port = new DataInput<TDefinition, TType>(new InputPortID(new PortStorage(counter, PortStorage.Category.Data)));
+
+        internal static void ILPP_CreatePortArray(out PortArray<DataInput<TDefinition, TType>> port, ushort counter)
+            => port = PortArray<DataInput<TDefinition, TType>>.Create(new InputPortID(new PortStorage(counter, PortStorage.Category.Data)));
 
         TType Value => Ptr != null ? UnsafeUtility.AsRef<TType>(Ptr) : default;
     }
+
+    /// <summary>
+    /// Base interface for all data output port types.
+    /// </summary>
+    public interface IDataOutputPort : IOutputPort {}
 
     /// <summary>
     /// Declaration of a specific data output connection port for a given node type.
@@ -557,7 +478,7 @@ namespace Unity.DataFlowGraph
     /// The <see cref="NodeDefinition{TNodeData,TSimulationportDefinition,TKernelData,TKernelPortDefinition,TKernel}"/> to which this port is associated.
     /// </typeparam>
     [DebuggerDisplay("{m_Value}")]
-    public struct DataOutput<TDefinition, TType>
+    public struct DataOutput<TDefinition, TType> : IDataOutputPort
         where TDefinition : NodeDefinition
         where TType : struct
     {
@@ -569,10 +490,11 @@ namespace Unity.DataFlowGraph
             return output.Port;
         }
 
-        internal static DataOutput<TDefinition, TType> Create(OutputPortID port)
-        {
-            return new DataOutput<TDefinition, TType>{ m_Value = default, Port = port };
-        }
+        internal static void ILPP_Create(out DataOutput<TDefinition, TType> port, ushort counter)
+            => port = new DataOutput<TDefinition, TType> { Port = new OutputPortID(new PortStorage(counter, PortStorage.Category.Data)) };
+
+        internal static void ILPP_CreatePortArray(out PortArray<DataOutput<TDefinition, TType>> port, ushort counter)
+            => port = PortArray<DataOutput<TDefinition, TType>>.Create(new OutputPortID(new PortStorage(counter, PortStorage.Category.Data)));
     }
 
 #pragma warning restore 660, 661
@@ -783,22 +705,27 @@ namespace Unity.DataFlowGraph
         /// </remarks>
         internal const uint MessageToDataConnectionCategory = (uint)Category.DomainSpecific << (int)CategoryShift.Max;
 
-        internal interface IPort<TPortID> : IEquatable<TPortID>
-            where TPortID : IPortID
+        internal interface IPort
         {
             Category Category { get; }
             Type Type { get; }
             string Name { get; }
         }
 
+        internal interface IPort<TPortID> : IPort, IEquatable<TPortID>
+            where TPortID : IPortID
+        {
+        }
+
         /// <summary>
         /// Describes an input port on a node. An <see cref="InputPort"/> can automatically decay to- and be used as a weakly typed <see cref="InputPortID"/>.
         /// </summary>
+        [DebuggerDisplay("{DebugDisplay(), nq}")]
         public struct InputPort : IPort<InputPortID>, IEquatable<InputPort>
         {
             Category m_Category;
             Type m_Type;
-            internal ushort m_Port;
+            internal InputPortID PortID;
             internal bool m_HasBuffers, m_IsPortArray, m_IsPublic;
             string m_Name;
 
@@ -806,9 +733,6 @@ namespace Unity.DataFlowGraph
             /// Describes the category of a port.
             /// </summary>
             public Category Category => m_Category;
-
-            [Obsolete("Use Category instead.", true)]
-            public Category PortUsage => m_Category;
 
             /// <summary>
             /// Describes the data type of a port.
@@ -833,12 +757,17 @@ namespace Unity.DataFlowGraph
 
             internal bool IsPublic => m_IsPublic;
 
-            internal static InputPort Data(Type type, ushort port, bool hasBuffers, bool isPortArray, bool isPublic, string name)
+            internal static InputPort Data(Type type, InputPortID port, bool hasBuffers, bool isPortArray, bool isPublic, string name)
             {
+#if DFG_ASSERTIONS
+                // Only dfg ports encode category (if it is an ECS ports, it's (so far) always data).
+                if (port.Storage.IsDFGPort && port.Port.Category != PortStorage.Category.Data)
+                    throw new AssertionException("Invalid category in encoded port");
+#endif
                 InputPort ret;
                 ret.m_Category = Category.Data;
                 ret.m_Type = type;
-                ret.m_Port = port;
+                ret.PortID = port;
                 ret.m_Name = name;
                 ret.m_HasBuffers = hasBuffers;
                 ret.m_IsPortArray = isPortArray;
@@ -846,12 +775,16 @@ namespace Unity.DataFlowGraph
                 return ret;
             }
 
-            internal static InputPort Message(Type type, ushort port, bool isPortArray, bool isPublic, string name)
+            internal static InputPort Message(Type type, InputPortID port, bool isPortArray, bool isPublic, string name)
             {
+#if DFG_ASSERTIONS
+                if (port.Port.Category != PortStorage.Category.Message)
+                    throw new AssertionException("Invalid category in encoded port");
+#endif
                 InputPort ret;
                 ret.m_Category = Category.Message;
                 ret.m_Type = type;
-                ret.m_Port = port;
+                ret.PortID = port;
                 ret.m_Name = name;
                 ret.m_HasBuffers = false;
                 ret.m_IsPortArray = isPortArray;
@@ -859,12 +792,16 @@ namespace Unity.DataFlowGraph
                 return ret;
             }
 
-            internal static InputPort DSL(Type type, ushort port, bool isPublic, string name)
+            internal static InputPort DSL(Type type, InputPortID port, bool isPublic, string name)
             {
+#if DFG_ASSERTIONS
+                if (port.Port.Category != PortStorage.Category.DSL)
+                    throw new AssertionException("Invalid category in encoded port");
+#endif
                 InputPort ret;
                 ret.m_Category = Category.DomainSpecific;
                 ret.m_Type = type;
-                ret.m_Port = port;
+                ret.PortID = port;
                 ret.m_Name = name;
                 ret.m_HasBuffers = false;
                 ret.m_IsPortArray = false;
@@ -877,7 +814,7 @@ namespace Unity.DataFlowGraph
             /// </summary>
             public static implicit operator InputPortID(InputPort port)
             {
-                return new InputPortID(new PortStorage(port.m_Port));
+                return port.PortID;
             }
 
             public static bool operator ==(InputPort left, InputPort right)
@@ -885,7 +822,7 @@ namespace Unity.DataFlowGraph
                 return
                     left.m_Category == right.m_Category &&
                     left.m_Type == right.m_Type &&
-                    left.m_Port == right.m_Port &&
+                    left.PortID == right.PortID &&
                     left.m_IsPortArray == right.m_IsPortArray &&
                     left.m_IsPublic == right.m_IsPublic &&
                     left.m_Name == right.m_Name;
@@ -898,12 +835,12 @@ namespace Unity.DataFlowGraph
 
             public static bool operator ==(InputPortID left, InputPort right)
             {
-                return left.Port == right.m_Port;
+                return left == (InputPortID)right;
             }
 
             public static bool operator !=(InputPortID left, InputPort right)
             {
-                return left.Port != right.m_Port;
+                return left != (InputPortID)right;
             }
 
             public bool Equals(InputPort port)
@@ -927,23 +864,34 @@ namespace Unity.DataFlowGraph
             {
                 return
                     (((int)m_Category) << 0) ^ // 3-bits
-                    (((int)m_Port) << 3) ^ // 16-bits
+                    PortID.Port.GetHashCode() ^
                     ((m_IsPortArray ? 1 : 0) << 19) ^ // 1-bit
                     ((m_IsPublic ? 1 : 0) << 20) ^ // 1-bit
                     m_Type.GetHashCode() ^
                     m_Name.GetHashCode();
+            }
+
+            internal string DebugDisplay()
+            {
+                var portType = Category + "Input<" + Type.Name + ">";
+                if (IsPortArray)
+                    portType = $"PortArray<{portType}>";
+
+                return (Name == null ? "" : $"{Name}: ") + (m_IsPublic ? "public" : "internal") + " " + portType;
             }
         }
 
         /// <summary>
         /// Describes an output port on a node. An <see cref="OutputPort"> can automatically decay to- and be used as a weakly typed <see cref="OutputPortID">.
         /// </summary>
+        [DebuggerDisplay("{DebugDisplay(), nq}")]
         public struct OutputPort : IPort<OutputPortID>, IEquatable<OutputPort>
         {
             internal readonly struct BufferEntryInsidePort
             {
                 public readonly int Offset;
                 public readonly SimpleType ItemType;
+                public readonly PortBufferIndex BufferIndex;
 
                 public unsafe ref BufferDescription AsUntyped(void* outputPort)
                     => ref *(BufferDescription*)((byte*)outputPort + Offset);
@@ -952,27 +900,26 @@ namespace Unity.DataFlowGraph
                     where TType : struct
                         => ref *(BufferDescription*)((byte*)UnsafeUtilityExtensions.AddressOf(port) + Offset);
 
-                public BufferEntryInsidePort(int offsetFromStartOfPort, SimpleType bufferItemType)
+                public BufferEntryInsidePort(ushort bufferIndexInPort, int offsetFromStartOfPort, SimpleType bufferItemType)
                 {
+
                     Offset = offsetFromStartOfPort;
                     ItemType = bufferItemType;
+                    BufferIndex = new PortBufferIndex(bufferIndexInPort);
                 }
             }
 
             Category m_Category;
             Type m_Type;
-            internal ushort m_Port;
+            internal OutputPortID PortID;
             internal List<BufferEntryInsidePort> m_BufferInfos;
             internal bool m_IsPortArray, m_IsPublic;
             string m_Name;
-
+            internal TypeHash TypeHash;
             /// <summary>
             /// Describes the category of a port.
             /// </summary>
             public Category Category => m_Category;
-
-            [Obsolete("Use Category instead.", true)]
-            public Category PortUsage => m_Category;
 
             /// <summary>
             /// Describes the data type of a port.
@@ -1002,43 +949,61 @@ namespace Unity.DataFlowGraph
             /// the <see cref="DataOutput{TDefinition,TType}"/>
             /// </summary>
             internal List<BufferEntryInsidePort> BufferInfos => m_BufferInfos;
-
-            internal static OutputPort Data(Type type, ushort port, List<BufferEntryInsidePort> bufferInfos, bool isPublic, string name)
+            internal static OutputPort Data(Type type, OutputPortID port, List<BufferEntryInsidePort> bufferInfos, bool isPortArray, bool isPublic, string name)
             {
+#if DFG_ASSERTIONS
+                // Only dfg ports encode category (if it is an ECS ports, it's (so far) always data).
+                if (port.Storage.IsDFGPort && port.Port.Category != PortStorage.Category.Data)
+                    throw new AssertionException("Invalid category in encoded port");
+#endif
+
                 OutputPort ret;
                 ret.m_Category = Category.Data;
                 ret.m_Type = type;
-                ret.m_Port = port;
+                ret.PortID = port;
                 ret.m_Name = name;
                 ret.m_BufferInfos = bufferInfos;
-                ret.m_IsPortArray = false;
+                ret.m_IsPortArray = isPortArray;
                 ret.m_IsPublic = isPublic;
+                ret.TypeHash = default;
                 return ret;
             }
 
-            internal static OutputPort Message(Type type, ushort port, bool isPortArray, bool isPublic, string name)
+            internal static OutputPort Message(Type type, OutputPortID port, bool isPortArray, bool isPublic, string name)
             {
+#if DFG_ASSERTIONS
+                if (port.Port.Category != PortStorage.Category.Message)
+                    throw new AssertionException("Invalid category in encoded port");
+#endif
+
                 OutputPort ret;
                 ret.m_Category = Category.Message;
                 ret.m_Type = type;
-                ret.m_Port = port;
+                ret.PortID = port;
                 ret.m_Name = name;
                 ret.m_BufferInfos = null;
                 ret.m_IsPortArray = isPortArray;
                 ret.m_IsPublic = isPublic;
+                ret.TypeHash = default;
                 return ret;
             }
 
-            internal static OutputPort DSL(Type type, ushort port, bool isPublic, string name)
+            internal static OutputPort DSL(Type type, OutputPortID port, bool isPublic, string name)
             {
+#if DFG_ASSERTIONS
+                if (port.Port.Category != PortStorage.Category.DSL)
+                    throw new AssertionException("Invalid category in encoded port");
+#endif
+
                 OutputPort ret;
                 ret.m_Category = Category.DomainSpecific;
                 ret.m_Type = type;
-                ret.m_Port = port;
+                ret.PortID = port;
                 ret.m_Name = name;
                 ret.m_BufferInfos = null;
                 ret.m_IsPortArray = false;
                 ret.m_IsPublic = isPublic;
+                ret.TypeHash = TypeHash.CreateSlow(type);
                 return ret;
             }
 
@@ -1047,7 +1012,7 @@ namespace Unity.DataFlowGraph
             /// </summary>
             public static implicit operator OutputPortID(OutputPort port)
             {
-                return new OutputPortID (new PortStorage(port.m_Port));
+                return port.PortID;
             }
 
             public static bool operator ==(OutputPort left, OutputPort right)
@@ -1055,7 +1020,7 @@ namespace Unity.DataFlowGraph
                 return
                     left.m_Category == right.m_Category &&
                     left.m_Type == right.m_Type &&
-                    left.m_Port == right.m_Port &&
+                    left.PortID == right.PortID &&
                     left.m_IsPortArray == right.m_IsPortArray &&
                     left.m_IsPublic == right.m_IsPublic &&
                     left.m_Name == right.m_Name;
@@ -1068,12 +1033,12 @@ namespace Unity.DataFlowGraph
 
             public static bool operator ==(OutputPortID left, OutputPort right)
             {
-                return left.Port == right.m_Port;
+                return left == (OutputPortID)right;
             }
 
             public static bool operator !=(OutputPortID left, OutputPort right)
             {
-                return left.Port != right.m_Port;
+                return left != (OutputPortID)right;
             }
 
             public bool Equals(OutputPort port)
@@ -1097,13 +1062,32 @@ namespace Unity.DataFlowGraph
             {
                 return
                     (((int)m_Category) << 0) ^ // 3-bits
-                    (((int)m_Port.GetHashCode()) << 3) ^ // 16-bits
+                    PortID.Port.GetHashCode() ^
                     ((m_IsPortArray ? 1 : 0) << 19) ^ // 1-bit
                     ((m_IsPublic ? 1 : 0) << 20) ^ // 1-bit
                     m_Type.GetHashCode() ^
                     m_Name.GetHashCode();
             }
 
+            internal string DebugDisplay()
+            {
+                var portType = Category + "Output<" + Type.Name + ">";
+                if (IsPortArray)
+                    portType = $"PortArray<{portType}>";
+
+                return (Name == null ? "" : $"{Name}: ") + (m_IsPublic ? "public" : "internal") + " " + portType;
+            }
+        }
+
+        static PortStorage.Category PublicCategoryToEncoded(Category c)
+        {
+            switch (c)
+            {
+                case Category.Data: return PortStorage.Category.Data;
+                case Category.Message: return PortStorage.Category.Message;
+                case Category.DomainSpecific: return PortStorage.Category.DSL;
+                default: throw new ArgumentOutOfRangeException();
+            }
         }
 
         internal List<ComponentType> ComponentTypes;

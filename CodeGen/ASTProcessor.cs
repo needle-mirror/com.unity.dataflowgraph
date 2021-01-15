@@ -44,7 +44,11 @@ namespace Unity.DataFlowGraph.CodeGen
         /// <remarks>
         /// Always called after Parse step.
         /// </remarks>
-        public virtual void AnalyseConsistency(Diag diag) { }
+        public void AnalyseConsistency(Diag diag)
+        {
+            diag.DiagnoseNullSymbolFields(this);
+            OnAnalyseConsistency(diag);
+        }
         /// <summary>
         /// A chance for post processing the module.
         /// </summary>
@@ -61,6 +65,8 @@ namespace Unity.DataFlowGraph.CodeGen
         {
             return Module.Name;
         }
+
+        protected virtual void OnAnalyseConsistency(Diag d) { }
 
         /// <summary>
         /// Make a (simple) clone of the <paramref name="completelyOpenMethod"/> function, that is pointing to the generic
@@ -199,6 +205,27 @@ namespace Unity.DataFlowGraph.CodeGen
         public MethodReference FindMethod(TypeReference type, string name, params TypeReference[] parameters)
         {
             return FindGenericMethod(type, name, 0, parameters);
+        }
+
+        /// <summary>
+        /// Find a Cecil <see cref="MethodReference"/> by its unique name, asserts existance and import
+        /// it into the current <see cref="Module"/> if necessary.
+        /// </summary>
+        public MethodReference GetUniqueMethod(TypeDefinition definition, string name)
+        {
+            return EnsureImported(definition.Methods.Single(m => m.Name == name));
+        }
+
+        /// <summary>
+        /// Try to find a Cecil <see cref="MethodReference"/> by its unique name and import
+        /// it into the current <see cref="Module"/> if necessary.
+        /// </summary>
+        public MethodReference FindUniqueMethod(TypeDefinition definition, string name)
+        {
+            var method = definition.Methods.FirstOrDefault(m => m.Name == name);
+            if (method != null)
+                return EnsureImported(method);
+            return null;
         }
 
         /// <summary>

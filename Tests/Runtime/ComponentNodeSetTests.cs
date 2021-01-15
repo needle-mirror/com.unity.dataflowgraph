@@ -51,14 +51,13 @@ namespace Unity.DataFlowGraph.Tests
                 public DataInput<SimpleNode_WithECSTypes_OnInputs, DataOne> Input;
                 public DataInput<SimpleNode_WithECSTypes_OnInputs, DataTwo> Input2;
                 public DataInput<SimpleNode_WithECSTypes_OnInputs, Buffer<SimpleBuffer>> InputBuffer;
-
             }
 
             struct KernelData : IKernelData { }
 
             struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
             {
-                public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports) { }
+                public void Execute(RenderContext ctx, in KernelData data, ref KernelDefs ports) { }
             }
         }
 
@@ -67,13 +66,14 @@ namespace Unity.DataFlowGraph.Tests
             public struct KernelDefs : IKernelPortDefinition
             {
                 public PortArray<DataInput<SimpleNode_WithECSTypes_InPortArray_OnInputs, DataOne>> Input;
+                public PortArray<DataInput<SimpleNode_WithECSTypes_InPortArray_OnInputs, Buffer<SimpleBuffer>>> InputBuffer;
             }
 
             struct KernelData : IKernelData { }
 
             struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
             {
-                public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports) { }
+                public void Execute(RenderContext ctx, in KernelData data, ref KernelDefs ports) { }
             }
         }
 
@@ -81,17 +81,32 @@ namespace Unity.DataFlowGraph.Tests
         {
             public struct KernelDefs : IKernelPortDefinition
             {
-                public DataInput<SimpleNode_WithECSTypes_OnOutputs, DataOne> Output1;
-                public DataInput<SimpleNode_WithECSTypes_OnOutputs, DataTwo> Output2;
-                public DataInput<SimpleNode_WithECSTypes_OnOutputs, Buffer<SimpleBuffer>> OutputBuffer;
-
+                public DataOutput<SimpleNode_WithECSTypes_OnOutputs, DataOne> Output1;
+                public DataOutput<SimpleNode_WithECSTypes_OnOutputs, DataTwo> Output2;
+                public DataOutput<SimpleNode_WithECSTypes_OnOutputs, Buffer<SimpleBuffer>> OutputBuffer;
             }
 
             struct KernelData : IKernelData { }
 
             struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
             {
-                public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports) { }
+                public void Execute(RenderContext ctx, in KernelData data, ref KernelDefs ports) { }
+            }
+        }
+
+        internal class SimpleNode_WithECSTypes_InPortArray_OnOutputs : KernelNodeDefinition<SimpleNode_WithECSTypes_InPortArray_OnOutputs.KernelDefs>
+        {
+            public struct KernelDefs : IKernelPortDefinition
+            {
+                public PortArray<DataOutput<SimpleNode_WithECSTypes_InPortArray_OnOutputs, DataOne>> Output;
+                public PortArray<DataOutput<SimpleNode_WithECSTypes_InPortArray_OnOutputs, Buffer<SimpleBuffer>>> OutputBuffer;
+            }
+
+            struct KernelData : IKernelData { }
+
+            struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
+            {
+                public void Execute(RenderContext ctx, in KernelData data, ref KernelDefs ports) { }
             }
         }
 
@@ -108,7 +123,7 @@ namespace Unity.DataFlowGraph.Tests
 
             struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
             {
-                public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, in KernelData data, ref KernelDefs ports)
                 {
                     ctx.Resolve(ref ports.Output) = ctx.Resolve(ports.Input);
                 }
@@ -424,10 +439,11 @@ namespace Unity.DataFlowGraph.Tests
                 var node = f.Set.Create<SimpleNode_WithECSTypes_InPortArray_OnInputs>();
                 var componentTypes = f.Set.GetActiveComponentTypes();
 
-                Assert.AreEqual(1, componentTypes.Count);
+                Assert.AreEqual(2, componentTypes.Count);
 
                 // TODO: These should be read-only, but currently not supported.
                 Assert.AreEqual(ComponentType.ReadWrite<DataOne>(), componentTypes[0].Type);
+                Assert.AreEqual(ComponentType.ReadWrite<SimpleBuffer>(), componentTypes[1].Type);
 
                 f.Set.Destroy(node);
             }
@@ -448,6 +464,25 @@ namespace Unity.DataFlowGraph.Tests
                 Assert.AreEqual(ComponentType.ReadWrite<DataOne>(), componentTypes[0].Type);
                 Assert.AreEqual(ComponentType.ReadWrite<DataTwo>(), componentTypes[1].Type);
                 Assert.AreEqual(ComponentType.ReadWrite<SimpleBuffer>(), componentTypes[2].Type);
+
+                f.Set.Destroy(node);
+            }
+        }
+
+        [Test]
+        public void CreatingNode_WithECSTypes_OnPortArray_OnOutputs_CorrectlyUpdates_ActiveComponentTypes([Values] FixtureSystemType systemType)
+        {
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
+            {
+                Assert.Zero(f.Set.GetActiveComponentTypes().Count);
+
+                var node = f.Set.Create<SimpleNode_WithECSTypes_InPortArray_OnOutputs>();
+                var componentTypes = f.Set.GetActiveComponentTypes();
+
+                Assert.AreEqual(2, componentTypes.Count);
+
+                Assert.AreEqual(ComponentType.ReadWrite<DataOne>(), componentTypes[0].Type);
+                Assert.AreEqual(ComponentType.ReadWrite<SimpleBuffer>(), componentTypes[1].Type);
 
                 f.Set.Destroy(node);
             }

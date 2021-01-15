@@ -29,8 +29,8 @@ namespace Unity.DataFlowGraph.CodeGen
         /// <summary>
         /// Whether generic or not, this forms a reference to a scoped class context
         /// (the default in C# - auto inherited, if nothing else specified).
-        /// 
-        /// Eg. if you are in a generic node definition, this returns 
+        ///
+        /// Eg. if you are in a generic node definition, this returns
         /// <code>MyNodeDefinition<T></code>
         /// and not
         /// <code>MyNodeDefinition<></code>
@@ -57,6 +57,36 @@ namespace Unity.DataFlowGraph.CodeGen
 
                 return m_InstantiatedDefinition;
             }
+        }
+
+        /// <summary>
+        /// Create a bodiless <see cref="MethodDefinition"/> to override the given protected internal virtual method.
+        /// </summary>
+        /// <remarks>
+        /// Assumes the method's return type has already been imported into the current module.
+        /// </remarks>
+        public MethodDefinition CreateEmptyProtectedInternalMethodOverride(MethodReference baseMethod)
+        {
+#if DFG_ASSERTIONS
+            if (!baseMethod.Resolve().IsVirtual)
+                throw new AssertionException("Method is not virtual");
+
+            if (baseMethod.Resolve().IsPublic || baseMethod.Resolve().IsPrivate)
+                throw new AssertionException("Method is not protected");
+
+            if (!baseMethod.Resolve().IsFamilyOrAssembly && !baseMethod.Resolve().IsAssembly)
+                throw new AssertionException("Method is not internal");
+
+            if (baseMethod.ReturnType.Module != Module)
+                throw new AssertionException("Method return type is not imported into module");
+#endif
+            var attributes = DFGLibrary.MethodProtectedInternalOverrideFlags | MethodAttributes.SpecialName;
+
+            // When overriden outside the declaring assembly, a protected internal scope becomes just protected
+            if (DefinitionRoot.Scope != baseMethod.DeclaringType.Scope)
+                attributes = DFGLibrary.MethodProtectedOverrideFlags | MethodAttributes.SpecialName;
+
+            return new MethodDefinition(baseMethod.Name, attributes, baseMethod.ReturnType) { HasThis = true };
         }
     }
 }

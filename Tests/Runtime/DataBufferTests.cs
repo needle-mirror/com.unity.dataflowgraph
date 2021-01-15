@@ -37,7 +37,7 @@ namespace Unity.DataFlowGraph.Tests
             [BurstCompile(CompileSynchronously = true)]
             struct Kernel : IGraphKernel<Data, KernelDefs>
             {
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, in Data data, ref KernelDefs ports)
                 {
                     for (int i = 0; i < 2; ++i)
                     {
@@ -72,7 +72,7 @@ namespace Unity.DataFlowGraph.Tests
             [BurstCompile(CompileSynchronously = true)]
             struct Kernel : IGraphKernel<Data, KernelDefs>
             {
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, in Data data, ref KernelDefs ports)
                 {
                     long sum = 0;
                     var buffer = ctx.Resolve(ports.Input1);
@@ -288,7 +288,7 @@ namespace Unity.DataFlowGraph.Tests
             [BurstCompile(CompileSynchronously = true)]
             struct Kernel : IGraphKernel<KernelData, KernelDefs>
             {
-                public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, in KernelData data, ref KernelDefs ports)
                 {
                     var output = ctx.Resolve(ref ports.Output);
                     for (int i = 0; i < output.Length; ++i)
@@ -298,7 +298,7 @@ namespace Unity.DataFlowGraph.Tests
 
             struct Node : INodeData, IMsgHandler<T>
             {
-                public void HandleMessage(in MessageContext ctx, in T msg) => ctx.UpdateKernelData(new KernelData { Value = msg });
+                public void HandleMessage(MessageContext ctx, in T msg) => ctx.UpdateKernelData(new KernelData { Value = msg });
             }
         }
 
@@ -327,7 +327,7 @@ namespace Unity.DataFlowGraph.Tests
             [BurstCompile(CompileSynchronously = true)]
             struct Kernel : IGraphKernel<KernelData, KernelDefs>
             {
-                public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, in KernelData data, ref KernelDefs ports)
                 {
                     var input = ctx.Resolve(ports.Input);
                     for (int i = 0; i < input.Length; ++i)
@@ -337,7 +337,7 @@ namespace Unity.DataFlowGraph.Tests
 
             struct Node : INodeData, IMsgHandler<T>
             {
-                public void HandleMessage(in MessageContext ctx, in T msg) => throw new NotImplementedException();
+                public void HandleMessage(MessageContext ctx, in T msg) => throw new NotImplementedException();
             }
         }
 
@@ -420,6 +420,149 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
+        class KernelBufferArrayOutputNode : KernelNodeDefinition<KernelBufferArrayOutputNode.KernelDefs>
+        {
+            public struct Sizes
+            {
+                public int One, Two;
+            }
+
+            public struct KernelDefs : IKernelPortDefinition
+            {
+                public PortArray<DataOutput<KernelBufferArrayOutputNode, Buffer<long>>> OutputScalars;
+                public PortArray<DataOutput<KernelBufferArrayOutputNode, Aggregate>> OutputAggregates;
+                public PortArray<DataOutput<KernelBufferArrayOutputNode, int>> OutputScalarSizes;
+                public PortArray<DataOutput<KernelBufferArrayOutputNode, Sizes>> OutputAggregateSizes;
+            }
+
+            struct Data : IKernelData { }
+
+            [BurstCompile(CompileSynchronously = true)]
+            struct Kernel : IGraphKernel<Data, KernelDefs>
+            {
+                public void Execute(RenderContext ctx, in Data data, ref KernelDefs ports)
+                {
+                    var outputScalars = ctx.Resolve(ref ports.OutputScalars);
+                    var outputScalarSizes = ctx.Resolve(ref ports.OutputScalarSizes);
+                    if (outputScalars.Length == outputScalarSizes.Length)
+                    {
+                        for (int i = 0; i < outputScalars.Length; ++i)
+                        {
+                            var buffer = outputScalars[i].ToNative(ctx);
+                            for (int j = 0; j < buffer.Length; ++j)
+                                buffer[j] = j;
+                            outputScalarSizes[i] = buffer.Length;
+                        }
+                    }
+
+                    var outputAggregates = ctx.Resolve(ref ports.OutputAggregates);
+                    var outputAggregateSizes = ctx.Resolve(ref ports.OutputAggregateSizes);
+                    if (outputAggregates.Length == outputAggregateSizes.Length)
+                    {
+                        for (int i = 0; i < outputAggregates.Length; ++i)
+                        {
+                            var subBuffer1 = outputAggregates[i].SubBuffer1.ToNative(ctx);
+                            for (int j = 0; j < subBuffer1.Length; ++j)
+                                subBuffer1[j] = j;
+                            var subBuffer2 = outputAggregates[i].SubBuffer2.ToNative(ctx);
+                            for (int j = 0; j < subBuffer2.Length; ++j)
+                                subBuffer2[j] = j;
+                            outputAggregateSizes[i] = new Sizes { One = subBuffer1.Length, Two = subBuffer2.Length };
+                        }
+                    }
+                }
+            }
+        }
+
+        [Test]
+        public void BufferOutputPortArrays_HaveCorrectSize_InRendering()
+        {
+            var k_BufferSizes = new [] {1, 2, 3, 0, 4, 5, 0, 7, 8, 9};
+            using (var set = new NodeSet())
+            {
+                var node = set.Create<KernelBufferArrayOutputNode>();
+
+                set.SetPortArraySize(node, KernelBufferArrayOutputNode.KernelPorts.OutputScalars, k_BufferSizes.Length);
+                set.SetPortArraySize(node, KernelBufferArrayOutputNode.KernelPorts.OutputScalarSizes, k_BufferSizes.Length);
+                for (int i = 0; i < k_BufferSizes.Length; ++i)
+                    if (k_BufferSizes[i] != 0)
+                        set.SetBufferSize(node, KernelBufferArrayOutputNode.KernelPorts.OutputScalars, i, Buffer<long>.SizeRequest(k_BufferSizes[i]));
+
+                var outputScalarsGV = set.CreateGraphValueArray(node, KernelBufferArrayOutputNode.KernelPorts.OutputScalars);
+                var outputScalarSizesGV = set.CreateGraphValueArray(node, KernelBufferArrayOutputNode.KernelPorts.OutputScalarSizes);
+
+                set.Update();
+
+                var resolver = set.GetGraphValueResolver(out var job);
+                job.Complete();
+
+                for (int i = 0; i < k_BufferSizes.Length; ++i)
+                {
+                    Assert.AreEqual(k_BufferSizes[i], resolver.Resolve(outputScalarSizesGV)[i]);
+
+                    var buffer = resolver.Resolve(resolver.Resolve(outputScalarsGV)[i]);
+                    Assert.AreEqual(k_BufferSizes[i], buffer.Length);
+
+                    for (int j = 0; j < buffer.Length; ++j)
+                        Assert.AreEqual(j, buffer[j]);
+                }
+
+                set.ReleaseGraphValueArray(outputScalarsGV);
+                set.ReleaseGraphValueArray(outputScalarSizesGV);
+
+                set.Destroy(node);
+            }
+        }
+
+        [Test]
+        public void AggregateOutputPortArrays_HaveCorrectSize_InRendering()
+        {
+            var k_BufferSizes = new [] {(1, 2), (3, 0), (4, 5), (0, 7), (8, 9)};
+            using (var set = new NodeSet())
+            {
+                var node = set.Create<KernelBufferArrayOutputNode>();
+
+                set.SetPortArraySize(node, KernelBufferArrayOutputNode.KernelPorts.OutputAggregates, k_BufferSizes.Length);
+                set.SetPortArraySize(node, KernelBufferArrayOutputNode.KernelPorts.OutputAggregateSizes, k_BufferSizes.Length);
+                for (int i = 0; i < k_BufferSizes.Length; ++i)
+                    set.SetBufferSize(node, KernelBufferArrayOutputNode.KernelPorts.OutputAggregates, i,
+                        new Aggregate
+                        {
+                            SubBuffer1 = k_BufferSizes[i].Item1 == 0 ? default : Buffer<long>.SizeRequest(k_BufferSizes[i].Item1),
+                            SubBuffer2 = k_BufferSizes[i].Item2 == 0 ? default : Buffer<long>.SizeRequest(k_BufferSizes[i].Item2)
+                        });
+
+                var outputAggregatesGV = set.CreateGraphValueArray(node, KernelBufferArrayOutputNode.KernelPorts.OutputAggregates);
+                var outputAggregateSizesGV = set.CreateGraphValueArray(node, KernelBufferArrayOutputNode.KernelPorts.OutputAggregateSizes);
+
+                set.Update();
+
+                var resolver = set.GetGraphValueResolver(out var job);
+                job.Complete();
+
+                for (int i = 0; i < k_BufferSizes.Length; ++i)
+                {
+                    Assert.AreEqual(k_BufferSizes[i].Item1, resolver.Resolve(outputAggregateSizesGV)[i].One);
+                    Assert.AreEqual(k_BufferSizes[i].Item2, resolver.Resolve(outputAggregateSizesGV)[i].Two);
+
+                    var subBuffer1 = resolver.Resolve(resolver.Resolve(outputAggregatesGV)[i].SubBuffer1);
+                    var subBuffer2 = resolver.Resolve(resolver.Resolve(outputAggregatesGV)[i].SubBuffer2);
+                    Assert.AreEqual(k_BufferSizes[i].Item1, subBuffer1.Length);
+                    Assert.AreEqual(k_BufferSizes[i].Item2, subBuffer2.Length);
+
+                    for (int j = 0; j < subBuffer1.Length; ++j)
+                        Assert.AreEqual(j, subBuffer1[j]);
+                    for (int j = 0; j < subBuffer2.Length; ++j)
+                        Assert.AreEqual(j, subBuffer2[j]);
+                }
+
+                set.ReleaseGraphValueArray(outputAggregatesGV);
+                set.ReleaseGraphValueArray(outputAggregateSizesGV);
+
+                set.Destroy(node);
+            }
+        }
+
 #if ENABLE_UNITY_COLLECTIONS_CHECKS
         public class KernelBufferInputReaderNode : KernelNodeDefinition<KernelBufferInputReaderNode.KernelDefs>
         {
@@ -435,7 +578,7 @@ namespace Unity.DataFlowGraph.Tests
 
             struct Kernel : IGraphKernel<Data, KernelDefs>
             {
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, in Data data, ref KernelDefs ports)
                 {
                     ctx.Resolve(ref ports.GotException) = 0;
                     try
@@ -515,7 +658,7 @@ namespace Unity.DataFlowGraph.Tests
 
             struct Kernel : IGraphKernel<Data, KernelDefs>
             {
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, in Data data, ref KernelDefs ports)
                 {
                     ctx.Resolve(ref ports.GotException) = 0;
                     try
@@ -580,7 +723,7 @@ namespace Unity.DataFlowGraph.Tests
 
             struct Kernel : IGraphKernel<Data, KernelDefs>
             {
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, in Data data, ref KernelDefs ports)
                 {
                     ctx.Resolve(ref ports.GotException) = 0;
 
@@ -645,7 +788,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 int m_IsInitialized;
 
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, in Data data, ref KernelDefs ports)
                 {
                     if (UnsafeUtility.SizeOf<CheatingNativeArrayStorage>() >= 0xFF)
                     {
@@ -829,7 +972,7 @@ namespace Unity.DataFlowGraph.Tests
             [BurstCompile(CompileSynchronously = true)]
             struct Kernel : IGraphKernel<Data, KernelDefs>
             {
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, in Data data, ref KernelDefs ports)
                 {
                     var input = ctx.Resolve(ports.Input);
                     ref var output = ref ctx.Resolve(ref ports.Output);
@@ -843,7 +986,7 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public unsafe void DataBufferResizes_AreCorrectlyIssued_InGraphDiff()
+        public void PortDataBufferResizes_AreCorrectlyIssued_InGraphDiff()
         {
             using (var set = new NodeSet())
             {
@@ -854,9 +997,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 Assert.AreEqual(1, set.GetCurrentGraphDiff().ResizedDataBuffers.Count);
                 Assert.AreEqual(100, set.GetCurrentGraphDiff().ResizedDataBuffers[0].NewSize);
-                Assert.AreEqual(
-                    UnsafeUtility.GetFieldOffset(typeof(ComplexAggregate).GetField("Doubles")),
-                    set.GetCurrentGraphDiff().ResizedDataBuffers[0].LocalBufferOffset);
+                Assert.AreEqual(new PortBufferIndex(0), set.GetCurrentGraphDiff().ResizedDataBuffers[0].PortBufferIndex);
                 Assert.AreEqual(UnsafeUtility.SizeOf<double>(), set.GetCurrentGraphDiff().ResizedDataBuffers[0].ItemType.Size);
 
                 set.SetBufferSize(a, ComplexKernelAggregateNode.KernelPorts.Output,
@@ -864,9 +1005,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 Assert.AreEqual(2, set.GetCurrentGraphDiff().ResizedDataBuffers.Count);
                 Assert.AreEqual(75, set.GetCurrentGraphDiff().ResizedDataBuffers[1].NewSize);
-                Assert.AreEqual(
-                    UnsafeUtility.GetFieldOffset(typeof(ComplexAggregate).GetField("Bytes")),
-                    set.GetCurrentGraphDiff().ResizedDataBuffers[1].LocalBufferOffset);
+                Assert.AreEqual(new PortBufferIndex(2), set.GetCurrentGraphDiff().ResizedDataBuffers[1].PortBufferIndex);
                 Assert.AreEqual(UnsafeUtility.SizeOf<byte>(), set.GetCurrentGraphDiff().ResizedDataBuffers[1].ItemType.Size);
 
                 set.SetBufferSize(a, ComplexKernelAggregateNode.KernelPorts.Output,
@@ -874,9 +1013,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 Assert.AreEqual(3, set.GetCurrentGraphDiff().ResizedDataBuffers.Count);
                 Assert.AreEqual(125, set.GetCurrentGraphDiff().ResizedDataBuffers[2].NewSize);
-                Assert.AreEqual(
-                    UnsafeUtility.GetFieldOffset(typeof(ComplexAggregate).GetField("Matrices")),
-                    set.GetCurrentGraphDiff().ResizedDataBuffers[2].LocalBufferOffset);
+                Assert.AreEqual(new PortBufferIndex(3), set.GetCurrentGraphDiff().ResizedDataBuffers[2].PortBufferIndex);
                 Assert.AreEqual(UnsafeUtility.SizeOf<float4x4>(), set.GetCurrentGraphDiff().ResizedDataBuffers[2].ItemType.Size);
 
                 set.SetBufferSize(a, ComplexKernelAggregateNode.KernelPorts.Output,
@@ -884,15 +1021,27 @@ namespace Unity.DataFlowGraph.Tests
 
                 Assert.AreEqual(5, set.GetCurrentGraphDiff().ResizedDataBuffers.Count);
                 Assert.AreEqual(50, set.GetCurrentGraphDiff().ResizedDataBuffers[3].NewSize);
-                Assert.AreEqual(
-                    UnsafeUtility.GetFieldOffset(typeof(ComplexAggregate).GetField("Vectors")),
-                    set.GetCurrentGraphDiff().ResizedDataBuffers[3].LocalBufferOffset);
+                Assert.AreEqual(new PortBufferIndex(1), set.GetCurrentGraphDiff().ResizedDataBuffers[3].PortBufferIndex);
                 Assert.AreEqual(UnsafeUtility.SizeOf<float4>(), set.GetCurrentGraphDiff().ResizedDataBuffers[3].ItemType.Size);
                 Assert.AreEqual(25, set.GetCurrentGraphDiff().ResizedDataBuffers[4].NewSize);
-                Assert.AreEqual(
-                    UnsafeUtility.GetFieldOffset(typeof(ComplexAggregate).GetField("Matrices")),
-                    set.GetCurrentGraphDiff().ResizedDataBuffers[4].LocalBufferOffset);
+                Assert.AreEqual(new PortBufferIndex(3), set.GetCurrentGraphDiff().ResizedDataBuffers[4].PortBufferIndex);
                 Assert.AreEqual(UnsafeUtility.SizeOf<float4x4>(), set.GetCurrentGraphDiff().ResizedDataBuffers[4].ItemType.Size);
+
+                set.Destroy(a);
+            }
+        }
+
+        [Test]
+        public void KernelDataBufferResizes_AreCorrectlyIssued_InGraphDiff_UsingInternalAPI()
+        {
+            using (var set = new NodeSet())
+            {
+                // Note: StatefulKernelNode.Init performs a buffer resize to 10 which should be seen in the GraphDiff
+                var a = set.Create<StatefulKernelNode>();
+
+                Assert.AreEqual(1, set.GetCurrentGraphDiff().ResizedDataBuffers.Count);
+                Assert.AreEqual(10, set.GetCurrentGraphDiff().ResizedDataBuffers[0].NewSize);
+                Assert.AreEqual(new KernelBufferIndex(0), set.GetCurrentGraphDiff().ResizedDataBuffers[0].KernelBufferIndex);
 
                 set.Destroy(a);
             }
@@ -966,7 +1115,6 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-
         public class StatefulKernelNode : KernelNodeDefinition<StatefulKernelNode.KernelDefs>
         {
             public struct KernelDefs : IKernelPortDefinition
@@ -990,7 +1138,7 @@ namespace Unity.DataFlowGraph.Tests
             {
                 internal Buffer<long> stateBuffer;
 
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, in Data data, ref KernelDefs ports)
                 {
                     var input = ctx.Resolve(ports.Input);
                     var output = ctx.Resolve(ref ports.Output);
@@ -1080,7 +1228,7 @@ namespace Unity.DataFlowGraph.Tests
             [BurstCompile(CompileSynchronously = true)]
             struct Kernel : IGraphKernel<Data, KernelDefs>
             {
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports) {}
+                public void Execute(RenderContext ctx, in Data data, ref KernelDefs ports) {}
             }
         }
 
@@ -1111,7 +1259,7 @@ namespace Unity.DataFlowGraph.Tests
 
             struct Node : INodeData, IInit, IMsgHandler<bool>
             {
-                public unsafe void HandleMessage(in MessageContext ctx, in bool control)
+                public unsafe void HandleMessage(MessageContext ctx, in bool control)
                 {
                     var tempArray = new NativeArray<int>(Elements, Allocator.Temp);
 
@@ -1211,7 +1359,7 @@ namespace Unity.DataFlowGraph.Tests
                 internal Buffer<int> MyBuffer;
                 internal Buffer<int> MyBufferTwo;
 
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, in Data data, ref KernelDefs ports)
                 {
                     var array = MyBuffer.ToNative(ctx);
 
@@ -1308,7 +1456,6 @@ namespace Unity.DataFlowGraph.Tests
                 LogAssert.Expect(LogType.Warning, new Regex("this is potentially a memory leak"));
                 LogAssert.Expect(LogType.Error, new Regex("1 leaked buffer upload requests left"));
                 set.Destroy(node);
-
             }
         }
     }

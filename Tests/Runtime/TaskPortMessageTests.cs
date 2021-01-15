@@ -10,12 +10,7 @@ namespace Unity.DataFlowGraph.Tests
             public float content;
         }
 
-        public struct NodeData : INodeData
-        {
-            public float content;
-        }
-
-        class MessageOutputNode : NodeDefinition<NodeData, MessageOutputNode.SimPorts>
+        class MessageOutputNode : SimulationNodeDefinition<MessageOutputNode.SimPorts>
         {
             public struct SimPorts : ISimulationPortDefinition
             {
@@ -23,19 +18,26 @@ namespace Unity.DataFlowGraph.Tests
                 public MessageOutput<MessageOutputNode, MessageContent> Output;
 #pragma warning restore 649
             }
+
+            internal struct Node : INodeData
+            {
+#pragma warning disable 649
+                public float content;
+#pragma warning restore 649
+            }
         }
 
         interface IMessageTaskPort
-            : ITaskPortMsgHandler<IMessageTaskPort, MessageContent>
+            : ITaskPort<IMessageTaskPort>
         {
         }
         interface IOtherMessageTaskPort
-            : ITaskPortMsgHandler<IOtherMessageTaskPort, MessageContent>
+            : ITaskPort<IOtherMessageTaskPort>
         {
         }
 
         class MessageTaskPortNode
-            : NodeDefinition<NodeData, MessageTaskPortNode.SimPorts>
+            : SimulationNodeDefinition<MessageTaskPortNode.SimPorts>
             , IMessageTaskPort
         {
             public struct SimPorts : ISimulationPortDefinition
@@ -50,11 +52,15 @@ namespace Unity.DataFlowGraph.Tests
                 return (InputPortID)SimulationPorts.Input;
             }
 
-            public void HandleMessage(in MessageContext ctx, in MessageContent msg)
+            public struct Node : INodeData, IMsgHandler<MessageContent>
             {
-                Assert.That(ctx.Port == GetPort(ctx.Handle));
-                ref var data = ref GetNodeData(ctx.Handle);
-                data.content = msg.content;
+                public float content;
+
+                public void HandleMessage(MessageContext ctx, in MessageContent msg)
+                {
+                    Assert.That(ctx.Port == SimulationPorts.Input);
+                    content = msg.content;
+                }
             }
         }
 
@@ -74,7 +80,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 set.SendMessage(ps, new MessageContent { content = messageContent });
 
-                set.SendTest(b, (NodeData data) => Assert.AreEqual(messageContent, data.content));
+                set.SendTest(b, (MessageTaskPortNode.Node data) => Assert.AreEqual(messageContent, data.content));
 
                 set.Destroy(a, b);
             }
@@ -96,7 +102,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 set.SendMessage(ps, new MessageContent { content = messageContent });
 
-                set.SendTest(b, (NodeData data) => Assert.AreEqual(messageContent, data.content));
+                set.SendTest(b, (MessageTaskPortNode.Node data) => Assert.AreEqual(messageContent, data.content));
 
                 set.Destroy(a, b);
             }

@@ -11,11 +11,11 @@ namespace Unity.DataFlowGraph.Tests
     public class UpdateTests
     {
 
-        public class NewStyleUpdateHandler : SimulationNodeDefinition<NewStyleUpdateHandler.MyPorts>
+        public class NodeWithUpdateHandler : SimulationNodeDefinition<NodeWithUpdateHandler.MyPorts>
         {
             public struct MyPorts : ISimulationPortDefinition
             {
-                public MessageInput<NewStyleUpdateHandler, bool> TriggerContinuousUpdate;
+                public MessageInput<NodeWithUpdateHandler, bool> TriggerContinuousUpdate;
             }
 
 
@@ -23,7 +23,7 @@ namespace Unity.DataFlowGraph.Tests
             {
                 public int Calls;
 
-                public void HandleMessage(in MessageContext ctx, in bool msg)
+                public void HandleMessage(MessageContext ctx, in bool msg)
                 {
                     if (msg)
                         ctx.RegisterForUpdate();
@@ -31,7 +31,7 @@ namespace Unity.DataFlowGraph.Tests
                         ctx.RemoveFromUpdate();
                 }
 
-                public void Update(in UpdateContext ctx)
+                public void Update(UpdateContext ctx)
                 {
                     Calls++;
                 }
@@ -39,41 +39,41 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void CanCallNewStyle_CodeGenerated_UpdateHandler_AndOnlyGetsCalled_WhenRegistered_ForUpdate()
+        public void CanCall_CodeGenerated_UpdateHandler_AndOnlyGetsCalled_WhenRegistered_ForUpdate()
         {
             const int k_UpdateCalls = 10;
 
             using (var set = new NodeSet())
             {
-                var node = set.Create<NewStyleUpdateHandler>();
-                set.SendMessage(node, NewStyleUpdateHandler.SimulationPorts.TriggerContinuousUpdate, true);
+                var node = set.Create<NodeWithUpdateHandler>();
+                set.SendMessage(node, NodeWithUpdateHandler.SimulationPorts.TriggerContinuousUpdate, true);
                 set.Update();
 
                 for (int i = 0; i < k_UpdateCalls; ++i)
                 {
-                    set.SendTest<NewStyleUpdateHandler.NodeData>(node, ctx =>
+                    set.SendTest<NodeWithUpdateHandler.NodeData>(node, ctx =>
                         Assert.AreEqual(i, ctx.NodeData.Calls));
                     set.Update();
                 }
 
-                set.SendMessage(node, NewStyleUpdateHandler.SimulationPorts.TriggerContinuousUpdate, false);
+                set.SendMessage(node, NodeWithUpdateHandler.SimulationPorts.TriggerContinuousUpdate, false);
                 // triggers one extra call due to the delayed effects of above statement
                 // this is why there's a + 1 in following asserts.
                 set.Update();
 
                 for (int i = 0; i < k_UpdateCalls; ++i)
                 {
-                    set.SendTest(node, (NewStyleUpdateHandler.NodeData data) =>
+                    set.SendTest(node, (NodeWithUpdateHandler.NodeData data) =>
                         Assert.AreEqual(k_UpdateCalls + 1,data.Calls));
                     set.Update();
                 }
 
-                set.SendMessage(node, NewStyleUpdateHandler.SimulationPorts.TriggerContinuousUpdate, true);
+                set.SendMessage(node, NodeWithUpdateHandler.SimulationPorts.TriggerContinuousUpdate, true);
                 set.Update();
 
                 for (int i = 0; i < k_UpdateCalls; ++i)
                 {
-                    set.SendTest(node, (NewStyleUpdateHandler.NodeData data) =>
+                    set.SendTest(node, (NodeWithUpdateHandler.NodeData data) =>
                         Assert.AreEqual(k_UpdateCalls + i + 1, data.Calls));
                     set.Update();
                 }
@@ -82,38 +82,6 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        public class OldStyleUpdateHandler : NodeDefinition<OldStyleUpdateHandler.NodeData, OldStyleUpdateHandler.MyPorts>
-        {
-            public struct MyPorts : ISimulationPortDefinition { }
-            public struct NodeData : INodeData
-            {
-                public int Calls;
-            }
-
-            internal protected override void OnUpdate(in UpdateContext c)
-            {
-                GetNodeData(c.Handle).Calls++;
-            }
-        }
-
-        [Test]
-        public void NodeDefinitionUpdate_GetsCalled_WhenUpdatingANodeSet()
-        {
-            const int k_UpdateCalls = 10;
-
-            using (var set = new NodeSet())
-            {
-                var node = set.Create<OldStyleUpdateHandler>();
-
-                for (int i = 0; i < k_UpdateCalls; ++i)
-                {
-                    set.SendTest(node, (OldStyleUpdateHandler.NodeData data) => Assert.AreEqual(i, data.Calls));
-                    set.Update();
-                }
-
-                set.Destroy(node);
-            }
-        }
 
         [Test]
         public void CannotRegister_ForUpdateTwice_OrUnregister_Twice_InInit()
@@ -180,7 +148,7 @@ namespace Unity.DataFlowGraph.Tests
             using (var set = new NodeSet())
             {
                 var node = set.Create<DelegateMessageIONode>(
-                    (in UpdateContext ctx) =>
+                    (UpdateContext ctx) =>
                     {
                         var ctxCopy = ctx;
                         Assert.Throws<InvalidOperationException>(() => ctxCopy.RegisterForUpdate());
@@ -207,7 +175,7 @@ namespace Unity.DataFlowGraph.Tests
         {
             using (var set = new NodeSet())
             {
-                var node = set.Create<DelegateMessageIONode>((in UpdateContext ctx) => { });
+                var node = set.Create<DelegateMessageIONode>((UpdateContext ctx) => { });
 
                 ref var nodeData = ref set.GetInternalData()[node.VHandle];
 
@@ -241,7 +209,7 @@ namespace Unity.DataFlowGraph.Tests
             {
                 bool wasEvenCalled = false;
                 var node = set.Create<DelegateMessageIONode<int>, int>(
-                    (in UpdateContext ctx, ref int counter) =>
+                    (UpdateContext ctx, ref int counter) =>
                     {
                         ctx.RemoveFromUpdate();
                         Assert.Zero(counter);
@@ -277,14 +245,14 @@ namespace Unity.DataFlowGraph.Tests
                 for(int i = 0; i < k_Nodes; ++i)
                 {
                     var node = set.Create<DelegateMessageIONode>(
-                        (in MessageContext ctx, in Message m) =>
+                        (MessageContext ctx, in Message m) =>
                         {
                             if(m.Contents > 0)
                                 ctx.RegisterForUpdate();
                             else
                                 ctx.RemoveFromUpdate();
                         },
-                        (in UpdateContext ctx) =>
+                        (UpdateContext ctx) =>
                         {
                             var current = map[ctx.Handle];
                             current.Counter++;

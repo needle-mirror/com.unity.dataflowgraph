@@ -492,20 +492,90 @@ namespace Unity.DataFlowGraph
         /// <summary>
         /// Set the size of a <see cref="Buffer{T}"/> appearing in a <see cref="DataOutput{D,TType}"/>.
         /// See
-        /// <see cref="SetBufferSize{TDefinition, TType}(NodeHandle{TDefinition}, DataOutputBuffer{TDefinition, TType}, int)"/>
+        /// <see cref="SetBufferSize{TDefinition, TType}(NodeHandle{TDefinition}, DataOutput{TDefinition, TType}, TType)"/>
         /// for more information.
         /// </summary>
-        /// <exception cref="ArgumentException">
-        /// If the <paramref name="handle"/> does not refer to a valid instance.
-        /// </exception>
-        /// <exception cref="InvalidOperationException">
-        /// Thrown if the request is invalid.
-        /// </exception>
+        /// <exception cref="ArgumentException">If the <paramref name="handle"/> does not refer to a valid instance.</exception>
+        /// <exception cref="InvalidOperationException">Thrown if the request is invalid.</exception>
         public void SetBufferSize<TType>(NodeHandle handle, OutputPortID port, in TType requestedSize)
             where TType : struct
         {
-            var source = new OutputPair(this, handle, new OutputPortArrayID(port));
+            SetBufferSize(new OutputPair(this, handle, new OutputPortArrayID(port)), requestedSize);
+        }
 
+        /// <summary>
+        /// Set the size of a <see cref="Buffer{T}"/> appearing in a <see cref="DataOutput{D,TType}"/> of a <see cref="PortArray{TPort}"/>.
+        /// See
+        /// <see cref="SetBufferSize{TDefinition, TType}(NodeHandle{TDefinition}, DataOutput{TDefinition, TType}, TType)"/>
+        /// for more information.
+        /// </summary>
+        /// <exception cref="ArgumentException">If the <paramref name="handle"/> does not refer to a valid instance.</exception>
+        /// <exception cref="InvalidOperationException">Thrown if the request is invalid.</exception>
+        /// <exception cref="IndexOutOfRangeException">Thrown if the index is out of range with respect to the port array.</exception>
+        public void SetBufferSize<TType>(NodeHandle handle, OutputPortID port, int arrayIndex, in TType requestedSize)
+            where TType : struct
+        {
+            SetBufferSize(new OutputPair(this, handle, new OutputPortArrayID(port, arrayIndex)), requestedSize);
+        }
+
+        /// <summary>
+        /// Set the size of a <see cref="Buffer{T}"/> appearing in a <see cref="DataOutput{D,TType}"/>. If
+        /// <typeparamref name="TType"/> is itself a <see cref="Buffer{T}"/>, pass the result of
+        /// <see cref="Buffer{T}.SizeRequest(int)"/> as the requestedSize argument.
+        ///
+        /// If <typeparamref name="TType"/> is a struct containing one or multiple <see cref="Buffer{T}"/> instances,
+        /// pass an instance of the struct as the requestedSize parameter with <see cref="Buffer{T}"/> instances within
+        /// it having been set using <see cref="Buffer{T}.SizeRequest(int)"/>.
+        /// Any <see cref="Buffer{T}"/> instances within the given struct that have not been set using
+        /// <see cref="Buffer{T}.SizeRequest(int)"/> will be unaffected by the call.
+        /// </summary>
+        /// <exception cref="ArgumentException">If the <paramref name="handle"/> does not refer to a valid instance.</exception>
+        /// <exception cref="InvalidOperationException">Thrown if the request is invalid.</exception>
+        public void SetBufferSize<TDefinition, TType>(NodeHandle<TDefinition> handle, DataOutput<TDefinition, TType> port, in TType requestedSize)
+            where TDefinition : NodeDefinition
+            where TType : struct
+        {
+            var source = new OutputPair(this, handle, new OutputPortArrayID(port.Port));
+            SetPortBufferSizeWithCorrectlyTypedSizeParameter(source, GetFormalPort(source), requestedSize);
+        }
+
+        /// <summary>
+        /// Set the size of a <see cref="Buffer{T}"/> appearing in a <see cref="DataOutput{D,TType}"/> of a <see cref="PortArray{TPort}"/>. If
+        /// <typeparamref name="TType"/> is itself a <see cref="Buffer{T}"/>, pass the result of
+        /// <see cref="Buffer{T}.SizeRequest(int)"/> as the requestedSize argument.
+        ///
+        /// If <typeparamref name="TType"/> is a struct containing one or multiple <see cref="Buffer{T}"/> instances,
+        /// pass an instance of the struct as the requestedSize parameter with <see cref="Buffer{T}"/> instances within
+        /// it having been set using <see cref="Buffer{T}.SizeRequest(int)"/>.
+        /// Any <see cref="Buffer{T}"/> instances within the given struct that have not been set using
+        /// <see cref="Buffer{T}.SizeRequest(int)"/> will be unaffected by the call.
+        /// </summary>
+        /// <exception cref="ArgumentException">If the <paramref name="handle"/> does not refer to a valid instance.</exception>
+        /// <exception cref="InvalidOperationException">Thrown if the request is invalid.</exception>
+        /// <exception cref="IndexOutOfRangeException">Thrown if the index is out of range with respect to the port array.</exception>
+        public void SetBufferSize<TDefinition, TType>(NodeHandle<TDefinition> handle, PortArray<DataOutput<TDefinition, TType>> port, int arrayIndex, in TType requestedSize)
+            where TDefinition : NodeDefinition
+            where TType : struct
+        {
+            var source = new OutputPair(this, handle, new OutputPortArrayID(port.GetPortID(), arrayIndex));
+            SetPortBufferSizeWithCorrectlyTypedSizeParameter(source, GetFormalPort(source), requestedSize);
+        }
+
+        internal unsafe void UpdateKernelData<TKernelData>(ValidatedHandle h, in TKernelData data)
+            where TKernelData : struct, IKernelData
+        {
+            ref readonly var node = ref Nodes[h];
+            var hash = m_Traits[node.TraitsIndex].Resolve().KernelStorage.KernelDataHash;
+
+            if (hash != TypeHash.Create<TKernelData>())
+                throw new InvalidOperationException($"Updated kernel data type {typeof(TKernelData)} does not match expected kernel data type for node {h}");
+
+            UnsafeUtility.MemCpy(node.KernelData, UnsafeUtilityExtensions.AddressOf(data), UnsafeUtility.SizeOf<TKernelData>());
+        }
+
+        void SetBufferSize<TType>(in OutputPair source, in TType requestedSize)
+            where TType : struct
+        {
             var portDescription = GetFormalPort(source);
 
             if (portDescription.Category != PortDescription.Category.Data)
@@ -522,43 +592,6 @@ namespace Unity.DataFlowGraph
             SetPortBufferSizeWithCorrectlyTypedSizeParameter(source, portDescription, requestedSize);
         }
 
-        /// <summary>
-        /// Set the size of a <see cref="Buffer{T}"/> appearing in a <see cref="DataOutput{D,TType}"/>. If
-        /// <typeparamref name="TType"/> is itself a <see cref="Buffer{T}"/>, pass the result of
-        /// <see cref="Buffer{T}.SizeRequest(int)"/> as the requestedSize argument.
-        ///
-        /// If <typeparamref name="TType"/> is a struct containing one or multiple <see cref="Buffer{T}"/> instances,
-        /// pass an instance of the struct as the requestedSize parameter with <see cref="Buffer{T}"/> instances within
-        /// it having been set using <see cref="Buffer{T}.SizeRequest(int)"/>.
-        /// Any <see cref="Buffer{T}"/> instances within the given struct that have not been set using
-        /// <see cref="Buffer{T}.SizeRequest(int)"/> will be unaffected by the call.
-        /// </summary>
-        /// <exception cref="ArgumentException">
-        /// If the <paramref name="handle"/> does not refer to a valid instance.
-        /// </exception>
-        /// <exception cref="InvalidOperationException">
-        /// Thrown if the request is invalid.
-        /// </exception>
-        public void SetBufferSize<TDefinition, TType>(NodeHandle<TDefinition> handle, DataOutput<TDefinition, TType> port, in TType requestedSize)
-            where TDefinition : NodeDefinition
-            where TType : struct
-        {
-            var source = new OutputPair(this, handle, new OutputPortArrayID(port.Port));
-            SetPortBufferSizeWithCorrectlyTypedSizeParameter(source, GetFormalPort(source), requestedSize);
-        }
-
-        internal unsafe void UpdateKernelData<TKernelData>(ValidatedHandle h, in TKernelData data)
-            where TKernelData : struct, IKernelData
-        {
-            ref readonly var node = ref Nodes[h];
-            var hash = m_Traits[node.TraitsIndex].Resolve().KernelStorage.KernelDataHash;
-
-            if (hash != TypeHash.Create<TKernelData>())
-                throw new InvalidOperationException($"Updated kernel data type {typeof(TKernelData)} does not match expected kernel data type for node {h}");
-
-            UnsafeUtility.MemCpy(node.KernelData, UnsafeUtilityExtensions.AddressOf(data), UnsafeUtility.SizeOf<TKernelData>());
-        }
-
         void SetPortBufferSizeWithCorrectlyTypedSizeParameter<TType>(in OutputPair source, in PortDescription.OutputPort port, in TType sizeRequest)
             where TType : struct
         {
@@ -571,7 +604,7 @@ namespace Unity.DataFlowGraph
 
                 if(desc.HasSizeRequest)
                 {
-                    m_Diff.NodeBufferResized(source, bufferInfo.Offset, desc.GetSizeRequest(), bufferInfo.ItemType);
+                    m_Diff.NodeBufferResized(source, bufferInfo.BufferIndex, desc.GetSizeRequest(), bufferInfo.ItemType);
                 }
                 else if(!desc.Equals(default))
                 {
@@ -600,7 +633,7 @@ namespace Unity.DataFlowGraph
                 {
                     if (description.OwnerNode != handle)
                         throw new InvalidOperationException(
-                            $"Issue to {nameof(InitContext.UploadRequest)} " +
+                            $"Issue to {nameof(CommonContextAPI.UploadRequest)} " +
                             $"originated from a different node than the target owner"
                     );
 
@@ -609,18 +642,18 @@ namespace Unity.DataFlowGraph
                     if (supposedIndex == -1)
                     {
                         throw new InvalidOperationException(
-                            $"Issue to {nameof(InitContext.UploadRequest)} was submitted more than once," +
+                            $"Issue to {nameof(CommonContextAPI.UploadRequest)} was submitted more than once," +
                             $" or came from an unknown place"
                         );
                     }
 
                     m_PendingBufferUploads.RemoveAtSwapBack(supposedIndex);
 
-                    m_Diff.KernelBufferUpdated(handle, bufferInfo.Offset.Offset, description.Size, description.Ptr);
+                    m_Diff.KernelBufferUpdated(handle, bufferInfo.BufferIndex, description.Size, description.Ptr);
                 }
                 else if(description.HasSizeRequest)
                 {
-                    m_Diff.KernelBufferResized(handle, bufferInfo.Offset.Offset, description.GetSizeRequest(), bufferInfo.ItemType);
+                    m_Diff.KernelBufferResized(handle, bufferInfo.BufferIndex, description.GetSizeRequest(), bufferInfo.ItemType);
                 }
                 else if(!description.Equals(default))
                 {

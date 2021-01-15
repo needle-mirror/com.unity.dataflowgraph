@@ -347,7 +347,7 @@ namespace Unity.DataFlowGraph
                 return JITPorts.Count - 1;
             }
 
-            public void Execute(RenderContext ctx, KernelData data, ref KernelDefs kernelPorts)
+            public void Execute(RenderContext ctx, in KernelData data, ref KernelDefs kernelPorts)
             {
                 for(int i = 0; i < Inputs.Count; ++i)
                 {
@@ -446,7 +446,7 @@ namespace Unity.DataFlowGraph
             if(ecsType.IsBuffer)
                 managedType = typeof(Buffer<>).MakeGenericType(managedType);
 
-            return PortDescription.InputPort.Data(managedType, 0, hasBuffers: false, isPortArray: false, isPublic: true, name: null /* #52 */);
+            return PortDescription.InputPort.Data(managedType, port.PortID, hasBuffers: false, isPortArray: false, isPublic: true, name: null /* #52 */);
         }
 
         internal override PortDescription.OutputPort GetVirtualOutput(ValidatedHandle h, OutputPortArrayID port)
@@ -457,7 +457,7 @@ namespace Unity.DataFlowGraph
             if (ecsType.IsBuffer)
                 managedType = typeof(Buffer<>).MakeGenericType(managedType);
 
-            return PortDescription.OutputPort.Data(managedType, 0, null, isPublic: true, name: null /* #52 */);
+            return PortDescription.OutputPort.Data(managedType, port.PortID, null, isPortArray: false, isPublic: true, name: null /* #52 */);
         }
 
         internal override PortDescription.InputPort GetFormalInput(ValidatedHandle h, InputPortArrayID port)
@@ -570,7 +570,7 @@ namespace Unity.DataFlowGraph
                 ref var kernelData = ref GetSimulationSide_KernelData(node);
                 kernelData.Entity = entity;
                 kernelData.EntityStore = world.EntityManager.GetCheckedEntityDataAccess()->EntityComponentStore;
-                
+
                 return new NodeHandle<ComponentNode>(node.Versioned);
             }
 

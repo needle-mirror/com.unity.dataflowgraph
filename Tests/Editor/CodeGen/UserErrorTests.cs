@@ -68,7 +68,7 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
 
             public struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
             {
-                public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports) { }
+                public void Execute(RenderContext ctx, in KernelData data, ref KernelDefs ports) { }
             }
 
             public struct SimPorts : ISimulationPortDefinition { }
@@ -86,7 +86,7 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
             }
         }
 
-        class SimpleNode_WithoutCtor : NodeDefinition<NodeWithMultipleImplementations.SimPorts>
+        class SimpleNode_WithoutCtor : SimulationNodeDefinition<SimpleNode_WithoutCtor.SimPorts>
         {
             public struct SimPorts : ISimulationPortDefinition { }
         }
@@ -110,7 +110,6 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
         {
             public SimpleNode_With2Ctor() { }
             public SimpleNode_With2Ctor(int _) { }
-
         }
 
         class SimpleNode_WithCCtor : SimpleNode_WithoutCtor
@@ -195,7 +194,7 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
             }
         }
 
-        class NodeWithReservedPortDefDeclaration : NodeDefinition<NodeWithReservedPortDefDeclaration.SimPorts>
+        class NodeWithReservedPortDefDeclaration : SimulationNodeDefinition<NodeWithReservedPortDefDeclaration.SimPorts>
         {
             public struct SimPorts : ISimulationPortDefinition
             {
@@ -215,7 +214,7 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
             }
         }
 
-        public class NodeWithNonPublicStaticPorts : NodeDefinition<NodeWithNonPublicStaticPorts.SimPorts>, IMsgHandler<int>
+        public class NodeWithNonPublicStaticPorts : SimulationNodeDefinition<NodeWithNonPublicStaticPorts.SimPorts>
         {
             public struct SimPorts : ISimulationPortDefinition
             {
@@ -223,12 +222,13 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
                 static MessageOutput<NodeWithNonPublicStaticPorts, int> Output;
             }
 
-            public void HandleMessage(in MessageContext ctx, in int msg) {}
+            struct NodeData : INodeData, IMsgHandler<int>
+            {
+                public void HandleMessage(MessageContext ctx, in int msg) {}
+            }
         }
 
-        public class NodeWithPublicStaticPorts
-            : NodeDefinition<NodeWithPublicStaticPorts.SimPorts>
-                , IMsgHandler<float>
+        public class NodeWithPublicStaticPorts : SimulationNodeDefinition<NodeWithPublicStaticPorts.SimPorts>
         {
             public struct SimPorts : ISimulationPortDefinition
             {
@@ -236,7 +236,10 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
                 public static MessageOutput<NodeWithPublicStaticPorts, float> Output;
             }
 
-            public void HandleMessage(in MessageContext ctx, in float msg) {}
+            struct NodeData : INodeData, IMsgHandler<float>
+            {
+                public void HandleMessage(MessageContext ctx, in float msg) {}
+            }
         }
 
         [Test]
@@ -251,10 +254,8 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
             }
         }
 
-        public class KernelNodeWithStaticMembersOnKernelPorts : NodeDefinition<KernelNodeWithStaticMembersOnKernelPorts.Data, KernelNodeWithStaticMembersOnKernelPorts.KernelDefs, KernelNodeWithStaticMembersOnKernelPorts.Kernel>
+        public class KernelNodeWithStaticMembersOnKernelPorts : KernelNodeDefinition<KernelNodeWithStaticMembersOnKernelPorts.KernelDefs>
         {
-            public struct Data : IKernelData {}
-
             public struct KernelDefs : IKernelPortDefinition
             {
                 public DataInput<KernelNodeWithStaticMembersOnKernelPorts, int> Input1;
@@ -262,9 +263,11 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
                 public static int s_InvalidStatic;
             }
 
-            public struct Kernel : IGraphKernel<Data, KernelDefs>
+            struct Data : IKernelData {}
+
+            struct Kernel : IGraphKernel<Data, KernelDefs>
             {
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports) {}
+                public void Execute(RenderContext ctx, in Data data, ref KernelDefs ports) {}
             }
         }
 
@@ -278,7 +281,7 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
             }
         }
 
-        public class NodeWithNonPortTypes_InSimulationPortDefinition : NodeDefinition<NodeWithNonPortTypes_InSimulationPortDefinition.PortDefinition>
+        public class NodeWithNonPortTypes_InSimulationPortDefinition : SimulationNodeDefinition<NodeWithNonPortTypes_InSimulationPortDefinition.PortDefinition>
         {
             public struct PortDefinition : ISimulationPortDefinition
             {
@@ -286,18 +289,18 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
             }
         }
 
-        public class NodeWithNonPortTypes_InKernelPortDefinition : NodeDefinition<NodeWithNonPortTypes_InKernelPortDefinition.Data, NodeWithNonPortTypes_InKernelPortDefinition.KernelDefs, NodeWithNonPortTypes_InKernelPortDefinition.Kernel>
+        public class NodeWithNonPortTypes_InKernelPortDefinition : KernelNodeDefinition<NodeWithNonPortTypes_InKernelPortDefinition.KernelDefs>
         {
-            public struct Data : IKernelData {}
-
             public struct KernelDefs : IKernelPortDefinition
             {
                 public int InvalidMember;
             }
 
-            public struct Kernel : IGraphKernel<Data, KernelDefs>
+            struct Data : IKernelData {}
+
+            struct Kernel : IGraphKernel<Data, KernelDefs>
             {
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports) {}
+                public void Execute(RenderContext ctx, in Data data, ref KernelDefs ports) {}
             }
         }
 
@@ -312,76 +315,7 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
             }
         }
 
-        public class NodeWithOldAndNewMessageHandlers : NodeDefinition<NodeWithOldAndNewMessageHandlers.NodeHandler, NodeWithOldAndNewMessageHandlers.PortDefinition>, IMsgHandler<int>
-        {
-            public void HandleMessage(in MessageContext ctx, in int msg) { }
-
-            public struct NodeHandler : INodeData, IMsgHandler<int>
-            {
-                public void HandleMessage(in MessageContext ctx, in int msg) { }
-            }
-
-            public struct PortDefinition : ISimulationPortDefinition
-            {
-                public MessageInput<NodeWithOldAndNewMessageHandlers, int> Port;
-            }
-        }
-
-        public class NodeWithOldAndNewInitHandlers : NodeDefinition<NodeWithOldAndNewInitHandlers.NodeHandler, NodeWithOldAndNewInitHandlers.PortDefinition>
-        {
-            public struct NodeHandler : INodeData, IInit
-            {
-                public void Init(InitContext ctx) { }
-            }
-
-            public struct PortDefinition : ISimulationPortDefinition { }
-
-            protected override void Init(InitContext c) { }
-        }
-
-        public class NodeWithOldAndNewDestroyHandlers : NodeDefinition<NodeWithOldAndNewDestroyHandlers.NodeHandler, NodeWithOldAndNewDestroyHandlers.PortDefinition>
-        {
-            public struct NodeHandler : INodeData, IDestroy
-            {
-                public void Destroy(DestroyContext context) { }
-            }
-
-            public struct PortDefinition : ISimulationPortDefinition { }
-
-            protected override void Destroy(DestroyContext c) { }
-        }
-
-        public class NodeWithOldAndNewUpdateHandlers : NodeDefinition<NodeWithOldAndNewUpdateHandlers.NodeHandler, NodeWithOldAndNewUpdateHandlers.PortDefinition>
-        {
-            public struct NodeHandler : INodeData, IUpdate
-            {
-                public void Update(in UpdateContext context) { }
-            }
-
-            public struct PortDefinition : ISimulationPortDefinition { }
-
-            protected override void OnUpdate(in UpdateContext ctx) { }
-        }
-
-        static Type[] s_MixedHandlers = {
-            typeof(NodeWithOldAndNewUpdateHandlers),
-            typeof(NodeWithOldAndNewMessageHandlers),
-            typeof(NodeWithOldAndNewDestroyHandlers),
-            typeof(NodeWithOldAndNewInitHandlers)
-        };
-
-        [Test]
-        public void DFG_UE_10_NodeWithOldAndNewStyleUpdateHandler([ValueSource("s_MixedHandlers")] Type nodeType)
-        {
-            using (var fixture = new DefinitionFixture(nodeType))
-            {
-                fixture.ParseSymbols();
-                fixture.ExpectError(new Regex(nameof(Diag.DFG_UE_10)));
-                fixture.AnalyseConsistency();
-            }
-        }
-
-        public class NodeWithMissingHandlers : NodeDefinition<NodeWithMissingHandlers.PortDefinition>
+        public class NodeWithMissingHandlers : SimulationNodeDefinition<NodeWithMissingHandlers.PortDefinition>
         {
             public struct PortDefinition : ISimulationPortDefinition
             {
@@ -411,7 +345,7 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
             public struct KernelData : IKernelData {}
             public struct GraphKernel : IGraphKernel<KernelData, PortDefinition>
             {
-                public void Execute(RenderContext ctx, KernelData data, ref PortDefinition ports) {}
+                public void Execute(RenderContext ctx, in KernelData data, ref PortDefinition ports) {}
             }
         }
 
@@ -422,7 +356,7 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
             public struct KernelData : IKernelData {}
             public struct GraphKernel : IGraphKernel<KernelData, KernelPortDefinition>
             {
-                public void Execute(RenderContext ctx, KernelData data, ref KernelPortDefinition ports) {}
+                public void Execute(RenderContext ctx, in KernelData data, ref KernelPortDefinition ports) {}
             }
         }
 
@@ -433,7 +367,7 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
             public struct KernelData : IKernelData {}
             public struct GraphKernel : IGraphKernel<KernelData, KernelPortDefinition>
             {
-                public void Execute(RenderContext ctx, KernelData data, ref KernelPortDefinition ports) {}
+                public void Execute(RenderContext ctx, in KernelData data, ref KernelPortDefinition ports) {}
             }
         }
 
@@ -455,7 +389,7 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
             public struct LocalKernelData : IKernelData {}
             public struct GraphKernel : IGraphKernel<SimNodeWithKernelPorts.KernelData, KernelPortDefinition>
             {
-                public void Execute(RenderContext ctx, SimNodeWithKernelPorts.KernelData data, ref KernelPortDefinition ports) {}
+                public void Execute(RenderContext ctx, in SimNodeWithKernelPorts.KernelData data, ref KernelPortDefinition ports) {}
             }
         }
 
@@ -465,7 +399,7 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
             public struct LocalKernelData : IKernelData {}
             public struct GraphKernel : IGraphKernel<LocalKernelData, SimNodeWithKernelPorts.KernelDefs>
             {
-                public void Execute(RenderContext ctx, LocalKernelData data, ref SimNodeWithKernelPorts.KernelDefs ports) {}
+                public void Execute(RenderContext ctx, in LocalKernelData data, ref SimNodeWithKernelPorts.KernelDefs ports) {}
             }
         }
 
@@ -490,7 +424,7 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
             struct KernelData : IKernelData { }
             struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
             {
-                public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports) { }
+                public void Execute(RenderContext ctx, in KernelData data, ref KernelDefs ports) { }
             }
         }
 
@@ -503,7 +437,7 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
             struct KernelData : IKernelData { }
             struct GraphKernel : IGraphKernel<KernelData, ExternalKernelPortDefinition>
             {
-                public void Execute(RenderContext ctx, KernelData data, ref ExternalKernelPortDefinition ports) { }
+                public void Execute(RenderContext ctx, in KernelData data, ref ExternalKernelPortDefinition ports) { }
             }
         }
 
@@ -519,55 +453,6 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
             }
         }
 
-        public class NewNodeWithOldMessageHandlers : SimulationNodeDefinition<NewNodeWithOldMessageHandlers.PortDefinition>, IMsgHandler<int>
-        {
-            public void HandleMessage(in MessageContext ctx, in int msg) { }
-
-            public struct PortDefinition : ISimulationPortDefinition
-            {
-                public MessageInput<NodeWithOldAndNewMessageHandlers, int> Port;
-            }
-        }
-
-        public class NewNodeWithOldInitHandlers : SimulationNodeDefinition<NewNodeWithOldInitHandlers.PortDefinition>
-        {
-            public struct PortDefinition : ISimulationPortDefinition { }
-
-            protected override void Init(InitContext c) { }
-        }
-
-        public class NewNodeWithOldDestroyHandlers : SimulationNodeDefinition<NewNodeWithOldDestroyHandlers.PortDefinition>
-        {
-            public struct PortDefinition : ISimulationPortDefinition { }
-
-            protected override void Destroy(DestroyContext c) { }
-        }
-
-        public class NewNodeWithOldUpdateHandlers : SimulationNodeDefinition<NewNodeWithOldUpdateHandlers.PortDefinition>
-        {
-            public struct PortDefinition : ISimulationPortDefinition { }
-
-            protected override void OnUpdate(in UpdateContext ctx) { }
-        }
-
-        static Type[] s_OldHandlers = {
-            typeof(NewNodeWithOldUpdateHandlers),
-            typeof(NewNodeWithOldMessageHandlers),
-            typeof(NewNodeWithOldDestroyHandlers),
-            typeof(NewNodeWithOldInitHandlers)
-        };
-
-        [Test]
-        public void DFG_UE_15_NodeWithOldAndNewStyleUpdateHandler([ValueSource("s_OldHandlers")] Type nodeType)
-        {
-            using (var fixture = new DefinitionFixture(nodeType))
-            {
-                fixture.ParseSymbols();
-                fixture.ExpectError(new Regex(nameof(Diag.DFG_UE_15)));
-                fixture.AnalyseConsistency();
-            }
-        }
-
         public class NodeWithClashingMsgHandlerTypes : SimulationNodeDefinition<NodeWithClashingMsgHandlerTypes.Ports>
         {
             public struct Ports : ISimulationPortDefinition
@@ -577,10 +462,10 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
 
             struct Handlers : INodeData, IMsgHandler<int>, IMsgHandlerGeneric<int>
             {
-                void IMsgHandler<int>.HandleMessage(in MessageContext ctx, in int msg)
+                void IMsgHandler<int>.HandleMessage(MessageContext ctx, in int msg)
                     => throw new NotImplementedException();
 
-                void IMsgHandlerGeneric<int>.HandleMessage(in MessageContext ctx, in int msg)
+                void IMsgHandlerGeneric<int>.HandleMessage(MessageContext ctx, in int msg)
                     => throw new NotImplementedException();
             }
         }

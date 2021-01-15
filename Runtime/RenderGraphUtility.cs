@@ -77,33 +77,83 @@ namespace Unity.DataFlowGraph
 
         public unsafe (GraphValueResolver Resolver, JobHandle Dependency) CombineAndProtectDependencies(NativeList<DataOutputValue> valuesToProtect)
         {
-            var temp = new NativeArray<JobHandle>(valuesToProtect.Length, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
+            var finalHandle = ComputeDependency(valuesToProtect);
 
-            try
+            finalHandle = AtomicSafetyManager.MarkScopeAsWrittenTo(finalHandle, m_BufferScope);
+
+            GraphValueResolver resolver;
+
+            resolver.Manager = m_SharedData.SafetyManager;
+            resolver.Values = valuesToProtect;
+            resolver.ReadBuffersScope = m_BufferScope;
+            resolver.KernelNodes = m_Nodes;
+
+            return (resolver, finalHandle);
+        }
+
+        internal JobHandle ComputeDependency(in DataOutputValue value)
+        {
+            switch (m_Model)
             {
-                for (int i = 0; i < valuesToProtect.Length; ++i)
+                case NodeSet.RenderExecutionModel.MaximallyParallel:
                 {
-                    temp[i] = valuesToProtect[i].Dependency;
+                    if (!StillExists(ref m_Nodes, value.Source))
+                        break;
+
+                    return m_Nodes[value.Source.Versioned.Index].Fence;
                 }
 
-                var finalHandle = JobHandleUnsafeUtility.CombineDependencies((JobHandle*)temp.GetUnsafePtr(), valuesToProtect.Length);
+                case NodeSet.RenderExecutionModel.Islands:
+                case NodeSet.RenderExecutionModel.SingleThreaded:
 
-                finalHandle = AtomicSafetyManager.MarkScopeAsWrittenTo(finalHandle, m_BufferScope);
+                    if (m_IslandFences.Length == 0)
+                        break;
 
-                GraphValueResolver resolver;
-
-                resolver.Manager = m_SharedData.SafetyManager;
-                resolver.Values = valuesToProtect;
-                resolver.ReadBuffersScope = m_BufferScope;
-                resolver.KernelNodes = m_Nodes;
-
-                return (resolver, finalHandle);
+                    return m_IslandFences[0];
             }
-            finally
+
+            return default;
+        }
+
+        unsafe JobHandle ComputeDependency(NativeList<DataOutputValue> values)
+        {
+            switch (m_Model)
             {
-                temp.Dispose();
+                case NodeSet.RenderExecutionModel.MaximallyParallel:
+                {
+                    var fences = new NativeArray<JobHandle>(values.Length, Allocator.Temp, NativeArrayOptions.ClearMemory);
+
+                    try
+                    {
+                        // TODO: Impossible to implement without synchronising against scheduling dependencies (see comment on RootFence as well).....
+                        // Also potentially includes more dependencies than you want (for stale graph values)
+                        for(int i = 0; i < values.Length; ++i)
+                        {
+                            if (!StillExists(ref m_Nodes, values[i].Source))
+                                continue;
+
+                            fences[i] = m_Nodes[values[i].Source.Versioned.Index].Fence;
+                        }
+
+                        return JobHandleUnsafeUtility.CombineDependencies((JobHandle*)fences.GetUnsafeReadOnlyPtr(), fences.Length);
+
+                    }
+                    finally
+                    {
+                        fences.Dispose();
+                    }
+                }
+
+                case NodeSet.RenderExecutionModel.Islands:
+                case NodeSet.RenderExecutionModel.SingleThreaded:
+
+                    if (m_IslandFences.Length == 0)
+                        break;
+
+                    return m_IslandFences[0];
             }
 
+            return default;
         }
 
         static Topology.SortingAlgorithm AlgorithmFromModel(NodeSet.RenderExecutionModel model)
@@ -115,6 +165,29 @@ namespace Unity.DataFlowGraph
                 default:
                     return Topology.SortingAlgorithm.GlobalBreadthFirst;
             }
+        }
+
+        void CompleteGraph()
+        {
+            RootFence.Complete();
+
+#if DFG_ASSERTIONS
+
+            // Assure all nodes have been fenced. Culling could be expressed as inserting defaulted job handles into downstream
+            // nodes, which could cause midstream nodes to be unfenced due to RootFence only combining roots.
+
+            for (int i = 0; i < Cache.Groups.Length; ++i)
+            {
+                foreach (var nodeCache in new Topology.GroupWalker(Cache.Groups[i]))
+                {
+                    var index = nodeCache.Vertex.Versioned.Index;
+                    ref var node = ref m_Nodes[index];
+
+                    if (!node.Fence.IsCompleted)
+                        throw new AssertionException($"Unfenced node {nodeCache.Vertex.ToPublicHandle()}");
+                }
+            }
+#endif
         }
 
         public static EntityQuery CreateNodeSetAttachmentQuery(ComponentSystemBase system)

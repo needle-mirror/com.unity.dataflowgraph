@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
@@ -9,7 +10,7 @@ using Unity.CompilationPipeline.Common.ILPostProcessing;
 
 namespace Unity.DataFlowGraph.CodeGen
 {
-    internal partial class DataFlowGraphILPostProcessor : ILPostProcessor
+    internal class DataFlowGraphILPostProcessor : ILPostProcessor
     {
         // FIXME: Adapted from EntitiesILPostProcessors - refactor to share code
         public override ILPostProcessResult Process(ICompiledAssembly compiledAssembly)
@@ -66,7 +67,7 @@ namespace Unity.DataFlowGraph.CodeGen
         {
             if (compiledAssembly.Name == "Unity.DataFlowGraph")
                 return true;
-            return compiledAssembly.References.Any(f => Path.GetFileName(f) == "Unity.DataFlowGraph.dll") && 
+            return compiledAssembly.References.Any(f => Path.GetFileName(f) == "Unity.DataFlowGraph.dll") &&
                    !compiledAssembly.Name.Contains("CodeGen.Tests");
         }
 
@@ -128,7 +129,7 @@ namespace Unity.DataFlowGraph.CodeGen
             private string FindFile(AssemblyNameReference name)
             {
                 var fileName = _references.FirstOrDefault(r => Path.GetFileName(r) == name.Name + ".dll");
-                if (fileName != null) 
+                if (fileName != null)
                     return fileName;
 
                 // perhaps the type comes from an exe instead
@@ -144,7 +145,7 @@ namespace Unity.DataFlowGraph.CodeGen
                 //are always located next to direct references, so we search in all directories of direct references we
                 //got passed, and if we find the file in there, we resolve to it.
                 foreach (var parentDir in _references.Select(Path.GetDirectoryName).Distinct())
-                { 
+                {
                     var candidate = Path.Combine(parentDir,name.Name + ".dll");
                     if (File.Exists(candidate))
                         return candidate;
@@ -192,6 +193,35 @@ namespace Unity.DataFlowGraph.CodeGen
         }
 
         // FIXME: Boilerplate copied from EntitiesILPostProcessors - refactor to share code
+        class PostProcessorReflectionImporterProvider : IReflectionImporterProvider
+        {
+            public IReflectionImporter GetReflectionImporter(ModuleDefinition module)
+            {
+                return new PostProcessorReflectionImporter(module);
+            }
+        }
+
+        // FIXME: Boilerplate copied from EntitiesILPostProcessors - refactor to share code
+        class PostProcessorReflectionImporter : DefaultReflectionImporter
+        {
+            private const string SystemPrivateCoreLib = "System.Private.CoreLib";
+            private AssemblyNameReference _correctCorlib;
+
+            public PostProcessorReflectionImporter(ModuleDefinition module) : base(module)
+            {
+                _correctCorlib = module.AssemblyReferences.FirstOrDefault(a => a.Name == "mscorlib" || a.Name == "netstandard" || a.Name == SystemPrivateCoreLib);
+            }
+
+            public override AssemblyNameReference ImportReference(AssemblyName reference)
+            {
+                if (_correctCorlib != null && reference.Name == SystemPrivateCoreLib)
+                    return _correctCorlib;
+
+                return base.ImportReference(reference);
+            }
+        }
+
+        // FIXME: Boilerplate copied from EntitiesILPostProcessors - refactor to share code
         private static AssemblyDefinition AssemblyDefinitionFor(ICompiledAssembly compiledAssembly)
         {
             var resolver = new PostProcessorAssemblyResolver(compiledAssembly);
@@ -200,9 +230,9 @@ namespace Unity.DataFlowGraph.CodeGen
                 SymbolStream = new MemoryStream(compiledAssembly.InMemoryAssembly.PdbData.ToArray()),
                 SymbolReaderProvider = new PortablePdbReaderProvider(),
                 AssemblyResolver = resolver,
+                ReflectionImporterProvider = new PostProcessorReflectionImporterProvider(),
                 ReadingMode = ReadingMode.Immediate
             };
-
             var peStream = new MemoryStream(compiledAssembly.InMemoryAssembly.PeData.ToArray());
             var assemblyDefinition = AssemblyDefinition.ReadAssembly(peStream, readerParameters);
 

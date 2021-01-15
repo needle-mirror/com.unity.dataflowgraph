@@ -29,7 +29,7 @@ namespace Unity.DataFlowGraph.Tests
 
             struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
             {
-                public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, in KernelData data, ref KernelDefs ports)
                 {
                     var output = ctx.Resolve(ref ports.Output);
                     var input = ctx.Resolve(ports.Input);
@@ -189,7 +189,7 @@ namespace Unity.DataFlowGraph.Tests
 
             struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
             {
-                public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, in KernelData data, ref KernelDefs ports)
                 {
                     ctx.Resolve(ref ports.Indices) = ctx.Resolve(ports.Input).Length;
                 }
@@ -323,7 +323,7 @@ namespace Unity.DataFlowGraph.Tests
         public void CanWrite_ToECSBuffer_InsideFromDFG_FromOriginalECS_Source(
             [Values] NodeSet.RenderExecutionModel model,
             [Values(1, 3, 13, 50)] int bufferSize,
-            [Values] ConnectionMode strongNess,
+            [Values] APIType strongNess,
             [Values] FixtureSystemType systemType)
         {
             const int k_Loops = 10;
@@ -340,7 +340,7 @@ namespace Unity.DataFlowGraph.Tests
                 var dfgNode = f.Set.Create<BufferNode>();
                 var gv = f.Set.CreateGraphValue(dfgNode, BufferNode.KernelPorts.Output);
 
-                if(strongNess == ConnectionMode.Strong)
+                if(strongNess == APIType.StronglyTyped)
                 {
                     f.Set.Connect(entityNodeSource, ComponentNode.Output<SimpleBuffer>(), dfgNode, BufferNode.KernelPorts.Input);
                     f.Set.Connect(dfgNode, BufferNode.KernelPorts.Output, entityNodeDest, ComponentNode.Input<SimpleBuffer>());
@@ -402,7 +402,7 @@ namespace Unity.DataFlowGraph.Tests
         public void CanConnect_ECSBuffer_ToECSBuffer_UsingOnlyComponentNodes_AndTransferData(
             [Values] NodeSet.RenderExecutionModel model,
             [Values(1, 3, 13, 50)] int bufferSize,
-            [Values] ConnectionMode strongNess,
+            [Values] APIType strongNess,
             [Values] FixtureSystemType systemType)
         {
             const int k_Loops = 10;
@@ -416,7 +416,7 @@ namespace Unity.DataFlowGraph.Tests
                 var entityNodeSource = f.Set.CreateComponentNode(entitySource);
                 var entityNodeDest = f.Set.CreateComponentNode(entityDestination);
 
-                if(strongNess == ConnectionMode.Strong)
+                if (strongNess == APIType.StronglyTyped)
                 {
                     f.Set.Connect(
                         entityNodeSource,

@@ -119,9 +119,10 @@ namespace Unity.DataFlowGraph.Library.Tests
         [Test]
         public void ConstructedSizeMatchesActualSize()
         {
+            var rng = new Mathematics.Random(0x024);
             for (int i = 0; i < 20; ++i)
             {
-                int size = UnityEngine.Random.Range(0, 35);
+                int size = rng.NextInt(0, 35);
                 using (var list = new BlitList<int>(size, Allocator.Persistent))
                 {
                     Assert.AreEqual(size, list.Count);
@@ -156,9 +157,10 @@ namespace Unity.DataFlowGraph.Library.Tests
         [Test]
         public void CopyConstructedListHasEqualSizeAndCapacity()
         {
+            var rng = new Mathematics.Random(0x658);
             for (int i = 0; i < 20; ++i)
             {
-                using (var list = new BlitList<int>(UnityEngine.Random.Range(0, 35), Allocator.Persistent))
+                using (var list = new BlitList<int>(rng.NextInt(0, 35), Allocator.Persistent))
                 {
                     using (var copy = new BlitList<int>(list))
                     {
@@ -172,9 +174,10 @@ namespace Unity.DataFlowGraph.Library.Tests
         [Test]
         public void CopiedListHasEqualSizeAndCapacity()
         {
+            var rng = new Mathematics.Random(0x790);
             for (int i = 0; i < 20; ++i)
             {
-                using (var list = new BlitList<int>(UnityEngine.Random.Range(0, 35), Allocator.Persistent))
+                using (var list = new BlitList<int>(rng.NextInt(0, 35), Allocator.Persistent))
                 {
                     using (var copy = list.Copy())
                     {
@@ -190,11 +193,12 @@ namespace Unity.DataFlowGraph.Library.Tests
         [Test]
         public void ResizeSizeMatchesActualSize()
         {
+            var rng = new Mathematics.Random(0x141);
             using (var list = new BlitList<int>(1, Allocator.Persistent))
             {
                 for (int i = 0; i < 20; ++i)
                 {
-                    int size = UnityEngine.Random.Range(0, 35);
+                    int size = rng.NextInt(0, 35);
                     {
                         list.Resize(size);
                         Assert.AreEqual(size, list.Count);
@@ -206,11 +210,12 @@ namespace Unity.DataFlowGraph.Library.Tests
         [Test]
         public void ReserveSizeIsLessOrEqualToCapacity()
         {
+            var rng = new Mathematics.Random(0x045);
             using (var list = new BlitList<int>(1, Allocator.Persistent))
             {
                 for (int i = 0; i < 20; ++i)
                 {
-                    int size = UnityEngine.Random.Range(0, 35);
+                    int size = rng.NextInt(0, 35);
                     {
                         list.Reserve(size);
                         Assert.LessOrEqual(size, list.Capacity);
@@ -222,9 +227,10 @@ namespace Unity.DataFlowGraph.Library.Tests
         [Test]
         public void PopBackDecreasesSizeByOne()
         {
+            var rng = new Mathematics.Random(0x423);
             for (int i = 0; i < 20; ++i)
             {
-                int size = UnityEngine.Random.Range(1, 35);
+                int size = rng.NextInt(1, 35);
                 using (var list = new BlitList<int>(size, Allocator.Persistent))
                 {
                     list.PopBack();
@@ -236,9 +242,10 @@ namespace Unity.DataFlowGraph.Library.Tests
         [Test]
         public void PopBackKeepsCapacity()
         {
+            var rng = new Mathematics.Random(0x152);
             for (int i = 0; i < 20; ++i)
             {
-                int size = UnityEngine.Random.Range(1, 35);
+                int size = rng.NextInt(1, 35);
                 using (var list = new BlitList<int>(size, Allocator.Persistent))
                 {
                     var currentCapacity = list.Capacity;
@@ -251,9 +258,10 @@ namespace Unity.DataFlowGraph.Library.Tests
         [Test]
         public void RemoveSwapBackDecreasesSizeByOne()
         {
+            var rng = new Mathematics.Random(0x789);
             for (int i = 0; i < 20; ++i)
             {
-                int size = UnityEngine.Random.Range(1, 35);
+                int size = rng.NextInt(1, 35);
                 using (var list = new BlitList<int>(size, Allocator.Persistent))
                 {
                     list.RemoveAtSwapBack(list.Count - 1);
@@ -265,9 +273,10 @@ namespace Unity.DataFlowGraph.Library.Tests
         [Test]
         public void CanAccessAllIndiciesReadWriteBackWithoutErrors()
         {
+            var rng = new Mathematics.Random(0x939);
             for (int i = 0; i < 20; ++i)
             {
-                int size = UnityEngine.Random.Range(1, 35);
+                int size = rng.NextInt(1, 35);
                 var list = new BlitList<int>(size, Allocator.Persistent);
                 {
                     for (int z = 0; z < size; ++z)
@@ -282,7 +291,7 @@ namespace Unity.DataFlowGraph.Library.Tests
 
             for (int i = 0; i < 20; ++i)
             {
-                int size = UnityEngine.Random.Range(1, 35);
+                int size = rng.NextInt(1, 35);
                 var list = new BlitList<double>(size, Allocator.Persistent);
                 {
                     for (int z = 0; z < size; ++z)
@@ -312,6 +321,8 @@ namespace Unity.DataFlowGraph.Library.Tests
         [Test]
         public void IndiciesOutOfRangeThrowsErrors()
         {
+            var rng = new Mathematics.Random(0x056);
+
             int whatever = 0;
             Assert.Throws<IndexOutOfRangeException>(() => whatever = new BlitList<int>()[0]);
 
@@ -320,7 +331,7 @@ namespace Unity.DataFlowGraph.Library.Tests
 
             for (int i = 0; i < 20; ++i)
             {
-                int size = UnityEngine.Random.Range(1, 35);
+                int size = rng.NextInt(1, 35);
                 using (var list = new BlitList<int>(size, Allocator.Persistent))
                 {
                     Assert.Throws<IndexOutOfRangeException>(() => list[size] = 0);

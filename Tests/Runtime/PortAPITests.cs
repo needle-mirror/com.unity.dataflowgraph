@@ -30,7 +30,7 @@ namespace Unity.DataFlowGraph.Tests
 
             struct Node : INodeData, IMsgHandler<int>
             {
-                public void HandleMessage(in MessageContext ctx, in int msg) { }
+                public void HandleMessage(MessageContext ctx, in int msg) { }
             }
         }
 
@@ -46,7 +46,7 @@ namespace Unity.DataFlowGraph.Tests
 
             struct Node : INodeData, IMsgHandler<int>
             {
-                public void HandleMessage(in MessageContext ctx, in int msg) { }
+                public void HandleMessage(MessageContext ctx, in int msg) { }
             }
         }
 
@@ -76,12 +76,12 @@ namespace Unity.DataFlowGraph.Tests
             [BurstCompile(CompileSynchronously = true)]
             struct Kernel : IGraphKernel<Data, KernelDefs>
             {
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports) { }
+                public void Execute(RenderContext ctx, in Data data, ref KernelDefs ports) { }
             }
 
             struct Node : INodeData, IMsgHandler<int>
             {
-                public void HandleMessage(in MessageContext ctx, in int msg) { }
+                public void HandleMessage(MessageContext ctx, in int msg) { }
             }
         }
 
@@ -100,6 +100,7 @@ namespace Unity.DataFlowGraph.Tests
             {
 #pragma warning disable 649  // Assigned through internal DataFlowGraph reflection
                 public DataOutput<NodeWithManyOutputs, int> K7, K8, K9;
+                public PortArray<DataOutput<NodeWithManyOutputs, int>> KArray10;
 #pragma warning restore 649
             }
 
@@ -108,7 +109,7 @@ namespace Unity.DataFlowGraph.Tests
             [BurstCompile(CompileSynchronously = true)]
             struct Kernel : IGraphKernel<Data, KernelDefs>
             {
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports) { }
+                public void Execute(RenderContext ctx, in Data data, ref KernelDefs ports) { }
             }
         }
 
@@ -128,7 +129,7 @@ namespace Unity.DataFlowGraph.Tests
 
             struct Node : INodeData, IMsgHandler<int>
             {
-                public void HandleMessage(in MessageContext ctx, in int msg) { }
+                public void HandleMessage(MessageContext ctx, in int msg) { }
             }
         }
 
@@ -153,7 +154,7 @@ namespace Unity.DataFlowGraph.Tests
 
             struct Node : INodeData, IMsgHandler<int>
             {
-                public void HandleMessage(in MessageContext ctx, in int msg) { }
+                public void HandleMessage(MessageContext ctx, in int msg) { }
             }
         }
 
@@ -167,7 +168,7 @@ namespace Unity.DataFlowGraph.Tests
 
             struct Node : INodeData, IMsgHandler<int>
             {
-                public void HandleMessage(in MessageContext ctx, in int msg) { }
+                public void HandleMessage(MessageContext ctx, in int msg) { }
             }
         }
 
@@ -192,16 +193,17 @@ namespace Unity.DataFlowGraph.Tests
             [BurstCompile(CompileSynchronously = true)]
             struct Kernel : IGraphKernel<Data, KernelDefs>
             {
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports) { }
+                public void Execute(RenderContext ctx, in Data data, ref KernelDefs ports) { }
             }
         }
 
-        class NodeWithDataArrayInput : KernelNodeDefinition<NodeWithDataArrayInput.KernelDefs>
+        class NodeWithDataArrays : KernelNodeDefinition<NodeWithDataArrays.KernelDefs>
         {
             public struct KernelDefs : IKernelPortDefinition
             {
 #pragma warning disable 649  // Assigned through internal DataFlowGraph reflection
-                public PortArray<DataInput<NodeWithDataArrayInput, int>> Input;
+                public PortArray<DataInput<NodeWithDataArrays, int>> Input;
+                public PortArray<DataOutput<NodeWithDataArrays, int>> Output;
 #pragma warning restore 649
             }
 
@@ -210,7 +212,7 @@ namespace Unity.DataFlowGraph.Tests
             [BurstCompile(CompileSynchronously = true)]
             struct Kernel : IGraphKernel<Data, KernelDefs>
             {
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports) { }
+                public void Execute(RenderContext ctx, in Data data, ref KernelDefs ports) { }
             }
         }
 
@@ -232,8 +234,15 @@ namespace Unity.DataFlowGraph.Tests
             [BurstCompile(CompileSynchronously = true)]
             struct Kernel : IGraphKernel<Data, KernelDefs>
             {
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports) { }
+                public void Execute(RenderContext ctx, in Data data, ref KernelDefs ports) { }
             }
+        }
+
+        Dictionary<PortDescription.Category, ushort> CreateEmptyPortCounter()
+        {
+            var dict = new Dictionary<PortDescription.Category, ushort>();
+            dict.Add(PortDescription.Category.Data, 0); dict.Add(PortDescription.Category.DomainSpecific, 0); dict.Add(PortDescription.Category.Message, 0);
+            return dict;
         }
 
         [Test]
@@ -375,21 +384,21 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void NodeWithDataArrayInput_IsCorrectlyInsertedInto_PortDescription()
+        public void NodeWithDataArrays_IsCorrectlyInsertedInto_PortDescription()
         {
             using (var set = new NodeSet())
             {
-                var node = set.Create<NodeWithDataArrayInput>();
+                var node = set.Create<NodeWithDataArrays>();
                 var func = set.GetDefinition(node);
 
                 Assert.AreEqual(1, func.GetPortDescription(node).Inputs.Count);
-                Assert.AreEqual(0, func.GetPortDescription(node).Outputs.Count);
+                Assert.AreEqual(1, func.GetPortDescription(node).Outputs.Count);
 
                 Assert.IsTrue(func.GetPortDescription(node).Inputs.All(p => p.Category == PortDescription.Category.Data));
                 Assert.IsTrue(func.GetPortDescription(node).Outputs.All(p => p.Category == PortDescription.Category.Data));
 
-                Assert.AreEqual(func.GetPortDescription(node).Inputs.Count, 1);
                 Assert.IsTrue(func.GetPortDescription(node).Inputs[0].IsPortArray);
+                Assert.IsTrue(func.GetPortDescription(node).Outputs[0].IsPortArray);
 
                 set.Destroy(node);
             }
@@ -452,7 +461,7 @@ namespace Unity.DataFlowGraph.Tests
             [BurstCompile(CompileSynchronously = true)]
             struct Kernel : IGraphKernel<Data, KernelDefs>
             {
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports) { }
+                public void Execute(RenderContext ctx, in Data data, ref KernelDefs ports) { }
             }
         }
 
@@ -580,7 +589,7 @@ namespace Unity.DataFlowGraph.Tests
                 Assert.AreEqual(0, inputNodePorts.Outputs.Count);
 
                 Assert.AreEqual(0, outputNodePorts.Inputs.Count);
-                Assert.AreEqual(10, outputNodePorts.Outputs.Count);
+                Assert.AreEqual(11, outputNodePorts.Outputs.Count);
 
                 Assert.AreEqual(NodeWithManyInputs.SimulationPorts.I0.Port, (InputPortID)inputNodePorts.Inputs[0]);
                 Assert.AreEqual(NodeWithManyInputs.SimulationPorts.I1.Port, (InputPortID)inputNodePorts.Inputs[1]);
@@ -604,6 +613,7 @@ namespace Unity.DataFlowGraph.Tests
                 Assert.AreEqual(NodeWithManyOutputs.KernelPorts.K7.Port, (OutputPortID)outputNodePorts.Outputs[7]);
                 Assert.AreEqual(NodeWithManyOutputs.KernelPorts.K8.Port, (OutputPortID)outputNodePorts.Outputs[8]);
                 Assert.AreEqual(NodeWithManyOutputs.KernelPorts.K9.Port, (OutputPortID)outputNodePorts.Outputs[9]);
+                Assert.AreEqual(NodeWithManyOutputs.KernelPorts.KArray10.GetPortID(), (OutputPortID)outputNodePorts.Outputs[10]);
 
                 set.Destroy(inputNode, outputNode);
             }
@@ -638,7 +648,7 @@ namespace Unity.DataFlowGraph.Tests
                 var outputNodePorts = outputFunc.GetPortDescription(outputNode);
 
                 Assert.AreEqual(0, outputNodePorts.Inputs.Count);
-                Assert.AreEqual(10, outputNodePorts.Outputs.Count);
+                Assert.AreEqual(11, outputNodePorts.Outputs.Count);
 
                 Assert.IsFalse(outputNodePorts.Outputs[0].IsPortArray);
                 Assert.IsFalse(outputNodePorts.Outputs[1].IsPortArray);
@@ -650,12 +660,13 @@ namespace Unity.DataFlowGraph.Tests
                 Assert.IsFalse(outputNodePorts.Outputs[7].IsPortArray);
                 Assert.IsFalse(outputNodePorts.Outputs[8].IsPortArray);
                 Assert.IsFalse(outputNodePorts.Outputs[9].IsPortArray);
+                Assert.IsTrue(outputNodePorts.Outputs[10].IsPortArray);
 
                 set.Destroy(inputNode, outputNode);
             }
         }
 
-        class NodeWithSomeNonPublicPorts
+        public class NodeWithSomeNonPublicPorts
             : SimulationKernelNodeDefinition<NodeWithSomeNonPublicPorts.SimPorts, NodeWithSomeNonPublicPorts.KernelDefs>
             , TestDSL
         {
@@ -694,12 +705,12 @@ namespace Unity.DataFlowGraph.Tests
             [BurstCompile(CompileSynchronously = true)]
             struct Kernel : IGraphKernel<Data, KernelDefs>
             {
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports) { }
+                public void Execute(RenderContext ctx, in Data data, ref KernelDefs ports) { }
             }
 
             struct Node : INodeData, IMsgHandler<int>
             {
-                public void HandleMessage(in MessageContext ctx, in int msg) { }
+                public void HandleMessage(MessageContext ctx, in int msg) { }
             }
         }
 
@@ -715,11 +726,11 @@ namespace Unity.DataFlowGraph.Tests
                 Assert.AreEqual(10, allPorts.Inputs.Count);
                 for (int i = 0; i < publicPorts.Inputs.Count; ++i)
                 {
-                    Assert.AreEqual(publicPorts.Inputs[i], allPorts.Inputs[i*2]);
+                    Assert.AreEqual(publicPorts.Inputs[i], allPorts.Inputs[i * 2]);
                     Assert.True(publicPorts.Inputs[i].IsPublic);
-                    Assert.True(allPorts.Inputs[i*2].IsPublic);
-                    Assert.False(allPorts.Inputs[i*2+1].IsPublic);
-                    Assert.AreNotEqual((InputPortID)publicPorts.Inputs[i], (InputPortID)allPorts.Inputs[i*2+1]);
+                    Assert.True(allPorts.Inputs[i * 2].IsPublic);
+                    Assert.False(allPorts.Inputs[i * 2 + 1].IsPublic);
+                    Assert.AreNotEqual((InputPortID)publicPorts.Inputs[i], (InputPortID)allPorts.Inputs[i * 2 + 1]);
                 }
 
                 Assert.AreEqual(4, publicPorts.Outputs.Count);
@@ -728,9 +739,9 @@ namespace Unity.DataFlowGraph.Tests
                 {
                     Assert.AreEqual(publicPorts.Outputs[i], allPorts.Outputs[i*2]);
                     Assert.True(publicPorts.Outputs[i].IsPublic);
-                    Assert.True(allPorts.Outputs[i*2].IsPublic);
-                    Assert.False(allPorts.Outputs[i*2+1].IsPublic);
-                    Assert.AreNotEqual((OutputPortID)publicPorts.Outputs[i], (OutputPortID)allPorts.Outputs[i*2+1]);
+                    Assert.True(allPorts.Outputs[i * 2].IsPublic);
+                    Assert.False(allPorts.Outputs[i * 2 + 1].IsPublic);
+                    Assert.AreNotEqual((OutputPortID)publicPorts.Outputs[i], (OutputPortID)allPorts.Outputs[i * 2 + 1]);
                 }
             }
         }
@@ -742,9 +753,8 @@ namespace Unity.DataFlowGraph.Tests
             {
                 var node = set.Create<NodeWithMixedInputs>();
                 var ports = NodeWithMixedInputs.SimulationPorts;
-                int portIDCount = ports.I0.Port.Port + ports.D0.Port.Port + ports.I1.Port.Port + ports.D1.Port.Port;
-
-                Assert.GreaterOrEqual(portIDCount, 6); // minimum required sum for four unique values
+                Assert.NotZero(ports.I0.Port.Port.CategoryCounter + ports.I1.Port.Port.CategoryCounter);
+                Assert.NotZero(ports.D0.Port.Port.CategoryCounter + ports.D1.Port.Port.CategoryCounter);
 
                 set.Destroy(node);
             }
@@ -775,12 +785,17 @@ namespace Unity.DataFlowGraph.Tests
                 var func = set.GetDefinition(node);
                 var inputNodePorts = func.GetPortDescription(node);
 
-                int portIDCount = 0;
+                var dict = CreateEmptyPortCounter();
+                var foundCategories = new HashSet<PortDescription.Category>();
 
                 foreach (var inputPort in inputNodePorts.Inputs)
-                    portIDCount += inputPort.m_Port;
+                {
+                    foundCategories.Add(inputPort.Category);
+                    dict[inputPort.Category] += inputPort.PortID.Port.CategoryCounter;
+                }
 
-                Assert.GreaterOrEqual(portIDCount, 6); // minimum required sum for four unique values
+                foreach (var cat in foundCategories)
+                    Assert.NotZero(dict[cat]);
 
                 set.Destroy(node);
             }
@@ -795,15 +810,23 @@ namespace Unity.DataFlowGraph.Tests
                 var def = set.GetDefinitionFromType(nodeType);
                 var ports = set.GetStaticPortDescriptionFromType(nodeType);
 
-                ushort portNumber = 0;
                 if (def.AutoPorts.Inputs.All(p => p.IsPublic))
-                    foreach (var input in ports.Inputs)
-                        Assert.AreEqual(portNumber++, ((InputPortID)input).Port);
+                {
+                    var dict = CreateEmptyPortCounter();
 
-                portNumber = 0;
+                    foreach (var input in ports.Inputs)
+                        Assert.AreEqual(dict[input.Category]++, ((InputPortID)input).Port.CategoryCounter);
+                }
+
+
                 if (def.AutoPorts.Outputs.All(p => p.IsPublic))
+                {
+                    var dict = CreateEmptyPortCounter();
+
                     foreach (var output in ports.Outputs)
-                        Assert.AreEqual(portNumber++, ((OutputPortID)output).Port);
+                        Assert.AreEqual(dict[output.Category]++, ((OutputPortID)output).Port.CategoryCounter);
+                }
+
             }
         }
 
@@ -820,23 +843,33 @@ namespace Unity.DataFlowGraph.Tests
 
                 if (def.AutoPorts.Inputs.All(p => p.IsPublic))
                 {
+                    var dict = CreateEmptyPortCounter();
+
                     Assert.AreEqual(staticPorts.Inputs.Count, weakPorts.Inputs.Count);
 
                     for (int i = 0; i < staticPorts.Inputs.Count; ++i)
                     {
-                        Assert.AreEqual((ushort)i, ((InputPortID)staticPorts.Inputs[i]).Port);
-                        Assert.AreEqual((ushort)i, ((InputPortID)weakPorts.Inputs[i]).Port);
+                        var input = staticPorts.Inputs[i];
+                        Assert.AreEqual(input, weakPorts.Inputs[i]);
+                        Assert.AreEqual(dict[input.Category], ((InputPortID)input).Port.CategoryCounter);
+
+                        dict[input.Category] += 1;
                     }
                 }
 
                 if (def.AutoPorts.Outputs.All(p => p.IsPublic))
                 {
+                    var dict = CreateEmptyPortCounter();
+
                     Assert.AreEqual(staticPorts.Outputs.Count, weakPorts.Outputs.Count);
 
                     for (int i = 0; i < staticPorts.Outputs.Count; ++i)
                     {
-                        Assert.AreEqual((ushort)i, ((OutputPortID)staticPorts.Outputs[i]).Port);
-                        Assert.AreEqual((ushort)i, ((OutputPortID)weakPorts.Outputs[i]).Port);
+                        var output = staticPorts.Outputs[i];
+                        Assert.AreEqual(output, weakPorts.Outputs[i]);
+                        Assert.AreEqual(dict[output.Category], ((OutputPortID)output).Port.CategoryCounter);
+
+                        dict[output.Category] += 1;
                     }
                 }
 
@@ -875,7 +908,7 @@ namespace Unity.DataFlowGraph.Tests
                 var func = set.GetDefinition(node);
 
                 Assert.AreEqual(7, func.GetPortDescription(node).Inputs.Count);
-                Assert.AreEqual(5, func.GetPortDescription(node).Outputs.Count);
+                Assert.AreEqual(7, func.GetPortDescription(node).Outputs.Count);
 
                 set.Destroy(node);
             }
@@ -944,12 +977,12 @@ namespace Unity.DataFlowGraph.Tests
             [BurstCompile(CompileSynchronously = true)]
             struct Kernel : IGraphKernel<Data, KernelDefs>
             {
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports) { }
+                public void Execute(RenderContext ctx, in Data data, ref KernelDefs ports) { }
             }
 
             struct Node : INodeData, IMsgHandler<T>
             {
-                public void HandleMessage(in MessageContext ctx, in T msg) { }
+                public void HandleMessage(MessageContext ctx, in T msg) { }
             }
         }
 
@@ -1000,10 +1033,12 @@ namespace Unity.DataFlowGraph.Tests
                 Assert.AreNotEqual(NodeWithAllTypesOfPorts.KernelPorts.InputScalar, new DataInput<NodeWithAllTypesOfPorts, int>());
                 Assert.AreNotEqual(NodeWithAllTypesOfPorts.KernelPorts.InputArrayScalar, new PortArray<DataInput<NodeWithAllTypesOfPorts, int>>());
                 Assert.AreNotEqual(NodeWithAllTypesOfPorts.KernelPorts.OutputScalar, new DataOutput<NodeWithAllTypesOfPorts, int>());
+                Assert.AreNotEqual(NodeWithAllTypesOfPorts.KernelPorts.OutputArrayScalar, new PortArray<DataOutput<NodeWithAllTypesOfPorts, int>>());
 
                 Assert.AreNotEqual(NodeWithAllTypesOfPorts.KernelPorts.InputBuffer, new DataInput<NodeWithAllTypesOfPorts, Buffer<int>>());
                 Assert.AreNotEqual(NodeWithAllTypesOfPorts.KernelPorts.InputArrayBuffer, new PortArray<DataInput<NodeWithAllTypesOfPorts, Buffer<int>>>());
                 Assert.AreNotEqual(NodeWithAllTypesOfPorts.KernelPorts.OutputBuffer, new DataOutput<NodeWithAllTypesOfPorts, Buffer<int>>());
+                Assert.AreNotEqual(NodeWithAllTypesOfPorts.KernelPorts.OutputArrayBuffer, new PortArray<DataOutput<NodeWithAllTypesOfPorts, Buffer<int>>>());
 
                 set.Destroy(node);
             }
@@ -1064,8 +1099,14 @@ namespace Unity.DataFlowGraph.Tests
                 Assert.AreEqual(NodeWithAllTypesOfPorts.KernelPorts.OutputBuffer.Port, (OutputPortID)NodeWithAllTypesOfPorts.KernelPorts.OutputBuffer);
                 Assert.AreEqual((OutputPortID)desc.Outputs[3], (OutputPortID)NodeWithAllTypesOfPorts.KernelPorts.OutputBuffer);
 
+                Assert.AreEqual(NodeWithAllTypesOfPorts.KernelPorts.OutputArrayScalar.GetPortID(), (OutputPortID)NodeWithAllTypesOfPorts.KernelPorts.OutputArrayScalar);
+                Assert.AreEqual((OutputPortID)desc.Outputs[6], (OutputPortID)NodeWithAllTypesOfPorts.KernelPorts.OutputArrayScalar);
+
                 Assert.AreEqual(NodeWithAllTypesOfPorts.KernelPorts.OutputScalar.Port, (OutputPortID)NodeWithAllTypesOfPorts.KernelPorts.OutputScalar);
-                Assert.AreEqual((OutputPortID)desc.Outputs[4], (OutputPortID)NodeWithAllTypesOfPorts.KernelPorts.OutputScalar);
+                Assert.AreEqual((OutputPortID)desc.Outputs[5], (OutputPortID)NodeWithAllTypesOfPorts.KernelPorts.OutputScalar);
+
+                Assert.AreEqual(NodeWithAllTypesOfPorts.KernelPorts.OutputArrayBuffer.GetPortID(), (OutputPortID)NodeWithAllTypesOfPorts.KernelPorts.OutputArrayBuffer);
+                Assert.AreEqual((OutputPortID)desc.Outputs[4], (OutputPortID)NodeWithAllTypesOfPorts.KernelPorts.OutputArrayBuffer);
 
                 set.Destroy(node);
             }
@@ -1114,7 +1155,7 @@ namespace Unity.DataFlowGraph.Tests
                     ctx.Set.Destroy(Child);
                 }
 
-                public void HandleMessage(in MessageContext ctx, in int msg)
+                public void HandleMessage(MessageContext ctx, in int msg)
                 {
                     if (ctx.Port == SimulationPorts.PublicInput)
                         ctx.EmitMessage(SimulationPorts.PrivateOutput, msg);
@@ -1128,7 +1169,7 @@ namespace Unity.DataFlowGraph.Tests
             [BurstCompile(CompileSynchronously = true)]
             struct Kernel : IGraphKernel<Data, KernelDefs>
             {
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, in Data data, ref KernelDefs ports)
                 {
                     ctx.Resolve(ref ports.PrivateOutput) = ctx.Resolve(ports.PublicInput);
                     ctx.Resolve(ref ports.PublicOutput) = ctx.Resolve(ports.PrivateInput);
@@ -1203,12 +1244,12 @@ namespace Unity.DataFlowGraph.Tests
                     ctx.Set.Destroy(Child);
                 }
 
-                public void HandleMessage(in MessageContext ctx, in int msg)
+                public void HandleMessage(MessageContext ctx, in int msg)
                 {
                     ctx.UpdateKernelData(new Data {Content = msg});
                 }
 
-                public void Update(in UpdateContext ctx)
+                public void Update(UpdateContext ctx)
                 {
                     ctx.EmitMessage(SimulationPorts.PublicOutput, ctx.Set.GetValueBlocking(Value));
                 }
@@ -1222,7 +1263,7 @@ namespace Unity.DataFlowGraph.Tests
             [BurstCompile(CompileSynchronously = true)]
             struct Kernel : IGraphKernel<Data, KernelDefs>
             {
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, in Data data, ref KernelDefs ports)
                 {
                     ctx.Resolve(ref ports.PrivateOutput) = ctx.Resolve(ports.PrivateInput) + data.Content;
                 }
@@ -1277,12 +1318,12 @@ namespace Unity.DataFlowGraph.Tests
                 public NodeHandle Child;
                 public GraphValue<int> Value;
 
-                public void HandleMessage(in MessageContext ctx, in int msg)
+                public void HandleMessage(MessageContext ctx, in int msg)
                 {
                     ctx.UpdateKernelData(new Data {Content = msg});
                 }
 
-                public void Update(in UpdateContext ctx)
+                public void Update(UpdateContext ctx)
                 {
                     ctx.EmitMessage(SimulationPorts.PrivateOutput, ctx.Set.GetValueBlocking(Value));
                 }
@@ -1313,7 +1354,7 @@ namespace Unity.DataFlowGraph.Tests
             [BurstCompile(CompileSynchronously = true)]
             struct Kernel : IGraphKernel<Data, KernelDefs>
             {
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, in Data data, ref KernelDefs ports)
                 {
                     ctx.Resolve(ref ports.PublicOutput) = ctx.Resolve(ports.PublicInput) + data.Content;
                 }
@@ -1369,7 +1410,7 @@ namespace Unity.DataFlowGraph.Tests
             [BurstCompile(CompileSynchronously = true)]
             struct Kernel : IGraphKernel<Data, KernelDefs>
             {
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, in Data data, ref KernelDefs ports)
                 {
                     ctx.Resolve(ref ports.Output) = ctx.Resolve(ports.Input);
                 }

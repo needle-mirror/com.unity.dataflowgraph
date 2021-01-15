@@ -60,6 +60,29 @@ namespace Unity.DataFlowGraph
 
         public partial struct Database : IDisposable
         {
+            public readonly struct Readonly
+            {
+                readonly UnsafeList m_Conns;
+                readonly int m_SizeOf;
+
+                public Readonly(in Database db)
+                {
+                    m_Conns = db.m_Conns;
+                    m_SizeOf = db.m_SizeOf;
+                }
+
+                public unsafe ref readonly Connection this[ConnectionHandle handle]
+                {
+                    get
+                    {
+                        if (m_Conns.Length > (uint) handle.Index)
+                            return ref UnsafeUtility.AsRef<Connection>((byte*)m_Conns.Ptr + m_SizeOf * handle.Index);
+
+                        throw new IndexOutOfRangeException("ConnectionHandle was out of range");
+                    }
+                }
+            }
+
             /// <summary>
             /// Interface that can resolve a <see cref="TopologyIndex"/> from an <typeparamref name="TVertex"/>.
             /// This is needed for most API on the <see cref="Database"/>.
@@ -99,7 +122,7 @@ namespace Unity.DataFlowGraph
             /// A reference to an immutable <see cref="Connection"/>.
             /// </returns>
             /// <exception cref="IndexOutOfRangeException">If the <paramref name="handle"/> is not indexable or valid.</exception>
-            public unsafe ref /*readonly - Burst crashes if enabled*/ Connection this[ConnectionHandle handle]
+            public unsafe ref readonly Connection this[ConnectionHandle handle]
             {
                 get
                 {

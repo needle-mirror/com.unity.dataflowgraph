@@ -51,7 +51,7 @@ namespace Unity.DataFlowGraph.Tests
 
             struct Kernel : IGraphKernel<KernelData, EmptyPorts>
             {
-                public void Execute(RenderContext ctx, KernelData data, ref EmptyPorts ports) { }
+                public void Execute(RenderContext ctx, in KernelData data, ref EmptyPorts ports) { }
             }
         }
 
@@ -86,7 +86,7 @@ namespace Unity.DataFlowGraph.Tests
             {
                 T m_Member;
 
-                public void Execute(RenderContext ctx, KernelData data, ref EmptyPorts ports) { }
+                public void Execute(RenderContext ctx, in KernelData data, ref EmptyPorts ports) { }
             }
         }
 
@@ -123,7 +123,7 @@ namespace Unity.DataFlowGraph.Tests
             {
                 static int m_Member;
 
-                public void Execute(RenderContext ctx, KernelData data, ref EmptyPorts ports) { }
+                public void Execute(RenderContext ctx, in KernelData data, ref EmptyPorts ports) { }
             }
         }
 
@@ -218,7 +218,7 @@ namespace Unity.DataFlowGraph.Tests
                 Assert.DoesNotThrow(
                     () =>
                     {
-                        set.UpdateKernelData(@checked, new GraphValueTests.KernelData());
+                        set.UpdateKernelData(@checked, new GraphValueTests.RenderPipe.KernelData());
                     }
                 );
 
@@ -232,7 +232,7 @@ namespace Unity.DataFlowGraph.Tests
                 Assert.DoesNotThrow(
                     () =>
                     {
-                        set.UpdateKernelData(@checked, new GraphValueTests.KernelData());
+                        set.UpdateKernelData(@checked, new GraphValueTests.RenderPipe.KernelData());
                     }
                 );
 
@@ -245,7 +245,7 @@ namespace Unity.DataFlowGraph.Tests
         {
             public struct Kernel : IGraphKernel<EmptyKernelData, KernelDefs>
             {
-                public void Execute(RenderContext ctx, EmptyKernelData data, ref KernelDefs ports) =>
+                public void Execute(RenderContext ctx, in EmptyKernelData data, ref KernelDefs ports) =>
                     ctx.Resolve(ref ports.Output) = ctx.Resolve(ports.Input);
             }
         }

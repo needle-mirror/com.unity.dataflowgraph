@@ -74,7 +74,7 @@ namespace Unity.DataFlowGraph.Tour
                  * free-running recursive style IIR DSP, where you would have state variables on your kernel (or even
                  * buffers / delay lines).
                  */
-                public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, in KernelData data, ref KernelDefs ports)
                 {
                     Debug.Log("Hello, world!");
                 }

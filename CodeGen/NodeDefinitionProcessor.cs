@@ -51,13 +51,12 @@ namespace Unity.DataFlowGraph.CodeGen
             TraitsKind = DetermineTraitsKind();
 
             ParseDeclaredMessageInputs();
-            ParseOldStyleCallbacks();
-            ParseNewStyleCallbacks();
+            ParseCallbacks();
 
             (StaticSimulationPort, StaticKernelPort) = RecoverStaticPortFieldsFromNodeDefinition(m_BaseNodeDefinitionReference);
         }
 
-        public override void AnalyseConsistency(Diag diag)
+        protected override void OnAnalyseConsistency(Diag diag)
         {
             if (!Kind.HasValue)
             {
@@ -131,7 +130,7 @@ namespace Unity.DataFlowGraph.CodeGen
             }
             // Make sure that the generic parameter used for the Simulation/KernelNode base class matches the declaration
             // found in the definition.
-            if (!Kind.Value.IsScaffolded() && Kind.Value != DFGLibrary.NodeDefinitionKind.Naked)
+            if (Kind.Value != DFGLibrary.NodeDefinitionKind.Naked)
             {
                 var genericArgumentList = ((GenericInstanceType) m_BaseNodeDefinitionReference).GenericArguments;
 
@@ -172,57 +171,24 @@ namespace Unity.DataFlowGraph.CodeGen
             if (nameClashes.Any())
                 diag.DFG_UE_06(this, new AggrTypeContext(nameClashes));
 
-            // check only old or new style
-            var implementedMessageHandlers = m_NodeDataMessageHandlers.Count > 0 ? m_NodeDataMessageHandlers : m_OldMessageHandlers;
-
-            foreach (var messageHandler in m_OldMessageHandlers)
-            {
-                if (!Kind.Value.IsScaffolded())
-                    diag.DFG_UE_15(this, messageHandler, messageHandler);
-                else if (m_NodeDataMessageHandlers.Count > 0)
-                    diag.DFG_UE_10(this, messageHandler);
-            }
-
             // check all declared message input port handlers are implemented
             foreach (var messagePort in m_DeclaredInputMessagePorts)
             {
-                if (!implementedMessageHandlers.Any(h => h.GenericArguments[0].RefersToSame(messagePort.MessageType)))
+                if (!m_MessageHandlers.Any(h => h.GenericArguments[0].RefersToSame(messagePort.MessageType)))
                 {
                     diag.DFG_UE_11(this, new FieldLocationContext(messagePort.ClosedField));
                 }
             }
-
             // check that no ambiguous overloads of clashing IMsgHandler and IMsgHandlerGeneric have been declared.
-            for (var i = 0; i < implementedMessageHandlers.Count; ++i)
+            for (var i = 0; i < m_MessageHandlers.Count; ++i)
             {
-                for (var j = i + 1; j < implementedMessageHandlers.Count; ++j)
+                for (var j = i + 1; j < m_MessageHandlers.Count; ++j)
                 {
-                    if (!implementedMessageHandlers[i].GetElementType().RefersToSame(implementedMessageHandlers[j].GetElementType()) &&
-                        implementedMessageHandlers[i].GenericArguments[0].RefersToSame(implementedMessageHandlers[j].GenericArguments[0]))
+                    if (!m_MessageHandlers[i].GetElementType().RefersToSame(m_MessageHandlers[j].GetElementType()) &&
+                        m_MessageHandlers[i].GenericArguments[0].RefersToSame(m_MessageHandlers[j].GenericArguments[0]))
                     {
-                        diag.DFG_UE_16(this, implementedMessageHandlers[i], implementedMessageHandlers[j]);
+                        diag.DFG_UE_16(this, m_MessageHandlers[i], m_MessageHandlers[j]);
                     }
-                }
-            }
-
-            // Scan the hierarchy for potential implementations of old callbacks
-            if (m_PresentCallbacks != 0 || !Kind.Value.IsScaffolded())
-            {
-                for (var node = InstantiatedDefinition; !node.RefersToSame(m_BaseNodeDefinitionReference); node = node.InstantiatedBaseType())
-                {
-                    var resolved = node.Resolve();
-                    void CheckAndReport(PresentSingularCallbacks cb, MethodReference method, TypeReference newInterface)
-                    {
-                        if (!resolved.Overrides(method))
-                            return;
-                        if (!Kind.Value.IsScaffolded())
-                            diag.DFG_UE_15(this, newInterface, method);
-                        else if (m_PresentCallbacks.HasFlag(cb))
-                            diag.DFG_UE_10(this, method);
-                    }
-                    CheckAndReport(PresentSingularCallbacks.Init, m_Lib.OldInitCallback, m_Lib.IInitInterface);
-                    CheckAndReport(PresentSingularCallbacks.Destroy, m_Lib.OldDestroyCallback, m_Lib.IDestroyInterface);
-                    CheckAndReport(PresentSingularCallbacks.Update, m_Lib.OldUpdateCallback, m_Lib.IUpdateInterface);
                 }
             }
         }

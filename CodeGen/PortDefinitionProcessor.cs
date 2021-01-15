@@ -6,17 +6,17 @@ using Mono.Cecil.Rocks;
 
 namespace Unity.DataFlowGraph.CodeGen
 {
+    struct PortInfo
+    {
+        public InstantiatedField Field;
+        // DataInput<,,> etc.
+        public GenericInstanceType StrippedPortType;
+        public DFGLibrary.PortClass Classification;
+        public bool IsArray;
+    }
+
     class PortDefinitionProcessor : DefinitionProcessor
     {
-        public enum InputOrOutputPortType { Input, Output }
-
-        struct PortInfo
-        {
-            public FieldDefinition PortField;
-            public TypeReference PortType;
-            public bool IsInput;
-        }
-
         List<PortInfo> m_PortInfos = new List<PortInfo>();
 
         public PortDefinitionProcessor(DFGLibrary library, TypeDefinition td)
@@ -31,30 +31,31 @@ namespace Unity.DataFlowGraph.CodeGen
 
         public override void ParseSymbols(Diag diag)
         {
-            foreach (var portField in DefinitionRoot.Fields)
+            foreach (var field in InstantiatedDefinition.InstantiatedFields())
             {
-                if (portField.IsStatic)
+                if (field.Definition.IsStatic)
                 {
-                    diag.DFG_UE_08(this, portField);
+                    diag.DFG_UE_08(this, field.Instantiated);
                     continue;
                 }
 
-                var fieldType = portField.FieldType.GetElementType();
-                bool isArray = fieldType.RefersToSame(m_Lib.PortArrayType);
-                var portType = isArray ? ((GenericInstanceType) portField.FieldType).GenericArguments[0] : portField.FieldType;
-
-                var isInputOrOutput = IdentifyInputOrOutputPortType(portType);
-                if (!isInputOrOutput.HasValue)
+                var isArray = field.SubstitutedType.Open().RefersToSame(m_Lib.PortArrayType);
+                if(field.SubstitutedType.IsGenericInstance)
                 {
-                    diag.DFG_UE_09(this, portField);
-                    continue;
+                    var strippedType = (GenericInstanceType)EnsureImported(isArray ? field.GenericType.GenericArguments[0] : field.SubstitutedType);
+
+                    if(m_Lib.ClassifyPort(strippedType) is var portClass)
+                    {
+                        m_PortInfos.Add(new PortInfo { IsArray = isArray, Field = field, StrippedPortType = strippedType, Classification = portClass.Value });
+                        continue;
+                    }
                 }
 
-                m_PortInfos.Add(new PortInfo{IsInput = isInputOrOutput.Value == InputOrOutputPortType.Input, PortField = portField, PortType = fieldType});
+                diag.DFG_UE_09(this, field.Instantiated);
             }
         }
 
-        public override void AnalyseConsistency(Diag diag)
+        protected override void OnAnalyseConsistency(Diag diag)
         {
             if (DefinitionRoot.Interfaces.Any(i => i.InterfaceType.RefersToSame(m_Lib.IPortDefinitionInitializerType)))
             {
@@ -72,16 +73,7 @@ namespace Unity.DataFlowGraph.CodeGen
         public override void PostProcess(Diag diag, out bool mutated)
         {
             DefinitionRoot.Interfaces.Add(new InterfaceImplementation(m_Lib.IPortDefinitionInitializerType));
-
-            DefinitionRoot.Methods.Add(
-                SynthesizePortInitializer(m_Lib.IPortDefinitionInitializedMethod));
-
-            DefinitionRoot.Methods.Add(
-                SynthesizePortCounter(m_Lib.IPortDefinitionGetInputPortCountMethod, (ushort)m_PortInfos.Count(p => p.IsInput)));
-
-            DefinitionRoot.Methods.Add(
-                SynthesizePortCounter(m_Lib.IPortDefinitionGetOutputPortCountMethod, (ushort)m_PortInfos.Count(p => !p.IsInput)));
-
+            DefinitionRoot.Methods.Add(SynthesizePortInitializer(m_Lib.IPortDefinitionInitializedMethod));
             mutated = true;
         }
 
@@ -91,72 +83,29 @@ namespace Unity.DataFlowGraph.CodeGen
 
             // Emit IL to initialization of all ports for either an ISimulationPortDefinition or IKernelPortDefinition.
             // For example, for the test node NodeWithAllTypesOfPorts, we would produce the following IL:
-            //     MessageIn = MessageInput<NodeWithAllTypesOfPorts, int>.Create(new InputPortID(new PortStorage(uniqueInputPort++)));
-            //     MessageArrayIn = PortArray<MessageInput<NodeWithAllTypesOfPorts, int>>.Create(new InputPortID(new PortStorage(uniqueInputPort++)));
-            //     MessageOut = MessageOutput<NodeWithAllTypesOfPorts, int>.Create(new OutputPortID(new PortStorage(uniqueOutputPort++)));
-            //     DSLIn = DSLInput<NodeWithAllTypesOfPorts, DSL, TestDSL>.Create(new InputPortID(new PortStorage(uniqueInputPort++)));
-            //     DSLOut = DSLOutput<NodeWithAllTypesOfPorts, DSL, TestDSL>.Create(new OutputPortID(new PortStorage(uniqueOutputPort++)));
+            //     (literal = <hardcoded literal computed in here using portCounters, counted per category & input/output>)
+            //     MessageInput<NodeWithAllTypesOfPorts, int>.ILPP_Create(out MessageIn, literal);
+            //     MessageInput<NodeWithAllTypesOfPorts, int>.ILPP_CreatePortArray(out MessageArrayIn, literal);
+            //     MessageOutput<NodeWithAllTypesOfPorts, int>.ILPP_Create(out MessageOut, literal);
+            //     DSLInput<NodeWithAllTypesOfPorts, DSL, TestDSL>.ILPP_Create(out DSLIn, literal);
+            //     DSLOutput<NodeWithAllTypesOfPorts, DSL, TestDSL>.ILPP_Create(out DSLOut, literal);
+
+            ushort[] portCounters = new ushort[6];
+
             var il = method.Body.GetILProcessor();
             il.Emit(OpCodes.Nop);
 
             foreach (var portInfo in m_PortInfos)
             {
-                var portField = portInfo.PortField;
-                var portFieldRef = FormClassInstantiatedFieldReference(portField);
-                MethodReference portCreateMethod = m_Lib.FindCreateMethodForPortType(portInfo.PortType, portInfo.IsInput);
+                MethodReference portCreateMethod = m_Lib.FindCreateMethodForPortType(portInfo);
+                portCreateMethod = DeriveEnclosedMethodReference(portCreateMethod, portInfo.StrippedPortType);
 
-                var genPortCreateMethod = DeriveEnclosedMethodReference(portCreateMethod, (GenericInstanceType)portField.FieldType);
-                // Take the port type (eg. DataInput`2) and add the positional generic arguments (eg. DataInput`2<!0,!1>)
-                // to form the proper return type.
-                genPortCreateMethod.ReturnType =
-                    EnsureImported(portInfo.PortType).MakeGenericInstanceType(portInfo.PortType.GenericParameters.ToArray());
-
-                EmitPortInitializerIL(il, portInfo.IsInput, method, genPortCreateMethod, portFieldRef);
+                il.Emit(OpCodes.Ldarg_0);
+                il.Emit(OpCodes.Ldflda, portInfo.Field.Instantiated);
+                il.Emit(OpCodes.Ldc_I4, portCounters[(int)portInfo.Classification]++);
+                il.Emit(OpCodes.Call, portCreateMethod);
             }
-            il.Emit(OpCodes.Ret);
-            return method;
-        }
 
-        void EmitPortInitializerIL(ILProcessor il, bool isInput, MethodDefinition method, MethodReference genPortCreateMethod, FieldReference portFieldRef)
-        {
-            il.Emit(OpCodes.Ldarg_0);
-            il.Emit(isInput ? OpCodes.Ldarg_1 : OpCodes.Ldarg_2);
-            il.Emit(OpCodes.Dup);
-            il.Emit(OpCodes.Ldc_I4_1);
-            il.Emit(OpCodes.Add);
-            il.Emit(OpCodes.Conv_U2);
-            il.Emit(OpCodes.Starg_S, isInput ? method.Parameters[0] : method.Parameters[1]);
-            il.Emit(OpCodes.Newobj, m_Lib.PortStorageConstructor);
-            il.Emit(OpCodes.Newobj, isInput ? m_Lib.InputPortIDConstructor : m_Lib.OutputPortIDConstructor);
-            il.Emit(OpCodes.Call, genPortCreateMethod);
-            il.Emit(OpCodes.Stfld, portFieldRef);
-        }
-
-        static InputOrOutputPortType? IdentifyInputOrOutputPortType(TypeReference portType)
-        {
-            if (portType.GetElementType().FullName == typeof(MessageInput<,>).FullName)
-                return InputOrOutputPortType.Input;
-            if (portType.GetElementType().FullName == typeof(MessageOutput<,>).FullName)
-                return InputOrOutputPortType.Output;
-            if (portType.GetElementType().FullName == typeof(DataInput<,>).FullName)
-                return InputOrOutputPortType.Input;
-            if (portType.GetElementType().FullName == typeof(DataOutput<,>).FullName)
-                return InputOrOutputPortType.Output;
-            if (portType.GetElementType().FullName == typeof(DSLInput<,,>).FullName)
-                return InputOrOutputPortType.Input;
-            if (portType.GetElementType().FullName == typeof(DSLOutput<,,>).FullName)
-                return InputOrOutputPortType.Output;
-            return null;
-        }
-
-        MethodDefinition SynthesizePortCounter(MethodDefinition interfaceMethod, ushort count)
-        {
-            var method = CreateEmptyInterfaceMethodImplementation(interfaceMethod);
-
-            // Emit IL to achieve:
-            //     return <count>;
-            var il = method.Body.GetILProcessor();
-            il.Emit(OpCodes.Ldc_I4, count);
             il.Emit(OpCodes.Ret);
             return method;
         }

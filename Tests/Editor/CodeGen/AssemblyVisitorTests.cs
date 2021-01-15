@@ -29,10 +29,9 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
             {
             }
 
-            public override void AnalyseConsistency(Diag diag)
+            protected override void OnAnalyseConsistency(Diag diag)
             {
                 AnalyseCalls++;
-                base.AnalyseConsistency(diag);
             }
 
             public override void ParseSymbols(Diag diag)
@@ -227,11 +226,11 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
                 base.ParseSymbols(diag);
             }
 
-            public override void AnalyseConsistency(Diag diag)
+            protected override void OnAnalyseConsistency(Diag diag)
             {
                 if (m_VisitStage == VisitStage.Analyse)
                     RecordDiag(diag);
-                base.AnalyseConsistency(diag);
+                base.OnAnalyseConsistency(diag);
             }
 
             public override void PostProcess(Diag diag, out bool madeAChange)

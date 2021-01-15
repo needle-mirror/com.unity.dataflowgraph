@@ -9,17 +9,32 @@ namespace Unity.DataFlowGraph
 {
     /// <summary>
     /// A simple handle structure identifying a tap point in the graph.
-    /// </summary>
     /// <seealso cref="NodeSetAPI.CreateGraphValue{T, TDefinition}(NodeHandle{TDefinition}, DataOutput{TDefinition, T})"/>
+    /// </summary>
     /// <remarks>
     /// Note that a graph value never represents a copy of the value, it is simply a reference. Using
     /// <see cref="GraphValueResolver"/> you can directly read memory from inside the rendering without
     /// any copies.
     /// </remarks>
     [DebuggerDisplay("{Handle, nq}")]
-    public struct GraphValue<T>
+    public readonly struct GraphValue<T>
     {
-        internal VersionedHandle Handle;
+        internal readonly VersionedHandle Handle;
+
+        internal GraphValue(VersionedHandle handle)
+        {
+            Handle = handle;
+        }
+    }
+
+    public readonly struct GraphValueArray<T>
+    {
+        internal readonly VersionedHandle Handle;
+
+        internal GraphValueArray(VersionedHandle handle)
+        {
+            Handle = handle;
+        }
     }
 
     unsafe struct DataOutputValue : IVersionedItem
@@ -27,8 +42,6 @@ namespace Unity.DataFlowGraph
         public bool Valid => Source != default;
 
         public ValidatedHandle Handle { get; set; }
-
-        public JobHandle Dependency;
 
         public ValidatedHandle Source;
         public DataPortDeclarations.OutputDeclaration* OutputDeclaration;
@@ -41,6 +54,17 @@ namespace Unity.DataFlowGraph
         }
 
         public void Dispose() => this = default;
+
+        public ref readonly T UnsafeRead<T>(in RenderGraph.KernelNode kernelNode)
+            where T : struct
+        {
+#if DFG_ASSERTIONS
+            if (OutputDeclaration->IsArray)
+                throw new AssertionException("Unexpected PortArray encountered while resolving a non PortArray GraphValue");
+#endif
+            var kernelPorts = kernelNode.Instance.Ports;
+            return ref UnsafeUtility.AsRef<T>(OutputDeclaration->Resolve(kernelPorts, 0));
+        }
     }
 
     /// <summary>
@@ -72,9 +96,9 @@ namespace Unity.DataFlowGraph
 
         /// <summary>
         /// Returns the contents of the output port the graph value was originally specified to point to.
-        /// </summary>
         /// <seealso cref="NodeSetAPI.CreateGraphValue{T, TDefinition}(NodeHandle{TDefinition}, DataOutput{TDefinition, T})"/>
         /// <seealso cref="RenderContext"/>
+        /// </summary>
         /// <exception cref="ObjectDisposedException">Thrown if either the graph value or the pointed-to node is no longer valid.</exception>
         public T Resolve<T>(GraphValue<T> handle)
             where T : struct
@@ -96,9 +120,44 @@ namespace Unity.DataFlowGraph
                 throw new ObjectDisposedException("GraphValue's target node handle is disposed or invalid");
             }
 
+            return value.UnsafeRead<T>(KernelNodes[value.Source.Versioned.Index]);
+        }
+
+        /// <summary>
+        /// Returns the contents of the output port array the graph value was originally specified to point to.
+        /// <seealso cref="NodeSet.CreateGraphValueArray{T,TDefinition}"/>
+        /// <seealso cref="RenderContext"/>
+        /// </summary>
+        /// <exception cref="ObjectDisposedException">Thrown if either the graph value or the pointed-to node is no longer valid.</exception>
+        public NativeSlice<T> Resolve<T>(GraphValueArray<T> handle)
+            where T : struct
+        {
+            ReadBuffersScope.CheckReadAccess();
+
+            // Primary invalidation check
+            if (handle.Handle.Index >= Values.Length || handle.Handle.Version != Values[handle.Handle.Index].Handle.Versioned.Version)
+            {
+                throw new ObjectDisposedException("GraphValue is disposed or invalid");
+            }
+
+            var value = Values[handle.Handle.Index];
+
+            // Secondary invalidation check
+            if (!RenderGraph.StillExists(ref KernelNodes, value.Source))
+            {
+                throw new ObjectDisposedException("GraphValue's target node handle is disposed or invalid");
+            }
+
+            ref var knode = ref KernelNodes[value.Source.Versioned.Index];
+
             unsafe
             {
-                return UnsafeUtility.AsRef<T>(value.OutputDeclaration->Resolve(KernelNodes[value.Source.Versioned.Index].Instance.Ports));
+                ref readonly var array = ref value.OutputDeclaration->AsPortArray(knode.Instance.Ports);
+                var size = OutputPortArrayExt.PortArrayDetails<T>.ElementType;
+                var ptr = array.Get(size, 0);
+                var ret = NativeSliceUnsafeUtility.ConvertExistingDataToNativeSlice<T>(ptr, size.Size, array.Size);
+                Manager->MarkNativeSliceAsReadOnly(ref ret);
+                return ret;
             }
         }
 
@@ -121,6 +180,8 @@ namespace Unity.DataFlowGraph
             // TODO: A malicious user could store stale buffers around (ie. previously partly resolved from another resolver),
             // and successfully resolve them here.
             // To solve this we need to version buffers as well, but it is an edge case.
+            if (!RenderGraph.StillExists(ref KernelNodes, buffer.OwnerNode))
+                throw new ObjectDisposedException("GraphValue's target node handle is disposed or invalid");
 
             ReadBuffersScope.CheckReadAccess();
 
@@ -152,32 +213,47 @@ namespace Unity.DataFlowGraph
         BlitList<JobHandle> m_ReaderFences = new BlitList<JobHandle>(0, Allocator.Persistent);
 
         /// <summary>
-        /// Creates a tap point at a specific output location in the graph. Using graph values you can read back state and
+        /// Creates a tap point at a specific output port location in the graph. Using graph values you can read back state and
         /// results from graph kernels, either from the main thread using <see cref="GetValueBlocking{T}(GraphValue{T})"/>
         /// or asynchronously using <see cref="GraphValueResolver"/>.
-        /// </summary>
         /// <seealso cref="GetGraphValueResolver(out JobHandle)"/>
         /// <seealso cref="IKernelPortDefinition"/>
         /// <seealso cref="IGraphKernel{TKernelData, TKernelPortDefinition}"/>
+        /// </summary>
         /// <remarks>
         /// You will not be able to read contents of the output until after the next issue of <see cref="Update()"/>.
         /// </remarks>
         /// <exception cref="ArgumentException">Thrown if the target node is invalid or disposed</exception>
-        /// <exception cref="IndexOutOfRangeException">Thrown if the output port is out of bounds</exception>
+        /// <exception cref="IndexOutOfRangeException">Thrown if the output port is invalid</exception>
         public GraphValue<T> CreateGraphValue<T, TDefinition>(NodeHandle<TDefinition> node, DataOutput<TDefinition, T> output)
             where TDefinition : NodeDefinition
             where T : struct
         {
-            var source = new OutputPair(this, node, new OutputPortArrayID(output.Port));
-
-            // To ensure the port actually exists.
-            GetFormalPort(source);
-
-            return CreateGraphValue<T>(source);
+            return new GraphValue<T>(CreateGraphValueStrong<T>(new OutputPair(this, node, new OutputPortArrayID(output.Port))));
         }
 
         /// <summary>
-        /// Creates a graph value from an untyped node and source.
+        /// Creates a tap point at a specific output port array location in the graph. Using graph values you can read back state and
+        /// results from graph kernels asynchronously using <see cref="GraphValueResolver"/>.
+        /// <seealso cref="GetGraphValueResolver(out JobHandle)"/>
+        /// <seealso cref="IKernelPortDefinition"/>
+        /// <seealso cref="IGraphKernel{TKernelData, TKernelPortDefinition}"/>
+        /// </summary>
+        /// <remarks>
+        /// You will not be able to read contents of the output until after the next issue of <see cref="Update()"/>.
+        /// </remarks>
+        /// <exception cref="ArgumentException">Thrown if the target node is invalid or disposed</exception>
+        /// <exception cref="IndexOutOfRangeException">Thrown if the output port is invalid</exception>
+        public GraphValueArray<T> CreateGraphValueArray<T, TDefinition>(NodeHandle<TDefinition> node, PortArray<DataOutput<TDefinition, T>> output)
+            where TDefinition : NodeDefinition
+            where T : struct
+        {
+            return new GraphValueArray<T>(
+                CreateGraphValueStrong<T>(new OutputPair(this, node, new OutputPortArrayID(output.GetPortID()))));
+        }
+
+        /// <summary>
+        /// Creates a graph value from an untyped node and source port.
         /// See documentation for <see cref="CreateGraphValue{T, TDefinition}(NodeHandle{TDefinition}, DataOutput{TDefinition, T})"/>.
         /// </summary>
         /// <exception cref="ArgumentException">Thrown if the target node is invalid or disposed</exception>
@@ -186,16 +262,20 @@ namespace Unity.DataFlowGraph
         public GraphValue<T> CreateGraphValue<T>(NodeHandle handle, OutputPortID output)
             where T : struct
         {
-            var source = new OutputPair(this, handle, new OutputPortArrayID(output));
-            var sourcePortDef = GetFormalPort(source);
+            return new GraphValue<T>(CreateGraphValueWeak<T>(new OutputPair(this, handle, new OutputPortArrayID(output)), false));
+        }
 
-            if (sourcePortDef.Category != PortDescription.Category.Data)
-                throw new InvalidOperationException($"Graph values can only point to data outputs");
-
-            if (sourcePortDef.Type != typeof(T))
-                throw new InvalidOperationException($"Cannot create a graph value of type {typeof(T)} pointing to a data output of type {sourcePortDef.Type}");
-
-            return CreateGraphValue<T>(source);
+        /// <summary>
+        /// Creates a graph value from an untyped node and source port array.
+        /// See documentation for <see cref="CreateGraphValueArray{T,TDefinition}"/>.
+        /// </summary>
+        /// <exception cref="ArgumentException">Thrown if the target node is invalid or disposed</exception>
+        /// <exception cref="InvalidOperationException">Thrown if the output port is not of a data type</exception>
+        /// <exception cref="IndexOutOfRangeException">Thrown if the output port is out of bounds</exception>
+        public GraphValueArray<T> CreateGraphValueArray<T>(NodeHandle handle, OutputPortID output)
+            where T : struct
+        {
+            return new GraphValueArray<T>(CreateGraphValueWeak<T>(new OutputPair(this, handle, new OutputPortArrayID(output)), true));
         }
 
         /// <summary>
@@ -203,6 +283,17 @@ namespace Unity.DataFlowGraph
         /// </summary>
         /// <exception cref="ArgumentException">Thrown if the graph value is invalid or disposed</exception>
         public void ReleaseGraphValue<T>(GraphValue<T> graphValue)
+        {
+            ref readonly var gv = ref m_GraphValues[graphValue.Handle];
+            m_Diff.GraphValueDestroyed(gv);
+            m_GraphValues.Release(gv);
+        }
+
+        /// <summary>
+        /// Releases a graph value previously created with <see cref="CreateGraphValueArray{T,TDefinition}"/>.
+        /// </summary>
+        /// <exception cref="ArgumentException">Thrown if the graph value is invalid or disposed</exception>
+        public void ReleaseGraphValueArray<T>(GraphValueArray<T> graphValue)
             => m_GraphValues.Release(graphValue.Handle);
 
         /// <summary>
@@ -231,12 +322,9 @@ namespace Unity.DataFlowGraph
             if (value.Handle.Versioned.Index >= m_PostRenderValues.Length || value.Handle.Versioned != m_PostRenderValues[value.Handle.Versioned.Index].Handle.Versioned)
                 return default;
 
-            value.Dependency.Complete();
+            DataGraph.ComputeDependency(value).Complete();
 
-            unsafe
-            {
-                return UnsafeUtility.AsRef<T>(value.OutputDeclaration->Resolve(DataGraph.GetInternalData()[value.Source.Versioned.Index].Instance.Ports));
-            }
+            return value.UnsafeRead<T>(DataGraph.GetInternalData()[value.Source.Versioned.Index]);
         }
 
         /// <summary>
@@ -279,7 +367,35 @@ namespace Unity.DataFlowGraph
             return m_CurrentGraphValueResolver.Resolver;
         }
 
-        unsafe GraphValue<T> CreateGraphValue<T>(OutputPair source)
+        VersionedHandle CreateGraphValueStrong<T>(in OutputPair source)
+            where T : struct
+        {
+            // To ensure the port actually exists.
+            GetFormalPort(source);
+
+            return CreateGraphValue<T>(source);
+        }
+
+        VersionedHandle CreateGraphValueWeak<T>(in OutputPair source, bool forPortArray)
+            where T : struct
+        {
+            var portDef = GetFormalPort(source);
+
+            if (portDef.IsPortArray != forPortArray)
+                throw new InvalidOperationException(portDef.IsPortArray
+                    ? "Cannot create a GraphValueArray for a port which is not an array (use a GraphValue instead)"
+                    : "Cannot create a GraphValue for a port array (use a GraphValueArray instead)");
+
+            if (portDef.Category != PortDescription.Category.Data)
+                throw new InvalidOperationException($"Graph values can only point to data outputs");
+
+            if (portDef.Type != typeof(T))
+                throw new InvalidOperationException($"Cannot create a graph value of type {typeof(T)} pointing to a data output of type {portDef.Type}");
+
+            return CreateGraphValue<T>(source);
+        }
+
+        unsafe VersionedHandle CreateGraphValue<T>(OutputPair source)
             where T : struct
         {
             ref readonly var traits = ref m_Traits[Nodes[source.Handle].TraitsIndex].Resolve();
@@ -288,8 +404,8 @@ namespace Unity.DataFlowGraph
             ref var value = ref m_GraphValues.Allocate();
             value.Emplace<T>(source, (DataPortDeclarations.OutputDeclaration*)UnsafeUtilityExtensions.AddressOf(outputDeclaration));
 
-            m_Diff.GraphValueCreated(value.Handle);
-            return new GraphValue<T> { Handle = value.Handle.Versioned };
+            m_Diff.GraphValueCreated(value);
+            return value.Handle.Versioned;
         }
 
         unsafe void FenceOutputConsumers()

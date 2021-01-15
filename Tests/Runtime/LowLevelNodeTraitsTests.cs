@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Text.RegularExpressions;
@@ -10,13 +11,15 @@ using UnityEngine.TestTools;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs.LowLevel.Unsafe;
 using Unity.Mathematics;
+using static Unity.DataFlowGraph.Tests.ComponentNodeSetTests;
+using UnityEngine.Scripting;
 #if UNITY_EDITOR
 using UnityEditor;
 #endif
 
 namespace Unity.DataFlowGraph.Tests
 {
-    class LowLevelNodeTraitsTests
+    public class LowLevelNodeTraitsTests
     {
         public enum NodeType
         {
@@ -69,7 +72,7 @@ namespace Unity.DataFlowGraph.Tests
             {
                 fixed byte m_Pad[k_KernelPadding];
 
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports) { }
+                public void Execute(RenderContext ctx, in Data data, ref KernelDefs ports) { }
             }
         }
 
@@ -95,7 +98,7 @@ namespace Unity.DataFlowGraph.Tests
 
             internal struct Kernel : IGraphKernel<Data, KernelDefs>
             {
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports) { }
+                public void Execute(RenderContext ctx, in Data data, ref KernelDefs ports) { }
             }
         }
 
@@ -116,7 +119,7 @@ namespace Unity.DataFlowGraph.Tests
             [BurstCompile(CompileSynchronously = true)]
             internal struct Kernel : IGraphKernel<Data, KernelDefs>
             {
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports) { }
+                public void Execute(RenderContext ctx, in Data data, ref KernelDefs ports) { }
             }
         }
 
@@ -145,6 +148,16 @@ namespace Unity.DataFlowGraph.Tests
             return actual;
         }
 
+        public struct EmptyStruct {}
+        public unsafe struct PointerStruct {void* p;}
+        public struct ShortAndByteStruct {short s; byte b;}
+        public struct ThreeByteStruct {byte b1, b2, b3;}
+        public unsafe struct TwoPointersStruct {void* p1, p2;}
+        public unsafe struct ThreePointersStruct {void* p1, p2, p3;}
+        public unsafe struct ThreePointersAndAByteStruct {void* p1, p2, p3; byte b;}
+        public unsafe struct ThreePointersAndAShortStruct {void* p1, p2, p3; short b;}
+        public unsafe struct BigStructWithPointers {void* p1, p2, p3, p4; int i1, i2, i3; short s1, s2, s3; byte b;}
+
 #if !ENABLE_IL2CPP // This reflection is problematic for IL2CPP
         static SimpleType CompareSimpleType(Type type, SimpleType computed)
         {
@@ -152,16 +165,6 @@ namespace Unity.DataFlowGraph.Tests
             var compareSimpleType = compareSimpleTypeGenericFunction.MakeGenericMethod(type);
             return (SimpleType)compareSimpleType.Invoke(null, new object[]{ computed });
         }
-
-        struct EmptyStruct {}
-        unsafe struct PointerStruct {void* p;}
-        struct ShortAndByteStruct {short s; byte b;}
-        struct ThreeByteStruct {byte b1, b2; byte b3;}
-        unsafe struct TwoPointersStruct {void* p1, p2;}
-        unsafe struct ThreePointersStruct {void* p1, p2, p3;}
-        unsafe struct ThreePointersAndAByteStruct {void* p1, p2, p3; byte b;}
-        unsafe struct ThreePointersAndAShortStruct {void* p1, p2, p3; short b;}
-        unsafe struct BigStructWithPointers {void* p1, p2, p3, p4; int i1, i2, i3; short s1, s2, s3; byte b;}
 
         [TestCase(typeof(bool), 1, 1, 1),
          TestCase(typeof(byte), 1, 1, 1),
@@ -213,6 +216,67 @@ namespace Unity.DataFlowGraph.Tests
             Assert.AreEqual(expectedComputedAlignment, computed.Align);
         }
 #endif // ENABLE_IL2CPP
+
+        /// <summary>
+        /// Given a desired minimum power-of-two alignment, for all combinations of size and power-of-two alignment, determine
+        /// the expected resulting size and alignment by brute force search.
+        /// </summary>
+        [Preserve]
+        static IEnumerable<(int givenSize, int givenAlignment, int minAlignment, int expectedSize, int expectedAlignment)> MinAlignmentTestCaseProvider()
+        {
+            const int k_Max = 12;
+            for (int givenSize = 0; givenSize<k_Max; ++givenSize)
+            {
+                for (int givenAlignment = 1; givenAlignment <= givenSize; givenAlignment <<= 1)
+                {
+                    if (givenSize % givenAlignment == 0)
+                    {
+                        for (int minAlignment = 1; minAlignment <= k_Max; minAlignment <<= 1)
+                        {
+                            if (minAlignment <= givenAlignment)
+                            {
+                                yield return (givenSize, givenAlignment, minAlignment, givenSize, givenAlignment);
+                            }
+                            else
+                            {
+                                for (var potentialSize = givenSize; true; ++potentialSize)
+                                {
+                                    if (potentialSize % minAlignment == 0 && potentialSize % givenAlignment == 0)
+                                    {
+                                        yield return (givenSize, givenAlignment, minAlignment, potentialSize, minAlignment);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        [TestCaseSource(nameof(MinAlignmentTestCaseProvider))]
+        public void SimpleType_CorrectlyComputes_MinAlignedTyped((int givenSize, int givenAlignment, int minAlignment, int expectedSize, int expectedAlignment) args)
+        {
+            var simpleType = new SimpleType(args.givenSize, args.givenAlignment);
+            var minAligned = simpleType.GetMinAlignedTyped(args.minAlignment);
+
+            Assert.AreEqual(args.expectedSize, minAligned.Size);
+            Assert.AreEqual(args.expectedAlignment, minAligned.Align);
+
+            Assert.Zero(minAligned.Size % minAligned.Align);
+            Assert.GreaterOrEqual(minAligned.Size, simpleType.Size);
+            Assert.GreaterOrEqual(minAligned.Align, simpleType.Align);
+            Assert.GreaterOrEqual(minAligned.Align, args.minAlignment);
+            Assert.LessOrEqual(minAligned.Size - simpleType.Size, Math.Max(simpleType.Size, args.minAlignment));
+        }
+
+        [Test]
+        public void SimpleType_Accepts_ExplicitZeroSizes()
+        {
+            Assert.DoesNotThrow(() => new SimpleType(0, 0));
+            Assert.DoesNotThrow(() => new SimpleType(0, 1));
+            Assert.DoesNotThrow(() => new SimpleType(0, 8));
+        }
 
         [TestCase(NodeType.Kernel), TestCase(NodeType.NonKernel)]
         public void LowLevelNodeTraits_IsCreated(NodeType type)
@@ -387,7 +451,7 @@ namespace Unity.DataFlowGraph.Tests
 #endif
             internal struct Kernel : IGraphKernel<Data, KernelDefs>
             {
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, in Data data, ref KernelDefs ports)
                 {
                     var burstCantDoTypeOf = typeof(int);
                     ctx.Resolve(ref ports.Output1) = 11;
@@ -506,7 +570,7 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void LLDataPortBufferOffsets_AreEquivalentToPortDeclaration()
+        public void LLDataPortBufferCounts_AreEquivalentToPortDeclaration()
         {
             using (var set = new NodeSet())
             {
@@ -514,31 +578,13 @@ namespace Unity.DataFlowGraph.Tests
                 var portDeclaration = set.GetDefinition(node).GetPortDescription(node);
                 ref readonly var llTraits = ref set.GetNodeTraits(node);
 
-                int numDataBuffers = 0;
-                foreach (var port in portDeclaration.Outputs)
-                    numDataBuffers += port.BufferInfos.Count;
-
-                var bufferOffsets = llTraits.DataPorts.OutputBufferOffsets;
-                Assert.AreEqual(5, numDataBuffers);
-                Assert.AreEqual(5, bufferOffsets.Count);
+                Assert.AreEqual(portDeclaration.Outputs.Count, llTraits.DataPorts.Outputs.Count);
 
                 foreach (var port in portDeclaration.Outputs)
                 {
-                    var portOffset =
-                        UnsafeUtility.GetFieldOffset(typeof(KernelNodeWithIO.KernelDefs).GetField(port.Name));
-                    foreach (var buf in port.BufferInfos)
-                    {
-                        for (int i = 0; i < bufferOffsets.Count; ++i)
-                        {
-                            if (buf.Offset + portOffset == bufferOffsets[i].Offset)
-                            {
-                                bufferOffsets.Remove(i, 1);
-                                break;
-                            }
-                        }
-                    }
+                    var kPort = llTraits.DataPorts.FindOutputDataPort(port);
+                    Assert.AreEqual(port.BufferInfos.Count, kPort.BufferCount);
                 }
-                Assert.Zero(bufferOffsets.Count);
 
                 set.Destroy(node);
             }
@@ -552,12 +598,12 @@ namespace Unity.DataFlowGraph.Tests
                 NodeHandle node = set.Create<KernelNodeWithIO>();
                 ref readonly var llTraits = ref set.GetNodeTraits(node);
 
-                Assert.AreEqual(KernelNodeWithIO.KernelPorts.Input1.Port, llTraits.DataPorts.Inputs[0].PortNumber);
-                Assert.AreEqual(KernelNodeWithIO.KernelPorts.Input2.Port, llTraits.DataPorts.Inputs[1].PortNumber);
-                Assert.AreEqual(KernelNodeWithIO.KernelPorts.Input3.Port, llTraits.DataPorts.Inputs[2].PortNumber);
+                Assert.AreEqual(KernelNodeWithIO.KernelPorts.Input1.Port, llTraits.DataPorts.GetPortIDForInputIndex(0));
+                Assert.AreEqual(KernelNodeWithIO.KernelPorts.Input2.Port, llTraits.DataPorts.GetPortIDForInputIndex(1));
+                Assert.AreEqual(KernelNodeWithIO.KernelPorts.Input3.Port, llTraits.DataPorts.GetPortIDForInputIndex(2));
 
-                Assert.AreEqual(KernelNodeWithIO.KernelPorts.Output1.Port, llTraits.DataPorts.Outputs[0].PortNumber);
-                Assert.AreEqual(KernelNodeWithIO.KernelPorts.Output2.Port, llTraits.DataPorts.Outputs[1].PortNumber);
+                Assert.AreEqual(KernelNodeWithIO.KernelPorts.Output1.Port, llTraits.DataPorts.GetPortIDForOutputIndex(0));
+                Assert.AreEqual(KernelNodeWithIO.KernelPorts.Output2.Port, llTraits.DataPorts.GetPortIDForOutputIndex(1));
 
                 set.Destroy(node);
             }
@@ -640,10 +686,26 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        unsafe struct DifferentButUniqueStructSize
+        public unsafe struct DifferentButUniqueStructSize
         {
             public const int kPadSize = 0x733;
             fixed byte Pad[kPadSize];
+        }
+
+        public class NodeWithUniqueBufferStruct  : KernelNodeDefinition<NodeWithUniqueBufferStruct.KernelDefs>
+        {
+
+            public struct KernelDefs : IKernelPortDefinition
+            {
+                public DataOutput<NodeWithUniqueBufferStruct, Buffer<DifferentButUniqueStructSize>> Output;
+            }
+
+            struct EmptyKernelData : IKernelData { }
+
+            struct Kernel : IGraphKernel<EmptyKernelData, KernelDefs>
+            {
+                public void Execute(RenderContext ctx, in EmptyKernelData data, ref KernelDefs ports) { }
+            }
         }
 
         [Test]
@@ -651,11 +713,11 @@ namespace Unity.DataFlowGraph.Tests
         {
             using (var set = new NodeSet())
             {
-                var node = set.Create<NodeWithParametricPortType<Buffer<DifferentButUniqueStructSize>>>();
+                var node = set.Create<NodeWithUniqueBufferStruct>();
                 var decl = set
                     .GetNodeTraits(node)
                     .DataPorts
-                    .FindOutputDataPort(NodeWithParametricPortType<Buffer<DifferentButUniqueStructSize>>.KernelPorts.Output.Port);
+                    .FindOutputDataPort(NodeWithUniqueBufferStruct.KernelPorts.Output.Port);
 
                 Assert.AreEqual(SimpleType.Create<DifferentButUniqueStructSize>().Size, decl.ElementOrType.Size);
 
@@ -676,6 +738,51 @@ namespace Unity.DataFlowGraph.Tests
 
             Assert.AreEqual(expectedDataInputSizeAndAlign, UnsafeUtility.SizeOf<DataInput<InvalidDefinitionSlot, Matrix4x4>>(), "SizeOf(DataInput<>)");
             Assert.AreEqual(pointerAlignAndSize, UnsafeUtility.AlignOf<DataInput<InvalidDefinitionSlot, Matrix4x4>>(), "AlignOf(DataInput<>)");
+        }
+
+        [Test] 
+        public void ComponentNode_IsMarkedAsComponentNode_InLowLevelTraits([Values] FixtureSystemType systemType)
+        {
+            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
+            {
+                var entity = f.EM.CreateEntity();
+                var node = f.Set.CreateComponentNode(entity);
+                ref readonly var traits = ref f.Set.GetNodeTraits(node);
+
+                Assert.IsTrue(traits.KernelStorage.IsComponentNode);
+                Assert.True((traits.KernelStorage.InitialExecutionFlags & RenderGraph.KernelNode.Flags.IsComponentNode) != 0);
+
+                f.Set.Destroy(node);
+            }
+        }
+
+        [Test] 
+        public void NonComponentNode_IsNotMarkedAsComponentNode_InLowLevelTraits()
+        {
+            using (var set = new NodeSet())
+            {
+                var node = set.Create<NodeWithAllTypesOfPorts>();
+                ref readonly var traits = ref set.GetNodeTraits(node);
+
+                Assert.False(traits.KernelStorage.IsComponentNode);
+                Assert.False((traits.KernelStorage.InitialExecutionFlags & RenderGraph.KernelNode.Flags.IsComponentNode) != 0);
+
+                set.Destroy(node);
+            }
+        }
+
+        [Test]
+        public void ImpureNodes_AreMarkedWithImpureExecutionFlags_InLowLevelTraits()
+        {
+            using (var set = new NodeSet())
+            {
+                var node = set.Create<RenderGraphTests.SideEffectUserStructValueNode>();
+                ref readonly var traits = ref set.GetNodeTraits(node);
+
+                Assert.True((traits.KernelStorage.InitialExecutionFlags & RenderGraph.KernelNode.Flags.CausesSideEffects) != 0);
+
+                set.Destroy(node);
+            }
         }
     }
 

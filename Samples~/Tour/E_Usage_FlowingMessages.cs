@@ -30,7 +30,7 @@ namespace Unity.DataFlowGraph.Tour
                  */
                 char Name;
 
-                public void HandleMessage(in MessageContext ctx, in char msg)
+                public void HandleMessage(MessageContext ctx, in char msg)
                 {
                     /*
                      * Record the name being given.
@@ -38,7 +38,7 @@ namespace Unity.DataFlowGraph.Tour
                     Name = msg;
                 }
 
-                public void HandleMessage(in MessageContext ctx, in int msg)
+                public void HandleMessage(MessageContext ctx, in int msg)
                 {
                     Debug.Log($"'{Name}' received an int message of value {msg}");
 

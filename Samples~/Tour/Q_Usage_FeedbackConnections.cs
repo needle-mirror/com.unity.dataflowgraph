@@ -32,7 +32,7 @@ namespace Unity.DataFlowGraph.Tour
 
             struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
             {
-                public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, in KernelData data, ref KernelDefs ports)
                 {
                     var a = ctx.Resolve(ports.InputA);
                     var b = ctx.Resolve(ports.InputB);
@@ -63,7 +63,7 @@ namespace Unity.DataFlowGraph.Tour
             struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
             {
                 uint m_PreviousValue;
-                public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, in KernelData data, ref KernelDefs ports)
                 {
                     ref var n1 = ref ctx.Resolve(ref ports.OutputN1);
                     ref var n2 = ref ctx.Resolve(ref ports.OutputN2);

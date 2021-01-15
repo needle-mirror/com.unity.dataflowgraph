@@ -32,12 +32,7 @@ namespace Unity.DataFlowGraph.CodeGen
             /// <code>typeof(SimulationKernelNodeDefinition<></code>
             /// </summary>
             SimulationKernel,
-            Naked,
-            Scaffold_1,
-            Scaffold_2,
-            Scaffold_3,
-            Scaffold_4,
-            Scaffold_5
+            Naked
         }
 
         public enum NodeTraitsKind
@@ -45,12 +40,22 @@ namespace Unity.DataFlowGraph.CodeGen
             _1, _2, _3, _4, _5
         }
 
+        public enum PortClass
+        {
+            MessageInput,
+            MessageOutput,
+            DataInput,
+            DataOutput,
+            DSLInput,
+            DSLOutput
+        }
+
         class DummyNode : NodeDefinition, IMsgHandler<object>
         {
             public struct SimPorts : ISimulationPortDefinition { }
             public struct KernelPorts : IKernelPortDefinition { }
 
-            public void HandleMessage(in MessageContext ctx, in object msg) =>
+            public void HandleMessage(MessageContext ctx, in object msg) =>
                 throw new NotImplementedException();
         }
 
@@ -62,10 +67,21 @@ namespace Unity.DataFlowGraph.CodeGen
                 throw new NotImplementedException();
         }
 
+        public struct PortType
+        {
+            public TypeReference Type;
+            public MethodReference ScalarCreateMethod;
+            public MethodReference ArrayCreateMethod;
+        }
+
         /// <summary>
         /// <see cref="Burst.BurstCompileAttribute"/>
         /// </summary>
         public CustomAttribute BurstCompileAttribute;
+        /// <summary>
+        /// <see cref="CausesSideEffectsAttribute"/>
+        /// </summary>
+        [NSymbol] public TypeReference CausesSideEffectsAttributeType;
         /// <summary>
         /// <see cref="ManagedAttribute"/>
         /// </summary>
@@ -150,44 +166,14 @@ namespace Unity.DataFlowGraph.CodeGen
         [NSymbol] public MethodDefinition IPortDefinitionInitializedMethod;
 
         /// <summary>
-        /// <see cref="IPortDefinitionInitializer.DFG_CG_GetInputPortCount"/>
-        /// </summary>
-        [NSymbol] public MethodDefinition IPortDefinitionGetInputPortCountMethod;
-
-        /// <summary>
-        /// <see cref="IPortDefinitionInitializer.DFG_CG_GetOutputPortCount"/>
-        /// </summary>
-        [NSymbol] public MethodDefinition IPortDefinitionGetOutputPortCountMethod;
-
-        /// <summary>
-        /// <see cref="PortStorage"/>
-        /// </summary>
-        [NSymbol] public TypeReference PortStorageType;
-
-        /// <summary>
-        /// Constructor for <see cref="PortStorage(ushort)"/>
-        /// </summary>
-        [NSymbol] public MethodReference PortStorageConstructor;
-
-        /// <summary>
         /// <see cref="PortArray{}"/>
         /// </summary>
         [NSymbol] public TypeReference PortArrayType;
 
         /// <summary>
-        /// <see cref="InputPortID"/>, <see cref="OutputPortID"/>
+        /// Types of DFG ports (eg. MessageInput/Output, DataInput/Output, etc.) and their associated creation methods (both array and non-array variants)
         /// </summary>
-        [NSymbol] public TypeReference InputPortIDType, OutputPortIDType;
-
-        /// <summary>
-        /// Constructors for <see cref="InputPortID"/> and <see cref="OutputPortID"/>
-        /// </summary>
-        [NSymbol] public MethodReference InputPortIDConstructor, OutputPortIDConstructor;
-
-        /// <summary>
-        /// Create methods (taking Input/OutputPortIDs) of each type of DFG port (eg. MessageInput/Output, DataInput/Output, etc.)
-        /// </summary>
-        [NSymbol] public List<MethodReference> PortCreateMethods;
+        List<PortType> m_Ports;
 
         /// <summary>
         /// <see cref="IMsgHandler{TMsg}"/>
@@ -250,29 +236,9 @@ namespace Unity.DataFlowGraph.CodeGen
         [NSymbol] public MethodReference VTableUpdateInstaller;
 
         /// <summary>
-        /// <see cref="NodeDefinition.Destroy(DestroyContext)"/>
-        /// </summary>
-        [NSymbol] public MethodReference OldDestroyCallback;
-
-        /// <summary>
         /// <see cref="NodeDefinition.SimulationVTable.InstallInitHandler{TNodeDefinition, TNodeData}"/>
         /// </summary>
         [NSymbol] public MethodReference VTableInitInstaller;
-
-        /// <summary>
-        /// <see cref="NodeDefinition.Init(InitContext)"/>
-        /// </summary>
-        [NSymbol] public MethodReference OldInitCallback;
-
-        /// <summary>
-        /// <see cref="NodeDefinition.OnUpdate(in UpdateContext)"/>
-        /// </summary>
-        [NSymbol] public MethodReference OldUpdateCallback;
-
-        /// <summary>
-        /// <see cref="MessageInput{TDefinition, TMsg}"/>
-        /// </summary>
-        [NSymbol] public TypeReference MessageInputType;
 
         /// <summary>
         /// <see cref="KernelNodeDefinition{TKernelPortDefinition}.KernelPorts"/>
@@ -304,8 +270,7 @@ namespace Unity.DataFlowGraph.CodeGen
         public NodeDefinitionKind? IdentifyDefinition(TypeReference r)
         {
             // Drop instantiation so we can match against NodeDefinition<,> etc.
-            if (r.IsGenericInstance)
-                r = r.Resolve(); // TODO: Use .Unqualified() in the future.
+            r = r.Open();
 
             for(int i = 0; i < NodeDefinitions.Count; ++i)
             {
@@ -326,26 +291,56 @@ namespace Unity.DataFlowGraph.CodeGen
             return TraitsDefinitions[(int)kind];
         }
 
+        public PortClass? ClassifyPort(TypeReference potentialPort)
+        {
+            potentialPort = potentialPort.Open();
+            for (int i = 0; i < m_Ports.Count; ++i)
+            {
+                if (m_Ports[i].Type.RefersToSame(potentialPort))
+                    return (PortClass)i;
+            }
+
+            return null;
+        }
+
+        static Type GetPortTypeByEnum(PortClass klass)
+        {
+            switch (klass)
+            {
+                case PortClass.MessageInput: return typeof(MessageInput<,>);
+                case PortClass.MessageOutput: return typeof(MessageOutput<,>);
+                case PortClass.DataInput: return typeof(DataInput<,>);
+                case PortClass.DataOutput: return typeof(DataOutput<,>);
+                case PortClass.DSLInput: return typeof(DSLInput<,,>);
+                case PortClass.DSLOutput: return typeof(DSLOutput<,,>);
+            }
+
+            throw new ArgumentOutOfRangeException();
+        }
+
         public MethodReference GetVTableMessageInstallerForHandler(TypeReference messageHandler, TypeReference portType)
         {
-            // TODO: Use .Unqualified() in the future.
-            var forIMsgHandler = messageHandler.Resolve().RefersToSame(IMessageHandlerInterface);
+            var forIMsgHandler = messageHandler.Open().RefersToSame(IMessageHandlerInterface);
 
-            if (portType.Resolve().RefersToSame(PortArrayType))
+            if (portType.Open().RefersToSame(PortArrayType))
                 return forIMsgHandler ? VTablePortArrayMessageInstaller : VTablePortArrayMessageGenericInstaller;
 
             return forIMsgHandler ? VTableMessageInstaller : VTableMessageGenericInstaller;
         }
 
-        public MethodReference FindCreateMethodForPortType(TypeReference portType, bool forInput)
+        public MethodReference FindCreateMethodForPortType(PortInfo info)
         {
-            return PortCreateMethods.First(p => p.DeclaringType.RefersToSame(portType) && p.Parameters[0].ParameterType.RefersToSame(forInput ? InputPortIDType : OutputPortIDType));
+            var slot = GetPort(info.Classification);
+            return info.IsArray ? slot.ArrayCreateMethod : slot.ScalarCreateMethod;
         }
+
+        public PortType GetPort(PortClass klass) => m_Ports[(int)klass];
 
         public override void ParseSymbols(Diag diag)
         {
             BurstCompileAttribute = new CustomAttribute(
                 Module.ImportReference(typeof(BurstCompileAttribute).GetConstructor(Type.EmptyTypes)));
+            CausesSideEffectsAttributeType = GetImportedReference(typeof(CausesSideEffectsAttribute));
             ManagedNodeDataAttribute = GetImportedReference(typeof(ManagedAttribute));
 
             INodeDataInterface = GetImportedReference(typeof(INodeData));
@@ -377,64 +372,36 @@ namespace Unity.DataFlowGraph.CodeGen
             var resolvedNodeDefinition = nodeDefinition.Resolve();
 
             NodeDefinitions.Add(nodeDefinition);
-#pragma warning disable 618
-            NodeDefinitions.Add(GetImportedReference(typeof(NodeDefinition<>)));
-            NodeDefinitions.Add(GetImportedReference(typeof(NodeDefinition<,>)));
-            NodeDefinitions.Add(GetImportedReference(typeof(NodeDefinition<,,>)));
-            NodeDefinitions.Add(GetImportedReference(typeof(NodeDefinition<,,,>)));
-            NodeDefinitions.Add(GetImportedReference(typeof(NodeDefinition<,,,,>)));
-#pragma warning restore 618
+
+            NodeTraitsBaseDefinition = GetImportedReference(typeof(NodeTraitsBase));
+            SimulationStorageDefinitionType = GetImportedReference(typeof(SimulationStorageDefinition));
+            SimulationStorageDefinitionCreateMethod = FindGenericMethod(SimulationStorageDefinitionType, nameof(SimulationStorageDefinition.Create), 3, Module.TypeSystem.Boolean);
+            SimulationStorageDefinitionNoPortsCreateMethod = FindGenericMethod(SimulationStorageDefinitionType, nameof(SimulationStorageDefinition.Create), 2, Module.TypeSystem.Boolean);
+            SimulationStorageDefinitionNoDataCreateMethod = FindGenericMethod(SimulationStorageDefinitionType, nameof(SimulationStorageDefinition.Create), 1);
+            KernelStorageDefinitionType = GetImportedReference(typeof(KernelStorageDefinition));
+            KernelStorageDefinitionCreateMethod = FindGenericMethod(KernelStorageDefinitionType, nameof(KernelStorageDefinition.Create), 4, Module.TypeSystem.Boolean, Module.TypeSystem.Boolean);
 
             // TODO: Should change into virtual method instead of property.
             var property = resolvedNodeDefinition.Properties.Single(p => p.Name == nameof(NodeDefinition.BaseTraits));
             Get_BaseTraitsDefinition = EnsureImported(property.GetMethod);
+            Get_BaseTraitsDefinition.ReturnType = NodeTraitsBaseDefinition;
             property = resolvedNodeDefinition.Properties.Single(p => p.Name == nameof(NodeDefinition.SimulationStorageTraits));
             Get_SimulationStorageTraits = EnsureImported(property.GetMethod);
+            Get_SimulationStorageTraits.ReturnType = SimulationStorageDefinitionType;
             property = resolvedNodeDefinition.Properties.Single(p => p.Name == nameof(NodeDefinition.KernelStorageTraits));
             Get_KernelStorageTraits = EnsureImported(property.GetMethod);
-
-            NodeTraitsBaseDefinition = GetImportedReference(typeof(NodeTraitsBase));
-            SimulationStorageDefinitionType = GetImportedReference(typeof(SimulationStorageDefinition));
-            SimulationStorageDefinitionCreateMethod = FindGenericMethod(SimulationStorageDefinitionType, nameof(SimulationStorageDefinition.Create), 3, Module.TypeSystem.Boolean, Module.TypeSystem.Boolean);
-            SimulationStorageDefinitionNoPortsCreateMethod = FindGenericMethod(SimulationStorageDefinitionType, nameof(SimulationStorageDefinition.Create), 2, Module.TypeSystem.Boolean, Module.TypeSystem.Boolean);
-            SimulationStorageDefinitionNoDataCreateMethod = FindGenericMethod(SimulationStorageDefinitionType, nameof(SimulationStorageDefinition.Create), 1);
-            KernelStorageDefinitionType = GetImportedReference(typeof(KernelStorageDefinition));
-            KernelStorageDefinitionCreateMethod = FindGenericMethod(KernelStorageDefinitionType, nameof(KernelStorageDefinition.Create), 4, Module.TypeSystem.Boolean);
+            Get_KernelStorageTraits.ReturnType = KernelStorageDefinitionType;
 
             VirtualTableField = EnsureImported(resolvedNodeDefinition.Fields.Single(f => f.Name == nameof(NodeDefinition.VirtualTable)));
-            var vtableMethods = VirtualTableField.FieldType.Resolve().Methods;
+            var vtableType = VirtualTableField.FieldType.Resolve();
 
-            VTableMessageInstaller = EnsureImported(
-                vtableMethods.Single(m => m.Name == nameof(NodeDefinition.SimulationVTable.InstallMessageHandler))
-            );
-            VTablePortArrayMessageInstaller = EnsureImported(
-                vtableMethods.Single(m => m.Name == nameof(NodeDefinition.SimulationVTable.InstallPortArrayMessageHandler))
-            );
-            VTableMessageGenericInstaller = EnsureImported(
-                vtableMethods.Single(m => m.Name == nameof(NodeDefinition.SimulationVTable.InstallMessageHandlerGeneric))
-            );
-            VTablePortArrayMessageGenericInstaller = EnsureImported(
-                vtableMethods.Single(m => m.Name == nameof(NodeDefinition.SimulationVTable.InstallPortArrayMessageHandlerGeneric))
-            );
-
-            VTableInitInstaller = EnsureImported(
-                vtableMethods.Single(m => m.Name == nameof(NodeDefinition.SimulationVTable.InstallInitHandler))
-            );
-
-            VTableUpdateInstaller = EnsureImported(
-                vtableMethods.Single(m => m.Name == nameof(NodeDefinition.SimulationVTable.InstallUpdateHandler))
-            );
-
-
-            VTableDestroyInstaller = EnsureImported(
-                vtableMethods.Single(m => m.Name == nameof(NodeDefinition.SimulationVTable.InstallDestroyHandler))
-            );
-
-            OldInitCallback = resolvedNodeDefinition.Methods.Single(m => m.Name == nameof(NodeDefinition.Init));
-            OldDestroyCallback = resolvedNodeDefinition.Methods.Single(m => m.Name == nameof(NodeDefinition.Destroy));
-            OldUpdateCallback = resolvedNodeDefinition.Methods.Single(m => m.Name == nameof(NodeDefinition.OnUpdate));
-
-            MessageInputType = GetImportedReference(typeof(MessageInput<,>));
+            VTableMessageInstaller = GetUniqueMethod(vtableType, nameof(NodeDefinition.SimulationVTable.InstallMessageHandler));
+            VTablePortArrayMessageInstaller = GetUniqueMethod(vtableType, nameof(NodeDefinition.SimulationVTable.InstallPortArrayMessageHandler));
+            VTableInitInstaller = GetUniqueMethod(vtableType, nameof(NodeDefinition.SimulationVTable.InstallInitHandler));
+            VTableUpdateInstaller = GetUniqueMethod(vtableType, nameof(NodeDefinition.SimulationVTable.InstallUpdateHandler));
+            VTableDestroyInstaller = GetUniqueMethod(vtableType, nameof(NodeDefinition.SimulationVTable.InstallDestroyHandler));
+            VTableMessageGenericInstaller = GetUniqueMethod(vtableType, nameof(NodeDefinition.SimulationVTable.InstallMessageHandlerGeneric));
+            VTablePortArrayMessageGenericInstaller = GetUniqueMethod(vtableType, nameof(NodeDefinition.SimulationVTable.InstallPortArrayMessageHandlerGeneric));
 
             TraitsDefinitions.Add(GetImportedReference(typeof(NodeTraits<>)));
             TraitsDefinitions.Add(GetImportedReference(typeof(NodeTraits<,>)));
@@ -443,47 +410,44 @@ namespace Unity.DataFlowGraph.CodeGen
             TraitsDefinitions.Add(GetImportedReference(typeof(NodeTraits<,,,>)));
 
             IPortDefinitionInitializerType = GetImportedReference(typeof(IPortDefinitionInitializer));
-            IPortDefinitionInitializedMethod =
-                FindMethod(IPortDefinitionInitializerType, nameof(IPortDefinitionInitializer.DFG_CG_Initialize), Module.TypeSystem.UInt16, Module.TypeSystem.UInt16).Resolve();
-            IPortDefinitionGetInputPortCountMethod =
-                FindMethod(IPortDefinitionInitializerType, nameof(IPortDefinitionInitializer.DFG_CG_GetInputPortCount)).Resolve();
-            IPortDefinitionGetOutputPortCountMethod =
-                FindMethod(IPortDefinitionInitializerType, nameof(IPortDefinitionInitializer.DFG_CG_GetOutputPortCount)).Resolve();
-
-            PortStorageType = GetImportedReference(typeof(PortStorage));
-            PortStorageConstructor = FindConstructor(PortStorageType, Module.TypeSystem.UInt16);
+            IPortDefinitionInitializedMethod = GetUniqueMethod(IPortDefinitionInitializerType.Resolve(), nameof(IPortDefinitionInitializer.DFG_CG_Initialize)).Resolve();
 
             PortArrayType = GetImportedReference(typeof(PortArray<>));
 
-            InputPortIDType = GetImportedReference(typeof(InputPortID));
-            OutputPortIDType = GetImportedReference(typeof(OutputPortID));
-
-            InputPortIDConstructor = FindConstructor(InputPortIDType, PortStorageType);
-            OutputPortIDConstructor = FindConstructor(OutputPortIDType, PortStorageType);
-
-            PortCreateMethods = new List<MethodReference>();
-            void AddCreateMethod(Type portType, string createMethodName, TypeReference factoryArg)
+            m_Ports = new List<PortType>();
+            foreach(var enumValue in Enum.GetValues(typeof(PortClass)).Cast<PortClass>())
             {
-                var importedType = GetImportedReference(portType);
-                PortCreateMethods.Add(FindMethod(importedType, createMethodName, factoryArg));
+                var type = GetImportedReference(GetPortTypeByEnum(enumValue)).Resolve();
+                var parentInstantiatedReference = type.MakeGenericInstanceType(type.GenericParameters.ToArray());
+                var portArrayInstantiationOfParentInstantiation = PortArrayType.MakeGenericInstanceType(parentInstantiatedReference);
+
+                var parentInstantiatedReferenceByReference = new ByReferenceType(parentInstantiatedReference);
+                var portArrayInstantiationOfParentInstantiationByReference = new ByReferenceType(portArrayInstantiationOfParentInstantiation);
+
+                m_Ports.Add(new PortType
+                {
+                    Type = type,
+                    ScalarCreateMethod = FindMethod(
+                        type,
+                        nameof(DataInput<DummyNode, int>.ILPP_Create),
+                        parentInstantiatedReferenceByReference,
+                        Module.TypeSystem.UInt16
+                    ),
+                    ArrayCreateMethod = FindMethod(
+                        type,
+                        nameof(DataInput<DummyNode, int>.ILPP_CreatePortArray),
+                        portArrayInstantiationOfParentInstantiationByReference,
+                        Module.TypeSystem.UInt16
+                    )
+                });
             }
-            AddCreateMethod(typeof(MessageInput<,>), nameof(MessageInput<DummyNode, object>.Create), InputPortIDType);
-            AddCreateMethod(typeof(MessageOutput<,>), nameof(MessageOutput<DummyNode, object>.Create), OutputPortIDType);
-            AddCreateMethod(typeof(DataInput<,>), nameof(DataInput<DummyNode, int>.Create), InputPortIDType);
-            AddCreateMethod(typeof(DataOutput<,>), nameof(DataOutput<DummyNode, int>.Create), OutputPortIDType);
-            AddCreateMethod(typeof(DSLInput<,,>), nameof(DSLInput<DummyNode, DummyDSL, object>.Create), InputPortIDType);
-            AddCreateMethod(typeof(DSLOutput<,,>), nameof(DSLOutput<DummyNode, DummyDSL, object>.Create), OutputPortIDType);
-            AddCreateMethod(typeof(PortArray<>), nameof(PortArray<MessageInput<DummyNode, object>>.Create), InputPortIDType);
-            AddCreateMethod(typeof(PortArray<>), nameof(PortArray<MessageOutput<DummyNode, object>>.Create), OutputPortIDType);
 
             InternalComponentNodeType = GetImportedReference(typeof(InternalComponentNode));
             ValueTypeType = GetImportedReference(typeof(System.ValueType));
         }
 
-        public override void AnalyseConsistency(Diag diag)
+        protected override void OnAnalyseConsistency(Diag diag)
         {
-            diag.DiagnoseNullSymbolFields(this);
-
             if(BurstCompileAttribute == null)
                 diag.DFG_IE_02(this);
         }
@@ -491,20 +455,12 @@ namespace Unity.DataFlowGraph.CodeGen
 
     static class Extensions
     {
-        public static bool IsScaffolded(this DFGLibrary.NodeDefinitionKind kind)
-        {
-            return (int)kind > (int)DFGLibrary.NodeDefinitionKind.Naked;
-        }
-
         public static bool? HasKernelAspects(this DFGLibrary.NodeDefinitionKind kind)
         {
             switch (kind)
             {
                 case DFGLibrary.NodeDefinitionKind.Kernel:
                 case DFGLibrary.NodeDefinitionKind.SimulationKernel:
-                case DFGLibrary.NodeDefinitionKind.Scaffold_3:
-                case DFGLibrary.NodeDefinitionKind.Scaffold_4:
-                case DFGLibrary.NodeDefinitionKind.Scaffold_5:
                     return true;
                 case DFGLibrary.NodeDefinitionKind.Naked:
                     return null;
@@ -517,10 +473,6 @@ namespace Unity.DataFlowGraph.CodeGen
         {
             switch (kind)
             {
-                case DFGLibrary.NodeDefinitionKind.Scaffold_1:
-                case DFGLibrary.NodeDefinitionKind.Scaffold_2:
-                case DFGLibrary.NodeDefinitionKind.Scaffold_4:
-                case DFGLibrary.NodeDefinitionKind.Scaffold_5:
                 case DFGLibrary.NodeDefinitionKind.Simulation:
                 case DFGLibrary.NodeDefinitionKind.SimulationKernel:
                     return true;
@@ -535,9 +487,6 @@ namespace Unity.DataFlowGraph.CodeGen
         {
             switch (kind)
             {
-                case DFGLibrary.NodeDefinitionKind.Scaffold_1:
-                case DFGLibrary.NodeDefinitionKind.Scaffold_2:
-                case DFGLibrary.NodeDefinitionKind.Scaffold_5:
                 case DFGLibrary.NodeDefinitionKind.Simulation:
                 case DFGLibrary.NodeDefinitionKind.SimulationKernel:
                     return true;

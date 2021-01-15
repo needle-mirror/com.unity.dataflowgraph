@@ -32,7 +32,7 @@ This version of DataFlowGraph package is compatible with the following versions 
 
 ## Known limitations
 
-DataFlowGraph version 0.18 includes the following known limitations:
+DataFlowGraph version 0.19 includes the following known limitations:
 
 * The DataFlowGraph package is an experimental feature 
 * This version of DataFlowGraph consists of features that mainly cater to the needs of DOTS Animation

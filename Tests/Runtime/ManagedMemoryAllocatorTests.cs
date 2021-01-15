@@ -1,5 +1,4 @@
 using System;
-using System.Collections;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -10,7 +9,6 @@ using UnityEngine.TestTools;
 
 namespace Unity.DataFlowGraph.Tests
 {
-
     using ConformingAllocator = DefaultManagedAllocator<ManagedMemoryAllocatorTests.ManagedStruct>;
 
     public unsafe class ManagedMemoryAllocatorTests
@@ -23,8 +21,15 @@ namespace Unity.DataFlowGraph.Tests
             Size, Pool
         }
 
-        public static IEnumerator AssertManagedObjectsReleasedInTime()
+        public static void RequestGarbageCollection()
         {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+        }
+
+        public static void AssertManagedObjectsReleased(Action action)
+        {
+            action();
             const int k_TimeOut = 5;
             var time = Time.realtimeSinceStartup;
 
@@ -32,9 +37,7 @@ namespace Unity.DataFlowGraph.Tests
             {
                 if (ManagedObject.Instances == 0)
                     break;
-
-                GC.Collect();
-                yield return null;
+                RequestGarbageCollection();
             }
 
             Assert.Zero(ManagedObject.Instances, "Managed object was not released by the GC in time");
@@ -327,59 +330,59 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        [UnityTest]
-        public IEnumerator CanRetainManagedObject_InManagedMemory()
+        [Test]
+        public void CanRetainManagedObject_InManagedMemory()
         {
-            const int k_TimeOut = 3;
+            const int k_Loops = 3;
 
-            using (var allocator = new ManagedStructAllocator(0))
+            Assert.Zero(ManagedObject.Instances);
+
+            AssertManagedObjectsReleased(() =>
             {
-                Assert.Zero(ManagedObject.Instances);
-
-                allocator.GetRef().Object = new ManagedObject();
-
-                var time = Time.realtimeSinceStartup;
-
-                while (Time.realtimeSinceStartup - time < k_TimeOut)
+                // (disposing the allocator release the allocation as well)
+                using (var allocator = new ManagedStructAllocator(0))
                 {
-                    Assert.AreEqual(1, ManagedObject.Instances);
-                    GC.Collect();
-                    yield return null;
+                    allocator.GetRef().Object = new ManagedObject();
+
+                    for (var i = 0; i < k_Loops; ++i)
+                    {
+                        Assert.AreEqual(1, ManagedObject.Instances);
+                        RequestGarbageCollection();
+                    }
                 }
-            }
-
-            // (disposing the allocator release the allocation as well)
-            yield return AssertManagedObjectsReleasedInTime();
+            });
         }
 
-        [UnityTest]
-        public IEnumerator CanReleaseManagedObject_ThroughClearingReferenceField()
+        [Test]
+        public void CanReleaseManagedObject_ThroughClearingReferenceField()
         {
             using (var allocator = new ManagedStructAllocator(0))
             {
                 Assert.Zero(ManagedObject.Instances);
 
-                allocator.GetRef().Object = new ManagedObject();
-                Assert.AreEqual(1, ManagedObject.Instances);
-                allocator.GetRef().Object = null;
-
-                yield return AssertManagedObjectsReleasedInTime();
+                AssertManagedObjectsReleased(() =>
+                {
+                    allocator.GetRef().Object = new ManagedObject();
+                    Assert.AreEqual(1, ManagedObject.Instances);
+                    allocator.GetRef().Object = null;
+                });
             }
         }
 
-        [UnityTest]
-        public IEnumerator CanReleaseManagedObject_ThroughFreeingAllocation()
+        [Test]
+        public void CanReleaseManagedObject_ThroughFreeingAllocation()
         {
-            using (var allocator = new ManagedStructAllocator(0))
+            Assert.Zero(ManagedObject.Instances);
+
+            AssertManagedObjectsReleased(() =>
             {
-                Assert.Zero(ManagedObject.Instances);
-
-                allocator.GetRef().Object = new ManagedObject();
-                Assert.AreEqual(1, ManagedObject.Instances);
-            }
-
-            // (disposing the allocator release the allocation as well)
-            yield return AssertManagedObjectsReleasedInTime();
+                // (disposing the allocator release the allocation as well)
+                using (var allocator = new ManagedStructAllocator(0))
+                {
+                    allocator.GetRef().Object = new ManagedObject();
+                    Assert.AreEqual(1, ManagedObject.Instances);
+                }
+            });
         }
     }
 }

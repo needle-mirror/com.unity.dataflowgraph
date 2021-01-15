@@ -202,7 +202,7 @@ namespace Unity.DataFlowGraph
             if (sourcePortDef.Type != destPortDef.Type)
                 throw new InvalidOperationException($"Cannot connect source type ({sourcePortDef.Type}) to destination type ({destPortDef.Type})");
 
-            Connect((connectionCategory, sourcePortDef.Type, dataConnectionType), source, dest);
+            Connect((connectionCategory, sourcePortDef.TypeHash, dataConnectionType), source, dest);
         }
 
         void Disconnect(NodeHandle sourceHandle, OutputPortArrayID sourcePort, NodeHandle destHandle, InputPortArrayID destinationPort)
@@ -274,7 +274,7 @@ namespace Unity.DataFlowGraph
             SignalTopologyChanged();
         }
 
-        internal void Connect((uint Category, Type Type, ConnectionType ConnType) semantics, in OutputPair source, in InputPair dest)
+        internal void Connect((uint Category, TypeHash Type, ConnectionType ConnType) semantics, in OutputPair source, in InputPair dest)
         {
             // TODO: Not ideal, but we cannot detect entity -> entity connections ahead of time,
             // so we need to dynamically test and keep track of dependencies.
@@ -351,11 +351,8 @@ namespace Unity.DataFlowGraph
         {
             if (connection.TraversalFlags == (uint)PortDescription.Category.DomainSpecific)
             {
-                var leftPort = GetDefinitionInternal(connection.Source)
-                    .GetPortDescription(connection.Source.ToPublicHandle())
-                    .Outputs[connection.SourceOutputPort.PortID.Port];
-
-                var handler = m_ConnectionHandlerMap[leftPort.Type];
+                var leftPort = GetFormalPort(new OutputPair(connection));
+                var handler = m_ConnectionHandlerMap[leftPort.TypeHash];
 
                 handler.Disconnect(this, connection.Source.ToPublicHandle(), connection.SourceOutputPort.PortID, connection.Destination.ToPublicHandle(), connection.DestinationInputPort.PortID);
             }

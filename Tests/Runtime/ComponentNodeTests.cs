@@ -154,31 +154,6 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        [Test] // TODO: Move to LL tests?
-        public void ComponentNode_IsMarkedAsComponentNode_InLowLevelTraits([Values] FixtureSystemType systemType)
-        {
-            using (var f = new Fixture<UpdateSystemDelegate>(systemType))
-            {
-                var entity = f.EM.CreateEntity();
-                var node = f.Set.CreateComponentNode(entity);
-                ref readonly var traits = ref f.Set.GetNodeTraits(node);
-                Assert.IsTrue(traits.KernelStorage.IsComponentNode);
-                f.Set.Destroy(node);
-            }
-        }
-
-        [Test] // TODO: Move to LL tests?
-        public void NonComponentNode_IsNotMarkedAsComponentNode_InLowLevelTraits()
-        {
-            using (var set = new NodeSet())
-            {
-                var node = set.Create<NodeWithAllTypesOfPorts>();
-                ref readonly var traits = ref set.GetNodeTraits(node);
-                Assert.False(traits.KernelStorage.IsComponentNode);
-                set.Destroy(node);
-            }
-        }
-
         [Test]
         public void CannotCreate_MoreThanOne_ComponentNode_FromSameEntity([Values] FixtureSystemType systemType)
         {
@@ -299,13 +274,8 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        public enum ConnectionMode
-        {
-            Strong, Weak
-        }
-
         [Test]
-        public void CanConnect_SourceComponentNode_AndNodeTogether([Values] ConnectionMode mode, [Values] FixtureSystemType systemType)
+        public void CanConnect_SourceComponentNode_AndNodeTogether([Values] APIType mode, [Values] FixtureSystemType systemType)
         {
             using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
@@ -315,7 +285,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 Action disconnect = () =>
                 {
-                    if (mode == ConnectionMode.Strong)
+                    if (mode == APIType.StronglyTyped)
                         f.Set.Disconnect(entityNode, ComponentNode.Output<SimpleData>(), dfgNode, SimpleNode_WithECSTypes.KernelPorts.Input);
                     else
                     {
@@ -330,7 +300,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 Action connect = () =>
                 {
-                    if (mode == ConnectionMode.Strong)
+                    if (mode == APIType.StronglyTyped)
                         f.Set.Connect(entityNode, ComponentNode.Output<SimpleData>(), dfgNode, SimpleNode_WithECSTypes.KernelPorts.Input);
                     else
                     {
@@ -361,7 +331,7 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void CanConnect_DestinationComponentNode_AndNodeTogether([Values] ConnectionMode mode, [Values] FixtureSystemType systemType)
+        public void CanConnect_DestinationComponentNode_AndNodeTogether([Values] APIType mode, [Values] FixtureSystemType systemType)
         {
             using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
@@ -371,7 +341,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 Action disconnect = () =>
                 {
-                    if (mode == ConnectionMode.Strong)
+                    if (mode == APIType.StronglyTyped)
                         f.Set.Disconnect(dfgNode, SimpleNode_WithECSTypes.KernelPorts.Output, entityNode, ComponentNode.Input<SimpleData>());
                     else
                     {
@@ -386,7 +356,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 Action connect = () =>
                 {
-                    if (mode == ConnectionMode.Strong)
+                    if (mode == APIType.StronglyTyped)
                         f.Set.Connect(dfgNode, SimpleNode_WithECSTypes.KernelPorts.Output, entityNode, ComponentNode.Input<SimpleData>());
                     else
                     {
@@ -659,7 +629,7 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void CannotSetBufferSize_OnComponentNode([Values] ConnectionMode mode, [Values] FixtureSystemType systemType)
+        public void CannotSetBufferSize_OnComponentNode([Values] APIType mode, [Values] FixtureSystemType systemType)
         {
             using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
@@ -668,7 +638,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 Assert.Throws<NotImplementedException>(() =>
                     {
-                        if(mode == ConnectionMode.Strong)
+                        if(mode == APIType.StronglyTyped)
                             f.Set.SetBufferSize(n, ComponentNode.Output<SimpleData>(), default);
                         else
                             f.Set.SetBufferSize(n, (OutputPortID)ComponentNode.Output<SimpleData>(), new SimpleData());
@@ -688,17 +658,17 @@ namespace Unity.DataFlowGraph.Tests
                 var n = f.Set.CreateComponentNode(e);
 
                 Assert.Throws<NotImplementedException>(() =>
-                    {
-                        f.Set.SetPortArraySize(n, (InputPortID)ComponentNode.Input<SimpleData>(), 10);
-                    }
-                );
+                    f.Set.SetPortArraySize(n, (InputPortID)ComponentNode.Input<SimpleData>(), 10));
+
+                Assert.Throws<NotImplementedException>(() =>
+                    f.Set.SetPortArraySize(n, (OutputPortID)ComponentNode.Output<SimpleData>(), 10));
 
                 f.Set.Destroy(n);
             }
         }
 
         [Test]
-        public void CannotCreateGraphValue_FromComponentNode([Values] ConnectionMode mode, [Values] FixtureSystemType systemType)
+        public void CannotCreateGraphValue_FromComponentNode([Values] APIType mode, [Values] FixtureSystemType systemType)
         {
             using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
@@ -707,7 +677,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 Assert.Throws<NotImplementedException>(() =>
                     {
-                        if(mode == ConnectionMode.Strong)
+                        if(mode == APIType.StronglyTyped)
                             f.Set.CreateGraphValue(n, ComponentNode.Output<SimpleData>());
                         else
                             f.Set.CreateGraphValue<SimpleData>(n, (OutputPortID)ComponentNode.Output<SimpleData>());
@@ -719,7 +689,7 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void CannotSetData_OnComponentNode([Values] ConnectionMode mode, [Values] FixtureSystemType systemType)
+        public void CannotSetData_OnComponentNode([Values] APIType mode, [Values] FixtureSystemType systemType)
         {
             using (var f = new Fixture<UpdateSystemDelegate>(systemType))
             {
@@ -728,7 +698,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 Assert.Throws<NotImplementedException>(() =>
                     {
-                        if (mode == ConnectionMode.Strong)
+                        if (mode == APIType.StronglyTyped)
                             f.Set.SetData(n, ComponentNode.Input<SimpleData>(), new SimpleData());
                         else
                             f.Set.SetData(n, ComponentNode.Input<SimpleData>().Port, new SimpleData());

@@ -42,7 +42,7 @@ namespace Unity.DataFlowGraph.Tour
 
             struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
             {
-                public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, in KernelData data, ref KernelDefs ports)
                 {
                     Debug.Log($"{nameof(data.MyPrivateParameter)} equals {data.MyPrivateParameter}");
                 }
@@ -50,7 +50,7 @@ namespace Unity.DataFlowGraph.Tour
 
             struct NodeHandler : INodeData, IMsgHandler<float>
             {
-                public void HandleMessage(in MessageContext ctx, in float msg)
+                public void HandleMessage(MessageContext ctx, in float msg)
                 {
                     /*
                      * To update the kernel data from inside the simulation we have the UpdateKernelData() API.

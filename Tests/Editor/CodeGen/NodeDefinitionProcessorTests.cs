@@ -18,11 +18,6 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
             ArchetypeFrom[DFGLibrary.NodeDefinitionKind.Kernel]             = typeof(KernelNode);
             ArchetypeFrom[DFGLibrary.NodeDefinitionKind.SimulationKernel]   = typeof(SimulationKernelNode);
             ArchetypeFrom[DFGLibrary.NodeDefinitionKind.Naked]              = typeof(NakedNode);
-            ArchetypeFrom[DFGLibrary.NodeDefinitionKind.Scaffold_1]         = typeof(Scaffold_1_Node);
-            ArchetypeFrom[DFGLibrary.NodeDefinitionKind.Scaffold_2]         = typeof(Scaffold_2_Node);
-            ArchetypeFrom[DFGLibrary.NodeDefinitionKind.Scaffold_3]         = typeof(Scaffold_3_Node);
-            ArchetypeFrom[DFGLibrary.NodeDefinitionKind.Scaffold_4]         = typeof(Scaffold_4_Node);
-            ArchetypeFrom[DFGLibrary.NodeDefinitionKind.Scaffold_5]         = typeof(Scaffold_5_Node);
         }
 
         [Test]
@@ -52,7 +47,6 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
                         Assert.Null(fixture.NodeProcessor.KernelDataImplementation);
                         Assert.Null(fixture.NodeProcessor.GraphKernelImplementation);
                         break;
-                    case DFGLibrary.NodeDefinitionKind.Scaffold_3:
                     case DFGLibrary.NodeDefinitionKind.Kernel:
                         Assert.NotNull(fixture.NodeProcessor.KernelPortImplementation);
                         Assert.NotNull(fixture.NodeProcessor.KernelDataImplementation);
@@ -68,36 +62,6 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
                         Assert.NotNull(fixture.NodeProcessor.GraphKernelImplementation);
                         break;
                     case DFGLibrary.NodeDefinitionKind.Naked:
-                        break;
-                    case DFGLibrary.NodeDefinitionKind.Scaffold_1:
-                        Assert.NotNull(fixture.NodeProcessor.SimulationPortImplementation);
-                        
-                        Assert.Null(fixture.NodeProcessor.KernelPortImplementation);
-                        Assert.Null(fixture.NodeProcessor.KernelDataImplementation);
-                        Assert.Null(fixture.NodeProcessor.GraphKernelImplementation);
-                        break;
-                    case DFGLibrary.NodeDefinitionKind.Scaffold_2:
-                        Assert.NotNull(fixture.NodeProcessor.SimulationPortImplementation);
-                        Assert.NotNull(fixture.NodeProcessor.NodeDataImplementation);
-
-                        Assert.Null(fixture.NodeProcessor.KernelPortImplementation);
-                        Assert.Null(fixture.NodeProcessor.KernelDataImplementation);
-                        Assert.Null(fixture.NodeProcessor.GraphKernelImplementation);
-                        break;
-                    case DFGLibrary.NodeDefinitionKind.Scaffold_4:
-                        Assert.NotNull(fixture.NodeProcessor.NodeDataImplementation);
-                        Assert.NotNull(fixture.NodeProcessor.KernelPortImplementation);
-                        Assert.NotNull(fixture.NodeProcessor.KernelDataImplementation);
-                        Assert.NotNull(fixture.NodeProcessor.GraphKernelImplementation);
-
-                        Assert.Null(fixture.NodeProcessor.SimulationPortImplementation);
-                        break;
-                    case DFGLibrary.NodeDefinitionKind.Scaffold_5:
-                        Assert.NotNull(fixture.NodeProcessor.SimulationPortImplementation);
-                        Assert.NotNull(fixture.NodeProcessor.NodeDataImplementation);
-                        Assert.NotNull(fixture.NodeProcessor.KernelPortImplementation);
-                        Assert.NotNull(fixture.NodeProcessor.KernelDataImplementation);
-                        Assert.NotNull(fixture.NodeProcessor.GraphKernelImplementation);
                         break;
                 }
             }

@@ -38,7 +38,7 @@ namespace Unity.DataFlowGraph.Tour
                  * 
                  * Normally nodes will just respond to incoming messages, otherwise.
                  */
-                public void Update(in UpdateContext ctx)
+                public void Update(UpdateContext ctx)
                 {
                     Debug.Log("Updating MyNode");
                 }

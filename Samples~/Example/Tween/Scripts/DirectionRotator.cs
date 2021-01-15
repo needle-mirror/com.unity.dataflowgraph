@@ -19,9 +19,9 @@ namespace Unity.DataFlowGraph.Examples.RenderGraph
             }
 
             public void Destroy(DestroyContext ctx) => ctx.Set.ReleaseGraphValue(m_Output);
-            public void Update(in UpdateContext ctx) => m_OutputTransform.position = ctx.Set.GetValueBlocking(m_Output);
-            public void HandleMessage(in MessageContext ctx, in float msg) => ctx.UpdateKernelData(new KernelData { Magnitude = msg });
-            public void HandleMessage(in MessageContext ctx, in Transform msg) => m_OutputTransform = msg;
+            public void Update(UpdateContext ctx) => m_OutputTransform.position = ctx.Set.GetValueBlocking(m_Output);
+            public void HandleMessage(MessageContext ctx, in float msg) => ctx.UpdateKernelData(new KernelData { Magnitude = msg });
+            public void HandleMessage(MessageContext ctx, in Transform msg) => m_OutputTransform = msg;
         }
 
         struct KernelData : IKernelData
@@ -44,7 +44,7 @@ namespace Unity.DataFlowGraph.Examples.RenderGraph
         [BurstCompile]
         struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
         {
-            public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
+            public void Execute(RenderContext ctx, in KernelData data, ref KernelDefs ports)
             {
                 var rotation = quaternion.AxisAngle(new float3(0, 1, 0), data.Magnitude);
                 ctx.Resolve(ref ports.Output) = math.mul(rotation, ctx.Resolve(ports.Input));

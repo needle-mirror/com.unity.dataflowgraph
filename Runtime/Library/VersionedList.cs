@@ -7,6 +7,7 @@ namespace Unity.Collections
     // TODO: Move into VersionedList<T> for stronger type checking,
     // once C# supports unmanaged constructed generics
 #pragma warning disable 660, 661  // We do not want Equals(object) nor GetHashCode()
+    [DebuggerDisplay("{ToString(), nq}")]
     readonly struct VersionedHandle
     {
         readonly public int Index;
@@ -57,14 +58,14 @@ namespace Unity.Collections
     /// <summary>
     /// A <see cref="ValidatedHandle"/> is a pre-checked <see cref="VersionedHandle"/> from this particular list,
     /// and can always be used to index a <see cref="VersionedList{T}"/> directly without any checks.
-    /// 
-    /// <seealso cref="VersionedList{T}.Validate(VersionedHandle)"/> 
+    ///
+    /// <seealso cref="VersionedList{T}.Validate(VersionedHandle)"/>
     /// </summary>
     /// <remarks>
-    /// A <see cref="ValidatedHandle"/> is not guaranteed to be "alive" / <see cref="IVersionedItem.Valid"/>, you 
+    /// A <see cref="ValidatedHandle"/> is not guaranteed to be "alive" / <see cref="IVersionedItem.Valid"/>, you
     /// have to use <see cref="VersionedList{T}.StillExists(ValidatedHandle)"/> for this purpose.
     /// </remarks>
-    [DebuggerDisplay("{VHandle, nq}")]
+    [DebuggerDisplay("{Versioned, nq}")]
     readonly struct ValidatedHandle : IEquatable<ValidatedHandle>
     {
         internal readonly VersionedHandle Versioned;
@@ -93,6 +94,14 @@ namespace Unity.Collections
         /// Only use this for testing. No guarantees about validity.
         /// </summary>
         static internal ValidatedHandle Create_ForTesting(VersionedHandle handle)
+        {
+            return new ValidatedHandle(handle);
+        }
+
+        /// <summary>
+        /// Special access method allowing contexts (which have known to be valid VersionedHandles) to bypass the validation step.
+        /// </summary>
+        static internal ValidatedHandle Create_FromPrevalidatedContextHandle(VersionedHandle handle)
         {
             return new ValidatedHandle(handle);
         }
@@ -216,7 +225,7 @@ namespace Unity.Collections
         }
 
         /// <summary>
-        /// 
+        ///
         /// </summary>
         /// <exception cref="IndexOutOfRangeException">
         /// Thrown if <paramref name="index"/> is negative or equal/greater than <see cref="UnvalidatedCount"/>

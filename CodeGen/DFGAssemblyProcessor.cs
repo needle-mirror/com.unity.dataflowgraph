@@ -14,15 +14,18 @@ namespace Unity.DataFlowGraph.CodeGen
         DFGLibrary m_Library;
 
         /// <summary>
-        /// One and two generic parameter variants of
-        /// <code>PortInitUtility.GetInitializedPortDef</code> and <code>PortInitUtility.GetInitializedPortDefImp</code>
+        /// <see cref="PortInitUtility.GetInitializedPortDef{TPortDefinition}"/>
         /// </summary>
-        (MethodReference Original, MethodReference Replacement)[] PortInitUtilityGetInitializedPortDefMethods;
+        [NSymbol] MethodReference OriginalPortInitializer;
+        /// <summary>
+        /// <see cref="PortInitUtility.GetInitializedPortDefImp{TPortDefinition}"/>
+        /// </summary>
+        [NSymbol] MethodReference ReplacedPortInitializer;
 
         /// <summary>
         /// <see cref="Utility.AddressOfEvenIfManaged"/> method.
         /// </summary>
-        MethodReference UtilityAddressOfMethod;
+        [NSymbol] MethodReference UtilityAddressOfMethod;
 
         public DFGAssemblyProcessor(ModuleDefinition def, DFGLibrary lib)
             : base(def)
@@ -32,28 +35,12 @@ namespace Unity.DataFlowGraph.CodeGen
 
         public override void ParseSymbols(Diag diag)
         {
-            var portInitUtilityType = GetImportedReference(typeof(PortInitUtility));
-            PortInitUtilityGetInitializedPortDefMethods = new (MethodReference Original, MethodReference Replacement)[2];
-            for (var i = 0; i < 2; ++i)
-            {
-                PortInitUtilityGetInitializedPortDefMethods[i].Original =
-                    FindGenericMethod(portInitUtilityType, nameof(PortInitUtility.GetInitializedPortDef), i+1);
-                PortInitUtilityGetInitializedPortDefMethods[i].Replacement =
-                    FindGenericMethod(portInitUtilityType, nameof(PortInitUtility.GetInitializedPortDefImp), i+1);
-            }
+            var portInitUtilityType = GetImportedReference(typeof(PortInitUtility)).Resolve();
+            OriginalPortInitializer = FindGenericMethod(portInitUtilityType, nameof(PortInitUtility.GetInitializedPortDef), 1);
+            ReplacedPortInitializer = FindGenericMethod(portInitUtilityType, nameof(PortInitUtility.GetInitializedPortDefImp), 1);
 
             var utilityType = GetImportedReference(typeof(Utility));
-            UtilityAddressOfMethod = utilityType.Resolve().Methods.Single(
-                m => m.Name == nameof(Utility.AddressOfEvenIfManaged) && m.Parameters.Count == 1);
-        }
-
-        public override void AnalyseConsistency(Diag diag)
-        {
-            if (PortInitUtilityGetInitializedPortDefMethods.Any(m => m.Original == null || m.Replacement == null))
-                diag.DFG_IE_01(this, GetType().GetField(nameof(PortInitUtilityGetInitializedPortDefMethods), BindingFlags.Instance | BindingFlags.NonPublic));
-
-            if (UtilityAddressOfMethod == null)
-                diag.DFG_IE_01(this, GetType().GetField(nameof(UtilityAddressOfMethod), BindingFlags.Instance | BindingFlags.NonPublic));
+            UtilityAddressOfMethod = GetUniqueMethod(utilityType.Resolve(), nameof(Utility.AddressOfEvenIfManaged));
         }
 
         public override void PostProcess(Diag diag, out bool mutated)
@@ -66,8 +53,16 @@ namespace Unity.DataFlowGraph.CodeGen
             foreach (var kind in (DFGLibrary.NodeTraitsKind[])Enum.GetValues(typeof(DFGLibrary.NodeTraitsKind)))
                 m_Library.TraitsKindToType(kind).Resolve().IsPublic = true;
 
-            foreach (var portCreateMethod in m_Library.PortCreateMethods)
-                portCreateMethod.Resolve().IsPublic = true;
+            foreach (var portClass in Enum.GetValues(typeof(DFGLibrary.PortClass)).Cast<DFGLibrary.PortClass>())
+            {
+                var port = m_Library.GetPort(portClass);
+
+                port.ScalarCreateMethod.Resolve().IsPublic = true;
+
+                // PortArray not available for dsl output
+                if(port.ArrayCreateMethod != null)
+                    port.ArrayCreateMethod.Resolve().IsPublic = true;
+            }
 
             m_Library.KernelStorageDefinitionType.Resolve().IsPublic = true;
             m_Library.KernelStorageDefinitionCreateMethod.Resolve().IsPublic = true;
@@ -76,20 +71,13 @@ namespace Unity.DataFlowGraph.CodeGen
             m_Library.SimulationStorageDefinitionNoPortsCreateMethod.Resolve().IsPublic = true;
             m_Library.SimulationStorageDefinitionNoDataCreateMethod.Resolve().IsPublic = true;
 
-            m_Library.InputPortIDConstructor.Resolve().IsPublic = true;
-            m_Library.OutputPortIDConstructor.Resolve().IsPublic = true;
-
-            m_Library.PortStorageType.Resolve().IsPublic = true;
-
             m_Library.IPortDefinitionInitializerType.Resolve().IsPublic = true;
 
             m_Library.VirtualTableField.Resolve().Attributes = Mono.Cecil.FieldAttributes.FamORAssem;
             m_Library.VirtualTableField.FieldType.Resolve().Attributes = Mono.Cecil.TypeAttributes.NestedFamORAssem;
 
             // Swap the bodies of PortInitUtility.GetInitializedPortDef for PortInitUtility.GetInitializedPortDefImp.
-            for (var i = 0; i < 2; ++i)
-                PortInitUtilityGetInitializedPortDefMethods[i].Original.Resolve().Body =
-                    PortInitUtilityGetInitializedPortDefMethods[i].Replacement.Resolve().Body;
+            OriginalPortInitializer.Resolve().Body = ReplacedPortInitializer.Resolve().Body;
 
             // Generate an implementation for our local version of the UnsafeUtilityExtensions.AddressOf<T>() method.
             var body = UtilityAddressOfMethod.Resolve().Body;

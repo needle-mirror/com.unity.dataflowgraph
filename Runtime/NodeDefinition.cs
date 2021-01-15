@@ -10,11 +10,19 @@ using Unity.Collections;
 namespace Unity.DataFlowGraph
 {
     /// <summary>
-    /// Use this to tag your INodeData as being managed,
+    /// Use this to tag your <see cref="INodeData"/> as being managed,
     /// meaning it will be possible to store non-blittable
     /// data on the type (like references).
     /// </summary>
-    public sealed class ManagedAttribute : System.Attribute { }
+    public sealed class ManagedAttribute : Attribute { }
+
+    /// <summary>
+    /// Use this attribute on a <see cref="IGraphKernel{TKernelData, TKernelPortDefinition}"/> implementation
+    /// to express that it has to be executed since it could cause invisible side effects.
+    /// <seealso cref="NodeSet.RenderOptimizations"/>
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Struct)]
+    public class CausesSideEffectsAttribute : Attribute { }
 
     /// <summary>
     /// Interface tag to be implemented on a struct, that will contain the simulation-side contents of your node's instance
@@ -88,7 +96,7 @@ namespace Unity.DataFlowGraph
                 where TNodeData : struct, INodeData, IMsgHandler<TMessageData>
                 where TMessageData : struct
             {
-                InstallMessageHandlerInternal(Trampolines<TNodeDefinition>.HandleMessage<TMessageData, TNodeData>, port.Port.Port);
+                InstallMessageHandlerInternal(Trampolines<TNodeDefinition>.HandleMessage<TMessageData, TNodeData>, port.Port.Port.CategoryCounter);
             }
 
             public void InstallPortArrayMessageHandler<TNodeDefinition, TNodeData, TMessageData>(PortArray<MessageInput<TNodeDefinition, TMessageData>> port)
@@ -96,7 +104,7 @@ namespace Unity.DataFlowGraph
                 where TNodeData : struct, INodeData, IMsgHandler<TMessageData>
                 where TMessageData : struct
             {
-                InstallMessageHandlerInternal(Trampolines<TNodeDefinition>.HandleMessage<TMessageData, TNodeData>, port.GetPortID().Port);
+                InstallMessageHandlerInternal(Trampolines<TNodeDefinition>.HandleMessage<TMessageData, TNodeData>, port.GetPortID().Port.CategoryCounter);
             }
 
             public void InstallMessageHandlerGeneric<TNodeDefinition, TNodeData, TMessageData>(MessageInput<TNodeDefinition, TMessageData> port)
@@ -104,7 +112,7 @@ namespace Unity.DataFlowGraph
                 where TNodeData : struct, INodeData, IMsgHandlerGeneric<TMessageData>
                 where TMessageData : struct
             {
-                InstallMessageHandlerInternal(Trampolines<TNodeDefinition>.HandleMessageGeneric<TMessageData, TNodeData>, port.Port.Port);
+                InstallMessageHandlerInternal(Trampolines<TNodeDefinition>.HandleMessageGeneric<TMessageData, TNodeData>, port.Port.Port.CategoryCounter);
             }
 
             public void InstallPortArrayMessageHandlerGeneric<TNodeDefinition, TNodeData, TMessageData>(PortArray<MessageInput<TNodeDefinition, TMessageData>> port)
@@ -112,7 +120,7 @@ namespace Unity.DataFlowGraph
                 where TNodeData : struct, INodeData, IMsgHandlerGeneric<TMessageData>
                 where TMessageData : struct
             {
-                InstallMessageHandlerInternal(Trampolines<TNodeDefinition>.HandleMessageGeneric<TMessageData, TNodeData>, port.GetPortID().Port);
+                InstallMessageHandlerInternal(Trampolines<TNodeDefinition>.HandleMessageGeneric<TMessageData, TNodeData>, port.GetPortID().Port.CategoryCounter);
             }
 
             public void InstallDestroyHandler<TNodeDefinition, TNodeData>()
@@ -138,10 +146,10 @@ namespace Unity.DataFlowGraph
 
             internal MessageDelivery.Prototype GetMessageHandler(InputPortID port)
             {
-                if (MessageHandlers == null || port.Port >= MessageHandlers.Length)
+                if (MessageHandlers == null || port.Port.CategoryCounter >= MessageHandlers.Length)
                     return null;
 
-                return MessageHandlers[port.Port];
+                return MessageHandlers[port.Port.CategoryCounter];
             }
         }
 
@@ -157,33 +165,8 @@ namespace Unity.DataFlowGraph
         internal virtual KernelStorageDefinition KernelStorageTraits { get { return default; } }
 
         internal PortDescription AutoPorts, PublicPorts;
+        internal IndexablePortDescription PortMap;
 
-        /// <remarks>
-        /// It is undefined behaviour to throw an exception from this method.
-        /// </remarks>
-        protected internal virtual void OnUpdate(in UpdateContext ctx) { }
-        /// <summary>
-        /// Constructor function, called for each instantiation of this type.
-        /// <seealso cref="NodeSetAPI.Create{TDefinition}"/>
-        /// </summary>
-        /// <remarks>
-        /// It is undefined behaviour to throw an exception from this method.
-        /// </remarks>
-        /// <param name="ctx">
-        /// Provides initialization context and do-once operations
-        /// for this particular node.
-        /// <seealso cref="Init(InitContext)"/>
-        /// </param>
-        protected internal virtual void Init(InitContext ctx) { }
-        /// <summary>
-        /// Destructor, provides an opportunity to clean up resources related to
-        /// this instance.
-        /// <seealso cref="NodeSetAPI.Destroy(NodeHandle)"/>
-        /// </summary>
-        /// <remarks>
-        /// It is undefined behaviour to throw an exception from this method.
-        /// </remarks>
-        protected internal virtual void Destroy(DestroyContext ctx) { }
         /// <summary>
         /// Called when disposing a <see cref="NodeSet"/>.
         /// <seealso cref="NodeSet.Dispose()"/>
@@ -221,17 +204,16 @@ namespace Unity.DataFlowGraph
 
         unsafe internal void UpdateInternal(in UpdateContext context)
         {
-            if(VirtualTable.UpdateHandler != null)
-            {
-                UpdateDelivery delivery;
-                delivery.Context = context;
-                delivery.Node = Set.GetNodeDataRaw(context.InternalHandle);
-                VirtualTable.UpdateHandler(delivery);
-            }
-            else
-            {
-                OnUpdate(context);
-            }
+
+#if DFG_ASSERTIONS
+            if (VirtualTable.UpdateHandler == null)
+                throw new AssertionException("Updating node that can't be updated");
+#endif
+
+            UpdateDelivery delivery;
+            delivery.Context = context;
+            delivery.Node = Set.GetNodeDataRaw(delivery.Context.InternalHandle());
+            VirtualTable.UpdateHandler(delivery);
         }
 
         unsafe internal void DestroyInternal(DestroyContext context)
@@ -243,10 +225,6 @@ namespace Unity.DataFlowGraph
                 delivery.Node = Set.GetNodeDataRaw(context.m_Handle);
                 VirtualTable.DestroyHandler(delivery);
             }
-            else
-            {
-                Destroy(context);
-            }
         }
 
         unsafe internal void InitInternal(InitContext context)
@@ -255,12 +233,8 @@ namespace Unity.DataFlowGraph
             {
                 InitDelivery delivery;
                 delivery.Context = context;
-                delivery.Node = Set.GetNodeDataRaw(context.InternalHandle);
+                delivery.Node = Set.GetNodeDataRaw(context.InternalHandle());
                 VirtualTable.InitHandler(delivery);
-            }
-            else
-            {
-                Init(context);
             }
         }
 
@@ -284,13 +258,13 @@ namespace Unity.DataFlowGraph
         /// Indexer for getting a description given an <see cref="InputPortArrayID"/>.
         /// </summary>
         internal virtual PortDescription.InputPort GetFormalInput(ValidatedHandle handle, InputPortArrayID id)
-            => AutoPorts.Inputs[id.PortID.Port];
+            => PortMap.Lookup(id.PortID);
 
         /// <summary>
         /// Indexer for getting a description given an <see cref="OutputPortID"/>.
         /// </summary>
         internal virtual PortDescription.OutputPort GetFormalOutput(ValidatedHandle handle, OutputPortArrayID id)
-            => AutoPorts.Outputs[id.PortID.Port];
+            => PortMap.Lookup(id.PortID);
 
         unsafe internal void OnMessage<T>(in MessageContext ctx, in T msg)
         {
@@ -300,13 +274,9 @@ namespace Unity.DataFlowGraph
             {
                 MessageDelivery d;
                 d.Context = ctx;
-                d.Node = Set.GetNodeDataRaw(ctx.InternalHandle);
+                d.Node = Set.GetNodeDataRaw(d.Context.InternalHandle());
                 d.Message = Utility.AddressOfEvenIfManaged(msg);
                 nodeDataHandler(d);
-            }
-            else if (this is IMsgHandler<T> specificHandler)
-            {
-                specificHandler.HandleMessage(ctx, msg);
             }
             else
                 throw new InvalidOperationException("Node cannot handle messages of type " + typeof(T).Name);
@@ -321,10 +291,9 @@ namespace Unity.DataFlowGraph
 
         internal void GeneratePortDescriptions()
         {
-            var ports = new PortDescription();
-            ports.Inputs = new List<PortDescription.InputPort>();
-            ports.Outputs = new List<PortDescription.OutputPort>();
-            ports.ComponentTypes = new List<ComponentType>();
+            AutoPorts.Inputs = new List<PortDescription.InputPort>();
+            AutoPorts.Outputs = new List<PortDescription.OutputPort>();
+            AutoPorts.ComponentTypes = new List<ComponentType>();
 
             var type = GetType();
             var fields = type.GetFields(BindingFlags.Static | BindingFlags.FlattenHierarchy | BindingFlags.Public);
@@ -347,16 +316,15 @@ namespace Unity.DataFlowGraph
             }
 
             if (simulationPortDefinition != null)
-                ParsePortDefinition(simulationPortDefinition, ports, type, true);
+                ParsePortDefinition(simulationPortDefinition, AutoPorts, type, true);
 
             if (kernelPortDefinition != null)
-                ParsePortDefinition(kernelPortDefinition, ports, type, false);
+                ParsePortDefinition(kernelPortDefinition, AutoPorts, type, false);
 
-            AutoPorts = ports;
-
-            PublicPorts = new PortDescription();
             PublicPorts.Inputs = AutoPorts.Inputs.Where(p => p.IsPublic).ToList();
             PublicPorts.Outputs = AutoPorts.Outputs.Where(p => p.IsPublic).ToList();
+
+            PortMap = new IndexablePortDescription(AutoPorts);
         }
 
         /// <summary>
@@ -372,6 +340,13 @@ namespace Unity.DataFlowGraph
 
         static void ParsePortDefinition(FieldInfo staticTopLevelField, PortDescription description, Type nodeType, bool isSimulation)
         {
+            ushort dataInputCounter = default;
+            ushort dataOutputCounter = default;
+            ushort msgInputCounter = default;
+            ushort msgOutputCounter = default;
+            ushort dslInputCounter = default;
+            ushort dslOutputCounter = default;
+
             var qualifiedFieldType = staticTopLevelField.FieldType;
             var topLevelFieldValue = staticTopLevelField.GetValue(null);
 
@@ -416,19 +391,19 @@ namespace Unity.DataFlowGraph
                 {
                     if (genericField == typeof(MessageInput<,>))
                     {
-                        description.Inputs.Add(PortDescription.InputPort.Message(genericType, (ushort)description.Inputs.Count, isPortArray, fieldInfo.IsPublic, fieldInfo.Name));
+                        description.Inputs.Add(PortDescription.InputPort.Message(genericType, new InputPortID(new PortStorage(msgInputCounter++, PortStorage.Category.Message)), isPortArray, fieldInfo.IsPublic, fieldInfo.Name));
                     }
                     else if (genericField == typeof(MessageOutput<,>))
                     {
-                        description.Outputs.Add(PortDescription.OutputPort.Message(genericType, (ushort)description.Outputs.Count, isPortArray, fieldInfo.IsPublic, fieldInfo.Name));
+                        description.Outputs.Add(PortDescription.OutputPort.Message(genericType, new OutputPortID(new PortStorage(msgOutputCounter++, PortStorage.Category.Message)), isPortArray, fieldInfo.IsPublic, fieldInfo.Name));
                     }
                     else if (genericField == typeof(DSLInput<,,>))
                     {
-                        description.Inputs.Add(PortDescription.InputPort.DSL(genericType, (ushort)description.Inputs.Count, fieldInfo.IsPublic, fieldInfo.Name));
+                        description.Inputs.Add(PortDescription.InputPort.DSL(genericType, new InputPortID(new PortStorage(dslInputCounter++, PortStorage.Category.DSL)), fieldInfo.IsPublic, fieldInfo.Name));
                     }
                     else if (genericField == typeof(DSLOutput<,,>))
                     {
-                        description.Outputs.Add(PortDescription.OutputPort.DSL(genericType, (ushort)description.Outputs.Count, fieldInfo.IsPublic, fieldInfo.Name));
+                        description.Outputs.Add(PortDescription.OutputPort.DSL(genericType, new OutputPortID(new PortStorage(dslOutputCounter++, PortStorage.Category.DSL)), fieldInfo.IsPublic, fieldInfo.Name));
                     }
                     else
                     {
@@ -463,7 +438,7 @@ namespace Unity.DataFlowGraph
                         description.Inputs.Add(
                             PortDescription.InputPort.Data(
                                 genericType,
-                                (ushort)description.Inputs.Count,
+                                new InputPortID(new PortStorage(dataInputCounter++, PortStorage.Category.Data)),
                                 hasBuffers,
                                 isPortArray,
                                 fieldInfo.IsPublic,
@@ -477,8 +452,9 @@ namespace Unity.DataFlowGraph
 
                         if (!IsBufferDefinition(genericType))
                         {
+                            ushort numBuffers = 0;
                             var recursiveBuffers = WalkTypeInstanceFields(genericType, BindingFlags.Public, IsBufferDefinition)
-                                .Select(fi => new PortDescription.OutputPort.BufferEntryInsidePort(UnsafeUtility.GetFieldOffset(fi), new SimpleType(fi.FieldType.GetGenericArguments()[0])));
+                                .Select(fi => new PortDescription.OutputPort.BufferEntryInsidePort(numBuffers++, UnsafeUtility.GetFieldOffset(fi), new SimpleType(fi.FieldType.GetGenericArguments()[0])));
 
                             bufferInfos.AddRange(recursiveBuffers);
 
@@ -491,7 +467,7 @@ namespace Unity.DataFlowGraph
                         {
                             var bufferType = genericType.GetGenericArguments()[0];
 
-                            bufferInfos.Add(new PortDescription.OutputPort.BufferEntryInsidePort(0, new SimpleType(bufferType)));
+                            bufferInfos.Add(new PortDescription.OutputPort.BufferEntryInsidePort(0, 0, new SimpleType(bufferType)));
 
                             if (typeof(IBufferElementData).IsAssignableFrom(bufferType))
                             {
@@ -502,8 +478,9 @@ namespace Unity.DataFlowGraph
                         description.Outputs.Add(
                             PortDescription.OutputPort.Data(
                                 genericType,
-                                (ushort)description.Outputs.Count,
+                                new OutputPortID(new PortStorage(dataOutputCounter++, PortStorage.Category.Data)),
                                 bufferInfos,
+                                isPortArray,
                                 fieldInfo.IsPublic,
                                 fieldInfo.Name
                             )
@@ -582,9 +559,7 @@ namespace Unity.DataFlowGraph
     /// </summary>
     interface IPortDefinitionInitializer
     {
-        void DFG_CG_Initialize(ushort uniqueInputPort, ushort uniqueOutputPort);
-        ushort DFG_CG_GetInputPortCount();
-        ushort DFG_CG_GetOutputPortCount();
+        void DFG_CG_Initialize();
     }
 
     static class PortInitUtility
@@ -600,24 +575,7 @@ namespace Unity.DataFlowGraph
             where TPortDefinition : struct, IPortDefinitionInitializer
         {
             var ret = default(TPortDefinition);
-            ret.DFG_CG_Initialize(0, 0);
-            return ret;
-        }
-
-        public static TPortDefinition GetInitializedPortDef<TPortDefinition, TOtherPortDefinition>()
-            where TPortDefinition : struct
-            where TOtherPortDefinition : struct
-        {
-            // This body is replaced with the contents of GetInitializedPortDefImp during ILPP.
-            throw new NotImplementedException();
-        }
-
-        internal static TPortDefinition GetInitializedPortDefImp<TPortDefinition, TOtherPortDefinition>()
-            where TPortDefinition : struct, IPortDefinitionInitializer
-            where TOtherPortDefinition : struct, IPortDefinitionInitializer
-        {
-            var ret = default(TPortDefinition);
-            ret.DFG_CG_Initialize(default(TOtherPortDefinition).DFG_CG_GetInputPortCount(), default(TOtherPortDefinition).DFG_CG_GetOutputPortCount());
+            ret.DFG_CG_Initialize();
             return ret;
         }
     }
@@ -640,8 +598,7 @@ namespace Unity.DataFlowGraph
         /// declaration of a node's <see cref="NodeDefinition{TNodeData,TSimulationPortDefinition}"/> or other variant.
         /// <seealso cref="NodeSetAPI.Connect(NodeHandle, OutputPortID, NodeHandle, InputPortID)"/>
         /// </summary>
-        public static readonly TSimulationPortDefinition SimulationPorts =
-            PortInitUtility.GetInitializedPortDef<TSimulationPortDefinition>();
+        public static readonly TSimulationPortDefinition SimulationPorts = PortInitUtility.GetInitializedPortDef<TSimulationPortDefinition>();
     }
 
     /// <summary>
@@ -663,8 +620,7 @@ namespace Unity.DataFlowGraph
         /// <seealso cref="NodeSetAPI.Connect(NodeHandle, OutputPortID, NodeHandle, InputPortID)"/>
         /// <seealso cref="IGraphKernel{TKernelData, TKernelPortDefinition}"/>
         /// </summary>
-        public static readonly TKernelPortDefinition KernelPorts =
-            PortInitUtility.GetInitializedPortDef<TKernelPortDefinition>();
+        public static readonly TKernelPortDefinition KernelPorts = PortInitUtility.GetInitializedPortDef<TKernelPortDefinition>();
     }
 
     /// <summary>
@@ -689,99 +645,6 @@ namespace Unity.DataFlowGraph
         /// <seealso cref="NodeSetAPI.Connect(NodeHandle, OutputPortID, NodeHandle, InputPortID)"/>
         /// <seealso cref="IGraphKernel{TKernelData, TKernelPortDefinition}"/>
         /// </summary>
-        public static readonly TKernelPortDefinition KernelPorts =
-            PortInitUtility.GetInitializedPortDef<TKernelPortDefinition, TSimulationPortDefinition>();
-    }
-
-    /// <summary>
-    /// Helper class for defining a simulation-only node, with no simulation node data.
-    /// <seealso cref="NodeDefinition"/>
-    /// </summary>
-    [Obsolete("Derive from SimulationNodeDefinition<TSimulationPortDefinition> instead. Move any implementations of Init(), Destroy(), OnUpdate(), and HandleMessage() into an INodeData struct declared as a nested type within the class declaration (the struct is automatically discovered) to fill out the IInit, IDestroy, IUpdate, and IMsgHandler interfaces as appropriate. (RemovedAfter 2020-10-27)")]
-    public abstract class NodeDefinition<TSimulationPortDefinition>
-        : SimulationNodeDefinition<TSimulationPortDefinition>
-            where TSimulationPortDefinition : struct, ISimulationPortDefinition
-    {
-    }
-
-    /// <summary>
-    /// Helper class for defining a simulation-only node.
-    /// <seealso cref="NodeDefinition"/>
-    /// </summary>
-    [Obsolete("Derive from SimulationNodeDefinition<TSimulationPortDefinition> instead and ensure that your INodeData is declared as a nested type within the class declaration so that it is automatically discovered. Also move any implementations of Init(), Destroy(), OnUpdate(), and HandleMessage() into that INodeData struct to fill out the IInit, IDestroy, IUpdate, and IMsgHandler interfaces as appropriate. (RemovedAfter 2020-10-27)")]
-    public abstract class NodeDefinition<TNodeData, TSimulationPortDefinition>
-        : SimulationNodeDefinition<TSimulationPortDefinition>
-            where TNodeData : struct, INodeData
-            where TSimulationPortDefinition : struct, ISimulationPortDefinition
-    {
-        /// <summary>
-        /// Helper around <see cref="NodeTraits{TNodeData, TSimPorts}.GetNodeData(NodeHandle)"/>.
-        /// </summary>
-        protected ref TNodeData GetNodeData(NodeHandle handle) => ref Set.GetNodeData<TNodeData>(handle);
-    }
-
-    /// <summary>
-    /// Helper class for defining a rendering-only node.
-    /// <seealso cref="NodeDefinition"/>
-    /// </summary>
-    [Obsolete("Derive from KernelNodeDefinition<TKernelPortDefinition> instead and ensure that your IKernelData and IGraphKernel are declared as nested types within the class declaration so that they are automatically discovered. Also move any implementations of Init(), Destroy(), OnUpdate(), and HandleMessage() into an INodeData struct declared as a nested type within the class declaration (also automatically discovered) to fill out the IInit, IDestroy, IUpdate, and IMsgHandler interfaces as appropriate. (RemovedAfter 2020-10-27)")]
-    public abstract class NodeDefinition<TKernelData, TKernelPortDefinition, TKernel>
-        : KernelNodeDefinition<TKernelPortDefinition>
-            where TKernelData : struct, IKernelData
-            where TKernelPortDefinition : struct, IKernelPortDefinition
-            where TKernel : struct, IGraphKernel<TKernelData, TKernelPortDefinition>
-    {
-        /// <summary>
-        /// Helper around <see cref="NodeTraits{TKernelData, TKernelPortDefinition, TKernel}.GetKernelData(NodeHandle)"/>.
-        /// </summary>
-        protected ref TKernelData GetKernelData(NodeHandle handle) => ref Set.GetKernelData<TKernelData>(handle);
-    }
-
-    /// <summary>
-    /// Helper class for defining a combined simulation / rendering node.
-    /// <seealso cref="NodeDefinition"/>
-    /// </summary>
-    [Obsolete("Derive from SimulationKernelNodeDefinition<TSimulationPortDefinition,TKernelPortDefinition> instead and ensure that your INodeData, IKernelData, and IGraphKernel are declared as nested types within the class declaration so that they are automatically discovered. Also move any implementations of Init(), Destroy(), OnUpdate(), and HandleMessage() into that INodeData struct to fill out the IInit, IDestroy, IUpdate, and IMsgHandler interfaces as appropriate. (RemovedAfter 2020-10-27)")]
-    public abstract class NodeDefinition<TNodeData, TSimulationPortDefinition, TKernelData, TKernelPortDefinition, TKernel>
-        : SimulationKernelNodeDefinition<TSimulationPortDefinition, TKernelPortDefinition>
-            where TNodeData : struct, INodeData
-            where TSimulationPortDefinition : struct, ISimulationPortDefinition
-            where TKernelData : struct, IKernelData
-            where TKernelPortDefinition : struct, IKernelPortDefinition
-            where TKernel : struct, IGraphKernel<TKernelData, TKernelPortDefinition>
-    {
-        /// <summary>
-        /// Helper around <see cref="NodeTraits{TNodeData, TKernelData, TKernelPortDefinition, TKernel}.GetNodeData(NodeHandle)"/>.
-        /// </summary>
-        protected ref TNodeData GetNodeData(NodeHandle handle) => ref Set.GetNodeData<TNodeData>(handle);
-
-        /// <summary>
-        /// Helper around <see cref="NodeTraits{TNodeData, TKernelData, TKernelPortDefinition, TKernel}.GetKernelData(NodeHandle)"/>.
-        /// </summary>
-        protected ref TKernelData GetKernelData(NodeHandle handle) => ref Set.GetKernelData<TKernelData>(handle);
-    }
-
-    /// <summary>
-    /// Helper class for defining a combined simulation / rendering node,
-    /// without a simulation port definition.
-    /// <seealso cref="NodeDefinition"/>
-    /// </summary>
-    [Obsolete("Derive from KernelNodeDefinition<TKernelPortDefinition> instead and ensure that your INodeData, IKernelData, and IGraphKernel are declared as nested types within the class declaration so that they are automatically discovered. Also move any implementations of Init(), Destroy(), OnUpdate(), and HandleMessage() into that INodeData struct to fill out the IInit, IDestroy, IUpdate, and IMsgHandler interfaces as appropriate. (RemovedAfter 2020-10-27)")]
-    public abstract class NodeDefinition<TNodeData, TKernelData, TKernelPortDefinition, TKernel>
-        : KernelNodeDefinition<TKernelPortDefinition>
-            where TNodeData : struct, INodeData
-            where TKernelData : struct, IKernelData
-            where TKernelPortDefinition : struct, IKernelPortDefinition
-            where TKernel : struct, IGraphKernel<TKernelData, TKernelPortDefinition>
-    {
-        /// <summary>
-        /// Helper around <see cref="NodeTraits{TNodeData, TKernelData, TKernelPortDefinition, TKernel}.GetNodeData(NodeHandle)"/>.
-        /// </summary>
-        protected ref TNodeData GetNodeData(NodeHandle handle) => ref Set.GetNodeData<TNodeData>(handle);
-
-        /// <summary>
-        /// Helper around <see cref="NodeTraits{TNodeData, TKernelData, TKernelPortDefinition, TKernel}.GetKernelData(NodeHandle)"/>.
-        /// </summary>
-        protected ref TKernelData GetKernelData(NodeHandle handle) => ref Set.GetKernelData<TKernelData>(handle);
+        public static readonly TKernelPortDefinition KernelPorts = PortInitUtility.GetInitializedPortDef<TKernelPortDefinition>();
     }
 }

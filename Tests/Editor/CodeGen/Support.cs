@@ -9,40 +9,6 @@ using Unity.DataFlowGraph.Tests;
 
 namespace Unity.DataFlowGraph.CodeGen.Tests
 {
-#pragma warning disable 618
-    // Silence warnings about old NodeDefinitions in Tests
-    public abstract class NodeDefinition<TSimulationPortDefinition>
-        : Unity.DataFlowGraph.NodeDefinition<TSimulationPortDefinition>
-            where TSimulationPortDefinition : struct, ISimulationPortDefinition
-    {}
-    public abstract class NodeDefinition<TNodeData, TSimulationPortDefinition>
-        : Unity.DataFlowGraph.NodeDefinition<TNodeData, TSimulationPortDefinition>
-            where TNodeData : struct, INodeData
-            where TSimulationPortDefinition : struct, ISimulationPortDefinition
-    {}
-    public abstract class NodeDefinition<TKernelData, TKernelPortDefinition, TKernel>
-        : Unity.DataFlowGraph.NodeDefinition<TKernelData, TKernelPortDefinition, TKernel>
-            where TKernelData : struct, IKernelData
-            where TKernelPortDefinition : struct, IKernelPortDefinition
-            where TKernel : struct, IGraphKernel<TKernelData, TKernelPortDefinition>
-    {}
-    public abstract class NodeDefinition<TNodeData, TKernelData, TKernelPortDefinition, TKernel>
-        : Unity.DataFlowGraph.NodeDefinition<TNodeData, TKernelData, TKernelPortDefinition, TKernel>
-            where TNodeData : struct, INodeData
-            where TKernelData : struct, IKernelData
-            where TKernelPortDefinition : struct, IKernelPortDefinition
-            where TKernel : struct, IGraphKernel<TKernelData, TKernelPortDefinition>
-    {}
-    public abstract class NodeDefinition<TNodeData, TSimulationPortDefinition, TKernelData, TKernelPortDefinition, TKernel>
-        : Unity.DataFlowGraph.NodeDefinition<TNodeData, TSimulationPortDefinition, TKernelData, TKernelPortDefinition, TKernel>
-            where TNodeData : struct, INodeData
-            where TSimulationPortDefinition : struct, ISimulationPortDefinition
-            where TKernelData : struct, IKernelData
-            where TKernelPortDefinition : struct, IKernelPortDefinition
-            where TKernel : struct, IGraphKernel<TKernelData, TKernelPortDefinition>
-    {}
-#pragma warning restore 618
-
     static class AssemblyManager
     {
         /// <summary>

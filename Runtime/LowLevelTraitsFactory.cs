@@ -9,7 +9,7 @@ using static Unity.DataFlowGraph.ReflectionTools;
 
 namespace Unity.DataFlowGraph
 {
-    struct KernelLayout
+    readonly struct KernelLayout
     {
         public readonly unsafe struct Pointers
         {
@@ -25,9 +25,9 @@ namespace Unity.DataFlowGraph
             }
         }
 
-        SimpleType Combined;
-        int DataOffset;
-        int KernelOffset;
+        readonly SimpleType Combined;
+        readonly int DataOffset;
+        readonly int KernelOffset;
 
         struct Layout<TUserKernel, TKernelData, TKernelPortDefinition>
            where TUserKernel : struct, IGraphKernel<TKernelData, TKernelPortDefinition>
@@ -45,12 +45,10 @@ namespace Unity.DataFlowGraph
             static KernelLayout Calculate()
             {
                 var type = typeof(Layout<TUserKernel, TKernelData, TKernelPortDefinition>);
-                KernelLayout ret;
-                ret.Combined = SimpleType.Create<Layout<TUserKernel, TKernelData, TKernelPortDefinition>>();
-                ret.DataOffset = UnsafeUtility.GetFieldOffset(type.GetField("Data"));
-                ret.KernelOffset = UnsafeUtility.GetFieldOffset(type.GetField("Kernel"));
-
-                return ret;
+                return new KernelLayout(
+                    SimpleType.Create<Layout<TUserKernel, TKernelData, TKernelPortDefinition>>(),
+                    UnsafeUtility.GetFieldOffset(type.GetField("Data")),
+                    UnsafeUtility.GetFieldOffset(type.GetField("Kernel")));
             }
 
             void Reassign_ToAvoid_CompilerWarning()
@@ -104,6 +102,13 @@ namespace Unity.DataFlowGraph
         {
             UnsafeUtility.Free(p.Ports, allocator);
         }
+
+        KernelLayout(SimpleType combined, int dataOffset, int kernelOffset)
+        {
+            Combined = combined;
+            DataOffset = dataOffset;
+            KernelOffset = kernelOffset;
+        }
     }
 
     struct LowLevelTraitsFactory<TKernelData, TKernelPortDefinition, TUserKernel>
@@ -121,7 +126,6 @@ namespace Unity.DataFlowGraph
 #if DFG_PER_NODE_PROFILING
             vtable.KernelMarker = new Profiling.ProfilerMarker(hostNodeType.Name);
 #endif
-
             if (BurstConfig.IsBurstEnabled && typeof(TUserKernel).GetCustomAttributes().Any(a => a is BurstCompileAttribute))
                 vtable.KernelFunction = RenderKernelFunction.GetBurstedFunction<TKernelData, TKernelPortDefinition, TUserKernel>();
             else

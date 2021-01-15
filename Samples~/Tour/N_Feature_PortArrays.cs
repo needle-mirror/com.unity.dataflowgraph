@@ -35,7 +35,7 @@ namespace Unity.DataFlowGraph.Tour
 
             struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
             {
-                public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, in KernelData data, ref KernelDefs ports)
                 {
                     /*
                      * To iterate over the inputs contained in a port array, it must be resolved through the context.
@@ -54,7 +54,7 @@ namespace Unity.DataFlowGraph.Tour
 
             struct NodeHandlers : INodeData, IMsgHandler<Vector3>
             {
-                public void HandleMessage(in MessageContext ctx, in Vector3 msg)
+                public void HandleMessage(MessageContext ctx, in Vector3 msg)
                 {
                     if (ctx.Port == SimulationPorts.Input)
                     {

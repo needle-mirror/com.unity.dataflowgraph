@@ -4,6 +4,8 @@ using Unity.Burst;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Collections;
 using static Unity.DataFlowGraph.ReflectionTools;
+using System.Linq;
+using System.ComponentModel;
 #if DFG_ASSERTIONS
 using Unity.Mathematics;
 #endif
@@ -38,7 +40,7 @@ namespace Unity.DataFlowGraph
             if (Size < 0)
                 throw new AssertionException("Invalid size value");
 
-            if (Align < 1 || (Size != 0 && Align > Size) || Size % Align != 0 || math.countbits(Align) != 1)
+            if (Size != 0 && (Align < 1 || Align > Size || Size % Align != 0 || math.countbits(Align) != 1))
                 throw new AssertionException("Invalid alignment value");
 #endif
         }
@@ -85,6 +87,20 @@ namespace Unity.DataFlowGraph
         {
             return new SimpleType(UnsafeUtility.SizeOf<T>() * count, UnsafeUtility.AlignOf<T>());
         }
+
+        /// <summary>
+        /// Enforce a minimum alignment requirement on the existing type (this may require increasing size as size must
+        /// be a multiple of alignment)
+        /// </summary>
+        /// <remarks>Alignment must always be a power-of-two</remarks>
+        public SimpleType GetMinAlignedTyped(int minAlignment)
+        {
+#if DFG_ASSERTIONS
+            if (math.countbits(minAlignment) != 1)
+                throw new AssertionException("Alignment must be a power-of-two");
+#endif
+            return minAlignment <= Align ? this : new SimpleType(((Size - 1) / minAlignment + 1) * minAlignment, minAlignment);
+        }
     }
 
     readonly struct DataPortDeclarations : IDisposable
@@ -99,15 +115,12 @@ namespace Unity.DataFlowGraph
             /// </summary>
             public readonly int PatchOffset;
 
-            public readonly InputPortID PortNumber;
-
             public readonly bool IsArray;
 
-            public InputDeclaration(SimpleType type, int patchOffset, InputPortID portNumber, bool isArray)
+            public InputDeclaration(SimpleType type, int patchOffset, bool isArray)
             {
                 Type = type;
                 PatchOffset = patchOffset;
-                PortNumber = portNumber;
                 IsArray = isArray;
             }
 
@@ -139,7 +152,7 @@ namespace Unity.DataFlowGraph
                 if (!IsArray)
                     throw new AssertionException("Bad cast to UntypedDataInputPortArray");
 #endif
-                return ref UnsafeUtility.AsRef<UntypedDataInputPortArray>((byte*)ports + PatchOffset);
+                return ref *(UntypedDataInputPortArray*)((byte*)ports + PatchOffset);
             }
         }
 
@@ -147,39 +160,77 @@ namespace Unity.DataFlowGraph
         /// Low level information about an instance of a <see cref="DataOutput{TDefinition, TType}"/> contained
         /// in a <see cref="IKernelPortDefinition"/> implementation.
         /// </summary>
-        public unsafe readonly struct OutputDeclaration
+        public readonly unsafe struct OutputDeclaration
         {
+            public struct BufferIndexEnumerator
+            {
+                ushort m_Index, m_Max;
+
+                internal BufferIndexEnumerator(ushort bufferCount)
+                {
+                    m_Index = UInt16.MaxValue;
+                    m_Max = bufferCount;
+                }
+                public bool MoveNext() => ++m_Index < m_Max;
+                public BufferIndexEnumerator GetEnumerator() => this;
+                public PortBufferIndex Current => new PortBufferIndex(m_Index);
+            }
+
+            /// <summary>
+            /// The simple type of TType in a <see cref="DataOutput{TDefinition, TType}"/>
+            /// </summary>
+            public readonly SimpleType Type;
+
             /// <summary>
             /// The simple type of the element of a nested <see cref="Buffer{T}"/> inside a <see cref="DataOutput{TDefinition, TType}"/>,
             /// or just the equivalent representation of the entire contained non-special cased TType.
             /// </summary>
             public readonly SimpleType ElementOrType;
+
             /// <summary>
             /// The offset for the actual storage in case of an <see cref="DataOutput{TDefinition, TType}"/>
             /// </summary>
             public readonly int PatchOffset;
 
-            public readonly OutputPortID PortNumber;
+            public readonly ushort BufferCount;
 
-            public OutputDeclaration(SimpleType typeOrElement, int patchOffset, OutputPortID portNumber)
+            public BufferIndexEnumerator BufferIndices => new BufferIndexEnumerator(BufferCount);
+
+            /// <summary>
+            /// Index of the first local Buffer<T> offset in the master list maintained by the <see cref="DataPortDeclarations"/>
+            /// </summary>
+            public readonly ushort BufferListStartIndex;
+
+            public readonly bool IsArray;
+
+            public OutputDeclaration(SimpleType type, SimpleType typeOrElement, int patchOffset, (ushort bufferListIndex, ushort bufferCount) bufferOffsets, bool isArray)
             {
+                Type = type;
                 ElementOrType = typeOrElement;
                 PatchOffset = patchOffset;
-                PortNumber = portNumber;
+                IsArray = isArray;
+                (BufferListStartIndex, BufferCount) = bufferOffsets;
             }
 
-            public void* Resolve(RenderKernelFunction.BasePort* ports)
+            public void* Resolve(RenderKernelFunction.BasePort* ports, ushort potentialArrayIndex)
             {
 #if DFG_ASSERTIONS
                 if (ports == null)
                     throw new AssertionException("Unexpected null pointer in DataOutput value dereferencing");
 #endif
-                return (byte*)ports + PatchOffset;
+                if (!IsArray)
+                    return (byte*)ports + PatchOffset;
+
+                return AsPortArray(ports).Get(Type, potentialArrayIndex);
             }
 
-            public ref BufferDescription GetAggregateBufferAt(RenderKernelFunction.BasePort* ports, int byteOffset)
+            public ref UntypedDataOutputPortArray AsPortArray(RenderKernelFunction.BasePort* ports)
             {
-                return ref *(BufferDescription*)((byte*)ports + PatchOffset + byteOffset);
+#if DFG_ASSERTIONS
+                if (!IsArray)
+                    throw new AssertionException("Bad cast to UntypedDataOutputPortArray");
+#endif
+                return ref *(UntypedDataOutputPortArray*)((byte*)ports + PatchOffset);
             }
         }
 
@@ -195,21 +246,32 @@ namespace Unity.DataFlowGraph
                 Offset = offset;
             }
 
-            public ref BufferDescription AsUntyped(RenderKernelFunction.BasePort* kernelPorts)
-                => ref *(BufferDescription*)((byte*)kernelPorts + Offset);
-
             public ref BufferDescription AsUntyped(RenderKernelFunction.BaseKernel* kernel)
                 => ref *(BufferDescription*)((byte*)kernel + Offset);
         }
 
         /// <summary>
-        /// List of offsets of all Buffer<T> instances relative to the beginning of the IKernelDataPorts structure.
+        /// List of offsets of all Buffer<T> instances relative to the beginning of each port within which it is found.
         /// </summary>
-        internal readonly BlitList<BufferOffset> OutputBufferOffsets;
+        readonly BlitList<BufferOffset> m_OutputBufferOffsets;
 
         public DataPortDeclarations(Type definitionType, Type kernelPortType)
         {
-            (Inputs, Outputs, OutputBufferOffsets) = GenerateDataPortDeclarations(definitionType, kernelPortType);
+            (Inputs, Outputs, m_OutputBufferOffsets) = GenerateDataPortDeclarations(definitionType, kernelPortType);
+        }
+
+        public unsafe ref BufferDescription GetAggregateOutputBuffer(RenderKernelFunction.BasePort* ports, in OutputDeclaration output, PortBufferIndex bufferIndex, ushort potentialArrayIndex)
+        {
+#if DFG_ASSERTIONS
+            if (bufferIndex.Value > output.BufferCount)
+                throw new AssertionException("Buffer index out of range");
+#endif
+            var byteOffset = m_OutputBufferOffsets[output.BufferListStartIndex + bufferIndex.Value].Offset;
+
+            if (!output.IsArray)
+                return ref *(BufferDescription*)((byte*)ports + output.PatchOffset + byteOffset);
+
+            return ref *(BufferDescription*)((byte*)output.AsPortArray(ports).Get(output.Type, potentialArrayIndex) + byteOffset);
         }
 
         static (BlitList<InputDeclaration> inputs, BlitList<OutputDeclaration> outputs, BlitList<BufferOffset> outputBufferOffsets)
@@ -224,8 +286,6 @@ namespace Unity.DataFlowGraph
 
             try
             {
-                var kernelPortValue = definitionType.GetField("KernelPorts", BindingFlags.FlattenHierarchy | BindingFlags.Static | BindingFlags.Public)?.GetValue(null);
-
                 foreach (var potentialPortFieldInfo in kernelPortType.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
                 {
                     ValidateFieldOnKernelPort(potentialPortFieldInfo);
@@ -259,67 +319,48 @@ namespace Unity.DataFlowGraph
 
                     var offsetOfWholePortDeclaration = UnsafeUtility.GetFieldOffset(potentialPortFieldInfo);
 
-                    var portValue = potentialPortFieldInfo.GetValue(kernelPortValue);
-
                     if (genericPortType == typeof(DataInput<,>))
                     {
-                        InputPortID inputID;
-
-                        // Acquire the assigned port number of this port declaration
-                        if (isPortArray)
-                        {
-                            var inputOutputPortID = (InputOutputPortID)portValue
-                                .GetType()
-                                .GetField("m_PortID", BindingFlags.Instance | BindingFlags.NonPublic)
-                                .GetValue(portValue);
-                            inputID = inputOutputPortID.InputPort;
-                        }
-                        else
-                        {
-                            var dataStorage = (DataInputStorage)portType
-                                .GetField("Storage", BindingFlags.Instance | BindingFlags.NonPublic)
-                                .GetValue(portValue);
-                            inputID = dataStorage.PortID;
-                        }
-
                         if (UnsafeUtility.SizeOf(dataType) > k_MaxInputSize)
                             throw new InvalidNodeDefinitionException($"Node input data structure types cannot have a sizeof larger than {k_MaxInputSize}");
 
-                        inputs.Add(
-                            new InputDeclaration(
-                                new SimpleType(dataType),
-                                offsetOfWholePortDeclaration + k_PtrOffset,
-                                inputID,
-                                isPortArray
-                            )
-                        );
+                        inputs.Add(new InputDeclaration(new SimpleType(dataType), offsetOfWholePortDeclaration + k_PtrOffset, isPortArray));
                     }
                     else if (genericPortType == typeof(DataOutput<,>))
                     {
-                        // Acquire the assigned port number of this port declaration
-                        var assignedPortNumberField = portType.GetField("Port", BindingFlags.Instance | BindingFlags.NonPublic);
-                        SimpleType type;
+                        SimpleType typeOrElement;
 
+                        ushort previousPortLastBufferIndex = (ushort)outputBufferOffsets.Count;
                         if (IsBufferDefinition(dataType))
                         {
                             // Compute the simple type of an element inside a buffer if possible
-                            type = new SimpleType(dataType.GetGenericArguments()[0]);
-                            outputBufferOffsets.Add(new BufferOffset(offsetOfWholePortDeclaration));
+                            typeOrElement = new SimpleType(dataType.GetGenericArguments()[0]);
+
+                            outputBufferOffsets.Add(new BufferOffset(0));
                         }
                         else
                         {
                             // otherwise the entire value (breaks for aggregates)
-                            type = new SimpleType(dataType);
+                            typeOrElement = new SimpleType(dataType);
 
                             foreach (var field in WalkTypeInstanceFields(dataType, BindingFlags.Public, IsBufferDefinition))
-                                outputBufferOffsets.Add(new BufferOffset(offsetOfWholePortDeclaration + UnsafeUtility.GetFieldOffset(field)));
+                                outputBufferOffsets.Add(new BufferOffset(UnsafeUtility.GetFieldOffset(field)));
+                        }
+
+                        SimpleType type = new SimpleType(dataType);
+                        if (isPortArray)
+                        {
+                            // For PortArrays, we require a minimum alignment in order to support packing flag into LSBs of pointers
+                            type = type.GetMinAlignedTyped(DataInputStorage.MinimumInputAlignment);
                         }
 
                         outputs.Add(
                             new OutputDeclaration(
                                 type,
+                                typeOrElement,
                                 offsetOfWholePortDeclaration + k_PtrOffset,
-                                (OutputPortID)assignedPortNumberField.GetValue(portValue)
+                                (previousPortLastBufferIndex, (ushort)(outputBufferOffsets.Count - previousPortLastBufferIndex)),
+                                isPortArray
                             )
                         );
                     }
@@ -347,8 +388,8 @@ namespace Unity.DataFlowGraph
             if (Outputs.IsCreated)
                 Outputs.Dispose();
 
-            if (OutputBufferOffsets.IsCreated)
-                OutputBufferOffsets.Dispose();
+            if (m_OutputBufferOffsets.IsCreated)
+                m_OutputBufferOffsets.Dispose();
         }
 
         static void ValidateFieldOnKernelPort(FieldInfo info)
@@ -363,32 +404,61 @@ namespace Unity.DataFlowGraph
                 throw new InvalidNodeDefinitionException($"Data port type {internalPortType} in {port} is not unmanaged");
         }
 
-        public ref readonly OutputDeclaration FindOutputDataPort(OutputPortID port)
-            => ref Outputs[FindOutputDataPortNumber(port)];
+        /// <summary>
+        /// Returns an <see cref="OutputPortID"/> matching the <paramref name="index"/>
+        /// into <see cref="Outputs"/>
+        public OutputPortID GetPortIDForOutputIndex(int index)
+        {
+#if DFG_ASSERTIONS
+            if (index >= Outputs.Count)
+                throw new AssertionException("Asking for a port not included in this node definition");
+#endif
+            return new OutputPortID(new PortStorage((ushort)index, PortStorage.Category.Data));
+        }
 
-        public ref readonly InputDeclaration FindInputDataPort(InputPortID port)
-            => ref Inputs[FindInputDataPortNumber(port)];
+        /// <summary>
+        /// Returns an <see cref="InputPortID"/> matching the <paramref name="index"/>
+        /// into <see cref="Inputs"/>
+        public InputPortID GetPortIDForInputIndex(int index)
+        {
+#if DFG_ASSERTIONS
+            if (index >= Inputs.Count)
+                throw new AssertionException("Asking for a port not included in this node definition");
+#endif
+
+            return new InputPortID(new PortStorage((ushort)index, PortStorage.Category.Data));
+        }
+
+        public unsafe ref readonly OutputDeclaration FindOutputDataPort(OutputPortID port)
+            => ref *Outputs.Ref(FindOutputDataPortNumber(port));
+
+        public unsafe ref readonly InputDeclaration FindInputDataPort(InputPortID port)
+            => ref *Inputs.Ref(FindInputDataPortNumber(port));
 
         public int FindOutputDataPortNumber(OutputPortID port)
         {
-            for (int p = 0; p < Outputs.Count; ++p)
-            {
-                if (Outputs[p].PortNumber == port)
-                    return p;
-            }
+            var encoded = port.Port;
+#if DFG_ASSERTIONS
+            if (encoded.Category != PortStorage.Category.Data)
+                throw new AssertionException("Looking up non-data port");
 
-            throw new InternalException("Matching output port not found");
+            if (encoded.CategoryCounter >= Outputs.Count)
+                throw new AssertionException("Out of bounds port id, coming from non-matching port definition");
+#endif
+            return encoded.CategoryCounter;
         }
 
         public int FindInputDataPortNumber(InputPortID port)
         {
-            for (int p = 0; p < Inputs.Count; ++p)
-            {
-                if (Inputs[p].PortNumber == port)
-                    return p;
-            }
+            var encoded = port.Port;
+#if DFG_ASSERTIONS
+            if (encoded.Category != PortStorage.Category.Data)
+                throw new AssertionException("Looking up non-data port");
 
-            throw new InternalException("Matching input port not found");
+            if (encoded.CategoryCounter >= Inputs.Count)
+                throw new AssertionException("Out of bounds port id, coming from non-matching port definition");
+#endif
+            return encoded.CategoryCounter;
         }
     }
 
@@ -504,11 +574,13 @@ namespace Unity.DataFlowGraph
 
     }
 
-    readonly struct TypeHash : IEquatable<TypeHash>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public readonly struct TypeHash : IEquatable<TypeHash>
     {
         readonly Int32 m_TypeHash;
 
-        public static TypeHash Create<TType>() => new TypeHash(BurstRuntime.GetHashCode32<TType>());
+        internal static TypeHash Create<TType>() => new TypeHash(BurstRuntime.GetHashCode32<TType>());
+        internal static TypeHash CreateSlow(Type t) => new TypeHash(BurstRuntime.GetHashCode32(t));
 
         public bool Equals(TypeHash other)
         {
@@ -549,11 +621,11 @@ namespace Unity.DataFlowGraph
 
         public readonly TypeHash NodeDataHash;
 
-        public readonly bool NodeDataIsManaged, IsScaffolded;
+        public readonly bool NodeDataIsManaged;
 
-        internal static readonly SimulationStorageDefinition Empty = new SimulationStorageDefinition(false, false, default, SimpleType.Create<EmptyType>(), SimpleType.Create<EmptyType>());
+        internal static readonly SimulationStorageDefinition Empty = new SimulationStorageDefinition(false, default, SimpleType.Create<EmptyType>(), SimpleType.Create<EmptyType>());
 
-        static internal SimulationStorageDefinition Create<TDefinition, TNodeData, TSimPorts>(bool nodeDataIsManaged, bool isScaffolded)
+        static internal SimulationStorageDefinition Create<TDefinition, TNodeData, TSimPorts>(bool nodeDataIsManaged)
             where TDefinition : NodeDefinition
             where TNodeData : struct, INodeData
             where TSimPorts : struct, ISimulationPortDefinition
@@ -561,21 +633,19 @@ namespace Unity.DataFlowGraph
             ValidateRulesForStorage<TDefinition, TNodeData>(nodeDataIsManaged);
             return new SimulationStorageDefinition(
                 nodeDataIsManaged,
-                isScaffolded,
                 TypeHash.Create<TNodeData>(),
                 SimpleType.Create<TNodeData>(),
                 SimpleType.Create<TSimPorts>()
             );
         }
 
-        static internal SimulationStorageDefinition Create<TDefinition, TNodeData>(bool nodeDataIsManaged, bool isScaffolded)
+        static internal SimulationStorageDefinition Create<TDefinition, TNodeData>(bool nodeDataIsManaged)
             where TDefinition : NodeDefinition
             where TNodeData : struct, INodeData
         {
             ValidateRulesForStorage<TDefinition, TNodeData>(nodeDataIsManaged);
             return new SimulationStorageDefinition(
                 nodeDataIsManaged,
-                isScaffolded,
                 TypeHash.Create<TNodeData>(),
                 SimpleType.Create<TNodeData>(),
                 SimpleType.Create<EmptyType>()
@@ -587,20 +657,18 @@ namespace Unity.DataFlowGraph
         {
             return new SimulationStorageDefinition(
                 false,
-                false,
                 default,
                 SimpleType.Create<EmptyType>(),
                 SimpleType.Create<TSimPorts>()
             );
         }
 
-        SimulationStorageDefinition(bool nodeDataIsManaged, bool isScaffolded, TypeHash nodeDataHash, SimpleType nodeData, SimpleType simPorts)
+        SimulationStorageDefinition(bool nodeDataIsManaged, TypeHash nodeDataHash, SimpleType nodeData, SimpleType simPorts)
         {
             NodeData = nodeData;
             SimPorts = simPorts;
             NodeDataHash = nodeDataHash;
             NodeDataIsManaged = nodeDataIsManaged;
-            IsScaffolded = isScaffolded;
         }
 
         static void ValidateRulesForStorage<TDefinition, TNodeData>(bool nodeDataIsManaged)
@@ -615,32 +683,46 @@ namespace Unity.DataFlowGraph
 
     readonly struct KernelStorageDefinition : IDisposable
     {
-        public struct BufferInfo
+        public readonly struct BufferInfo
         {
-            public BufferInfo(int offset, SimpleType itemType)
+            public BufferInfo(ushort bufferIndexInKernel, int offset, SimpleType itemType)
             {
                 Offset = new DataPortDeclarations.BufferOffset(offset);
                 ItemType = itemType;
+                BufferIndex = new KernelBufferIndex(bufferIndexInKernel);
             }
-            public DataPortDeclarations.BufferOffset Offset;
-            public SimpleType ItemType;
+            public readonly DataPortDeclarations.BufferOffset Offset;
+            public readonly SimpleType ItemType;
+            public readonly KernelBufferIndex BufferIndex;
         }
 
         public readonly SimpleType KernelData, Kernel, KernelPorts;
 
         public readonly BlitList<BufferInfo> KernelBufferInfos;
         public readonly bool IsComponentNode;
-
+        public readonly RenderGraph.KernelNode.Flags InitialExecutionFlags;
         public readonly TypeHash KernelHash, KernelDataHash;
 
-        static internal KernelStorageDefinition Create<TDefinition, TKernelData, TKernelPortDefinition, TUserKernel>(bool isComponentNode)
+        static internal KernelStorageDefinition Create<TDefinition, TKernelData, TKernelPortDefinition, TUserKernel>(bool isComponentNode, bool causesSideEffects)
             where TDefinition : NodeDefinition
             where TKernelData : struct, IKernelData
             where TKernelPortDefinition : struct, IKernelPortDefinition
             where TUserKernel : struct, IGraphKernel<TKernelData, TKernelPortDefinition>
         {
             ValidateRulesForStorage<TDefinition, TKernelData, TKernelPortDefinition, TUserKernel>();
-            return new KernelStorageDefinition(isComponentNode,
+
+            // Nodes are nominally enabled to ensure they run even when culling is disabled
+            RenderGraph.KernelNode.Flags flags = RenderGraph.KernelNode.Flags.Enabled;
+
+            if (isComponentNode)
+                flags |= RenderGraph.KernelNode.Flags.IsComponentNode;
+
+            if (causesSideEffects)
+                flags |= RenderGraph.KernelNode.Flags.CausesSideEffects;
+
+            return new KernelStorageDefinition(
+                isComponentNode,
+                flags,
                 SimpleType.Create<TKernelData>(),
                 SimpleType.Create<TKernelPortDefinition>(),
                 SimpleType.Create<TUserKernel>(),
@@ -650,19 +732,20 @@ namespace Unity.DataFlowGraph
             );
         }
 
-        KernelStorageDefinition(bool isComponentNode, SimpleType kernelData, SimpleType kernelPorts, SimpleType kernel, TypeHash kernelHash, TypeHash kernelDataHash, Type kernelType)
+        KernelStorageDefinition(bool isComponentNode, RenderGraph.KernelNode.Flags initialFlags, SimpleType kernelData, SimpleType kernelPorts, SimpleType kernel, TypeHash kernelHash, TypeHash kernelDataHash, Type kernelType)
         {
             KernelData = kernelData;
             Kernel = kernel;
             KernelPorts = kernelPorts;
             KernelHash = kernelHash;
             KernelDataHash = kernelDataHash;
+            InitialExecutionFlags = initialFlags;
             IsComponentNode = isComponentNode;
             KernelBufferInfos = new BlitList<BufferInfo>(0);
 
             foreach (var field in  WalkTypeInstanceFields(kernelType, BindingFlags.Public | BindingFlags.NonPublic, IsBufferDefinition))
             {
-                KernelBufferInfos.Add(new BufferInfo(UnsafeUtility.GetFieldOffset(field), new SimpleType(field.FieldType.GetGenericArguments()[0])));
+                KernelBufferInfos.Add(new BufferInfo((ushort)KernelBufferInfos.Count, UnsafeUtility.GetFieldOffset(field), new SimpleType(field.FieldType.GetGenericArguments()[0])));
             }
         }
 

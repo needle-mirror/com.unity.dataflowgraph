@@ -211,9 +211,9 @@ namespace Unity.DataFlowGraph
 
                 public int Count => m_ErrorCounter[0];
 
-                [NativeDisableParallelForRestriction]
+                [NativeDisableParallelForRestriction, NativeDisableContainerSafetyRestriction /* TODO make a read-only view of this */]
                 NativeQueue<Error> m_Errors;
-                [NativeDisableParallelForRestriction]
+                [NativeDisableParallelForRestriction, NativeDisableContainerSafetyRestriction /* TODO make a read-only view of this */]
                 NativeArray<int> m_ErrorCounter;
 
                 public TopologyErrors(Allocator allocator)

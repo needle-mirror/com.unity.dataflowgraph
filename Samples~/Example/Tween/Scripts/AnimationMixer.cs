@@ -8,7 +8,7 @@ namespace Unity.DataFlowGraph.Examples.RenderGraph
     {
         struct NodeData : INodeData, IMsgHandler<float>
         {
-            public void HandleMessage(in MessageContext ctx, in float msg)
+            public void HandleMessage(MessageContext ctx, in float msg)
                 => ctx.UpdateKernelData(new KernelData { Blend = msg });
         }
 
@@ -31,7 +31,7 @@ namespace Unity.DataFlowGraph.Examples.RenderGraph
         [BurstCompile]
         struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
         {
-            public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
+            public void Execute(RenderContext ctx, in KernelData data, ref KernelDefs ports)
             {
                 ctx.Resolve(ref ports.Output) = math.lerp(ctx.Resolve(ports.InputA), ctx.Resolve(ports.InputB), data.Blend);
             }

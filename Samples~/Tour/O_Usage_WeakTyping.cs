@@ -53,7 +53,7 @@ namespace Unity.DataFlowGraph.Tour
 
             struct NodeHandlers : INodeData, IMsgHandler<float>
             {
-                public void HandleMessage(in MessageContext ctx, in float msg)
+                public void HandleMessage(MessageContext ctx, in float msg)
                 {
                     Debug.Log($"Got a message {msg}");
                     ctx.EmitMessage(SimulationPorts.Output, msg + 2);

@@ -3,12 +3,12 @@ using Unity.Burst;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
+using Unity.Mathematics;
 using Unity.Profiling;
 
 namespace Unity.DataFlowGraph
 {
     using Topology = TopologyAPI<ValidatedHandle, InputPortArrayID, OutputPortArrayID>;
-    using BufferResizeCommands = BlitList<RenderGraph.BufferResizeStruct>;
     using InputPortUpdateCommands = BlitList<RenderGraph.InputPortUpdateStruct>;
 
     /// <summary>
@@ -113,9 +113,22 @@ namespace Unity.DataFlowGraph
                     {
                         var index = nodeCache.Vertex.Versioned.Index;
                         ref var node = ref Nodes[index];
-                        ref var traits = ref node.TraitsHandle.Resolve();
-                        var ctx = new RenderContext(nodeCache.Vertex, Shared.SafetyManager);
-                        traits.VTable.KernelFunction.Invoke(ctx, node.Instance);
+
+                        if ((node.RunState & KernelNode.Flags.WillRun) > 0)
+                        {
+                            ref var traits = ref node.TraitsHandle.Resolve();
+                            var ctx = new RenderContext(nodeCache.Vertex, Shared.SafetyManager);
+
+#if DFG_PER_NODE_PROFILING
+                            traits.VTable.KernelMarker.Begin();
+#endif
+
+                            traits.VTable.KernelFunction.Invoke(ctx, node.Instance);
+
+#if DFG_PER_NODE_PROFILING
+                            traits.VTable.KernelMarker.End();
+#endif
+                        }
                     }
                 }
             }
@@ -156,6 +169,7 @@ namespace Unity.DataFlowGraph
                     {
                         var index = nodeCache.Vertex.Versioned.Index;
                         ref var node = ref Nodes[index];
+
                         ref var traits = ref node.TraitsHandle.Resolve();
 
                         DependencyCombiner.Clear();
@@ -176,69 +190,20 @@ namespace Unity.DataFlowGraph
                         else
                             inputDependencies = ExternalDependencies;
 
-                        node.Fence = traits.VTable.KernelFunction.Schedule(
-                            inputDependencies,
-                            new RenderContext(nodeCache.Vertex, Shared.SafetyManager),
-                            node.Instance
-                        );
+                        if ((node.RunState & KernelNode.Flags.WillRun) != 0)
+                        {
+                            node.Fence = traits.VTable.KernelFunction.Schedule(
+                                inputDependencies,
+                                new RenderContext(nodeCache.Vertex, Shared.SafetyManager),
+                                node.Instance
+                            );
+                        }
+                        else
+                        {
+                            node.Fence = inputDependencies;
+                        }
                     }
                 }
-            }
-        }
-
-        [BurstCompile]
-        struct CopyValueDependenciesJob : IJob
-        {
-            public VersionedList<DataOutputValue> Values;
-            public BlitList<KernelNode> Nodes;
-            public NativeList<JobHandle> IslandFences;
-            public NodeSet.RenderExecutionModel Model;
-
-            public ProfilerMarker Marker;
-
-            public void Execute()
-            {
-                Marker.Begin();
-
-                switch (Model)
-                {
-                    case NodeSet.RenderExecutionModel.MaximallyParallel:
-                        foreach(ref var value in Values.Items)
-                        {
-                            if (!StillExists(ref Nodes, value.Source))
-                                continue;
-
-                            value.Dependency = Nodes[value.Source.Versioned.Index].Fence;
-                        }
-                        break;
-
-                    case NodeSet.RenderExecutionModel.Islands:
-                    case NodeSet.RenderExecutionModel.SingleThreaded:
-
-                        if (IslandFences.Length == 0)
-                            break;
-
-                        foreach (ref var value in Values.Items)
-                        {
-                            if (!StillExists(ref Nodes, value.Source))
-                                continue;
-
-                            // Note: Only one fence exist right now, because we schedule
-                            // either as a parallel for or a single job, both of which
-                            // return only one fence.
-                            // Need to update this if we change how Islands scheduling work.
-                            value.Dependency = IslandFences[0];
-                        }
-                        break;
-
-                    case NodeSet.RenderExecutionModel.Synchronous:
-                        break;
-
-                    default:
-                        throw new ArgumentOutOfRangeException();
-                }
-
-                Marker.End();
             }
         }
 
@@ -273,22 +238,21 @@ namespace Unity.DataFlowGraph
 
                     if (traits.KernelStorage.IsComponentNode)
                     {
-                        InternalComponentNode.RecordInputConnections(
-                            nodeCache.GetInputsForPatching(),
-                            nodeKernel.Instance,
-                            Nodes
-                        );
-
+                        foreach (var c in nodeCache.GetInputsForPatching())
+                        {
+                            InternalComponentNode.RecordInputConnection(c.InputPort, c.OutputPort, c.Target.Vertex, nodeKernel.Instance, Nodes);
+                        }
                         continue;
                     }
 
                     for (int i = 0; i < traits.DataPorts.Inputs.Count; ++i)
                     {
                         ref var portDecl = ref traits.DataPorts.Inputs[i];
+                        var portID = traits.DataPorts.GetPortIDForInputIndex(i);
 
                         if (!portDecl.IsArray)
                         {
-                            var inputEnumerator = nodeCache.GetInputForPatchingByPort(new InputPortArrayID(portDecl.PortNumber));
+                            var inputEnumerator = nodeCache.GetInputForPatchingByPort(new InputPortArrayID(portID));
                             PatchPort(ref inputEnumerator, portDecl.GetStorageLocation(nodeKernel.Instance.Ports));
                         }
                         else
@@ -297,7 +261,7 @@ namespace Unity.DataFlowGraph
 
                             for (ushort j = 0; j < portArray.Size; ++j)
                             {
-                                var inputEnumerator = nodeCache.GetInputForPatchingByPort(new InputPortArrayID(portDecl.PortNumber, j));
+                                var inputEnumerator = nodeCache.GetInputForPatchingByPort(new InputPortArrayID(portID, j));
                                 PatchPort(ref inputEnumerator, portArray.NthInputStorage(j));
                             }
                         }
@@ -327,15 +291,15 @@ namespace Unity.DataFlowGraph
                         // connected for the first time (not applicable to buffer inputs)
                         inputStorage->FreeIfNeeded(PortAllocator);
 
-                        PatchOrDeferInput(inputStorage, inputEnumerator.Current.Target.Vertex, inputEnumerator.Current.OutputPort.PortID);
+                        PatchOrDeferInput(inputStorage, inputEnumerator.Current.Target.Vertex, inputEnumerator.Current.OutputPort);
 
                         break;
                     default:
-                        throw new InvalidOperationException("Cannot have multiple data inputs to the same port");
+                        throw new AssertionException("Cannot have multiple data inputs to the same port");
                 }
             }
 
-            void PatchOrDeferInput(DataInputStorage* patch, ValidatedHandle node, OutputPortID port)
+            void PatchOrDeferInput(DataInputStorage* patch, ValidatedHandle node, OutputPortArrayID port)
             {
                 var parentIndex = node.Versioned.Index;
                 ref var parentKernel = ref Nodes[parentIndex];
@@ -346,8 +310,8 @@ namespace Unity.DataFlowGraph
                     // (Common case)
                     var outputPointer = parentTraits
                         .DataPorts
-                        .FindOutputDataPort(port)
-                        .Resolve(parentKernel.Instance.Ports);
+                        .FindOutputDataPort(port.PortID)
+                        .Resolve(parentKernel.Instance.Ports, port.ArrayIndex);
 
                     *patch = new DataInputStorage(outputPointer);
                     return;
@@ -355,7 +319,7 @@ namespace Unity.DataFlowGraph
 
                 // Record the requirement of input data coming from ECS. The actual data pointer will be patched in
                 // in a follow-up job.
-                InternalComponentNode.RecordOutputConnection(patch, parentKernel.Instance.Kernel, port);
+                InternalComponentNode.RecordOutputConnection(patch, parentKernel.Instance.Kernel, port.PortID);
             }
         }
 
@@ -363,7 +327,7 @@ namespace Unity.DataFlowGraph
         unsafe struct ResizeOutputDataPortBuffers : IJob
         {
             public BlitList<KernelNode> Nodes;
-            public BufferResizeCommands OwnedCommands;
+            public BlitList<GraphDiff.BufferResizedTuple> Commands;
 
             public ProfilerMarker Marker;
 
@@ -371,15 +335,15 @@ namespace Unity.DataFlowGraph
             {
                 Marker.Begin();
 
-                for (int i = 0; i < OwnedCommands.Count; ++i)
+                for (int i = 0; i < Commands.Count; ++i)
                 {
-                    ref var command = ref OwnedCommands[i];
+                    ref var command = ref Commands[i];
                     var handle = command.Handle;
 
                     if (!StillExists(ref Nodes, handle))
                         continue;
 
-                    ref var buffer = ref GetBufferDescription(ref Nodes[handle.Versioned.Index], ref command);
+                    ref var buffer = ref GetBufferDescription(ref Nodes[handle.Versioned.Index], command);
 
                     // Adopt memory directly from the command?
                     if(command.PotentialMemory != null)
@@ -387,55 +351,53 @@ namespace Unity.DataFlowGraph
                         // free the old one.
                         buffer.FreeIfNeeded(PortAllocator);
 
-                        buffer = new BufferDescription(command.PotentialMemory, command.Size, buffer.OwnerNode);
+                        buffer = new BufferDescription(command.PotentialMemory, command.NewSize, buffer.OwnerNode);
                         continue;
                     }
 
                     var oldSize = buffer.Size;
 
                     // We will need to realloc if the new size is larger than the previous size.
-                    if (oldSize >= command.Size)
+                    if (oldSize >= command.NewSize)
                     {
                         // If the new size is relatively close to the old size re-use the existing allocation.
                         // (Note that skipping realloc down to command.Size/2 is stable since command.Size/2 will remain fixed
                         // regardless of how many succesive downsizes are done. Note that we will not however benefit from
                         // future upsizes which would fit in the original memory allocation.)
-                        if (oldSize / 2 < command.Size)
+                        if (oldSize / 2 < command.NewSize)
                         {
-                            buffer = new BufferDescription(buffer.Ptr, command.Size, buffer.OwnerNode);
+                            buffer = new BufferDescription(buffer.Ptr, command.NewSize, buffer.OwnerNode);
                             continue;
                         }
                     }
 
-                    var type = new SimpleType(command.ItemType.Size * command.Size, command.ItemType.Align);
+                    var type = new SimpleType(command.ItemType.Size * command.NewSize, command.ItemType.Align);
 
                     // free the old one.
                     buffer.FreeIfNeeded(PortAllocator);
 
                     buffer = new BufferDescription(
-                        command.Size == 0 ? null : (byte*)Utility.CAlloc(type, PortAllocator),
-                        command.Size,
+                        command.NewSize == 0 ? null : (byte*)Utility.CAlloc(type, PortAllocator),
+                        command.NewSize,
                         buffer.OwnerNode
                     );
                 }
 
-                OwnedCommands.Dispose();
-
                 Marker.End();
             }
 
-            static ref BufferDescription GetBufferDescription(ref KernelNode nodeKernel, ref BufferResizeStruct command)
+            static ref BufferDescription GetBufferDescription(ref KernelNode nodeKernel, in GraphDiff.BufferResizedTuple command)
             {
-                if (command.DataPortIndex == BufferResizeStruct.KernelBufferResizeHint)
+                if (command.IsKernelResize)
                 {
-                    return ref nodeKernel.GetKernelBufferAt(command.LocalBufferOffset);
+                    return ref nodeKernel.GetKernelBuffer(command.KernelBufferIndex);
                 }
 
                 ref var traits = ref nodeKernel.TraitsHandle.Resolve();
+
                 return ref traits
                     .DataPorts
-                    .Outputs[command.DataPortIndex]
-                    .GetAggregateBufferAt(nodeKernel.Instance.Ports, command.LocalBufferOffset);
+                    .GetAggregateOutputBuffer(nodeKernel.Instance.Ports, traits.DataPorts.FindOutputDataPort(command.Port.PortID), command.PortBufferIndex, command.Port.ArrayIndex);
             }
         }
 
@@ -459,7 +421,7 @@ namespace Unity.DataFlowGraph
                     ref var node = ref Nodes[command.Handle.Versioned.Index];
                     ref var traits = ref node.TraitsHandle.Resolve();
 
-                    ref var portDecl = ref traits.DataPorts.Inputs[command.DataPortIndex];
+                    ref readonly var portDecl = ref traits.DataPorts.FindInputDataPort(command.Port);
 
                     switch (command.Operation)
                     {
@@ -493,6 +455,73 @@ namespace Unity.DataFlowGraph
             }
         }
 
+
+        [BurstCompile]
+        unsafe struct ResizeOutputDataPortArraysJob : IJob
+        {
+            public BlitList<KernelNode> Nodes;
+            public BlitList<GraphDiff.OutputPortArrayResizedTuple> Commands;
+            public Topology.Database.Readonly Connections;
+            public FlatTopologyMap Map;
+
+            public ProfilerMarker Marker;
+
+            public void Execute()
+            {
+                Marker.Begin();
+
+                for (int i = 0; i < Commands.Count; ++i)
+                {
+                    ref var command = ref Commands[i];
+
+                    if (!StillExists(ref Nodes, command.Destination.Handle))
+                        continue;
+
+                    ref var node = ref Nodes[command.Destination.Handle.Versioned.Index];
+                    ref var traits = ref node.TraitsHandle.Resolve();
+
+                    ref readonly var portDecl = ref traits.DataPorts.FindOutputDataPort(command.Destination.Port.PortID);
+
+                    ref var portArray = ref portDecl.AsPortArray(node.Instance.Ports);
+                    portArray.Resize(node.Instance.Ports, traits.DataPorts, portDecl, command.Destination.Handle, command.NewSize, PortAllocator);
+
+                    if (command.NewSize > 0)
+                    {
+                        for (var it = Map.GetRef(node.Handle).OutputHeadConnection; it != FlatTopologyMap.InvalidConnection; it = Connections[it].NextOutputConnection)
+                        {
+                            ref readonly var conn = ref Connections[it];
+                            if (conn.SourceOutputPort.PortID == command.Destination.Port.PortID)
+                                RepatchInput(portDecl.Resolve(node.Instance.Ports, conn.SourceOutputPort.ArrayIndex), conn.DestinationInputPort, conn.SourceOutputPort, conn.Source, conn.Destination);
+                        }
+                    }
+                }
+
+                Marker.End();
+            }
+
+            void RepatchInput(void* patch, InputPortArrayID inputPort, OutputPortArrayID outputPort, ValidatedHandle parent, ValidatedHandle child)
+            {
+                ref var childNode = ref Nodes[child.Versioned.Index];
+                ref var childTraits = ref childNode.TraitsHandle.Resolve();
+
+                if (childTraits.KernelStorage.IsComponentNode)
+                {
+                    InternalComponentNode.RecordInputConnection(inputPort, outputPort, parent, childNode.Instance, Nodes);
+                    return;
+                }
+
+                ref readonly var childPortDecl =
+                    ref childTraits.DataPorts.FindInputDataPort(inputPort.PortID);
+
+                var inputStorage = childPortDecl.GetStorageLocation(childNode.Instance.Ports, inputPort.ArrayIndex);
+
+                if (inputStorage != null)
+                    inputStorage->FreeIfNeeded(PortAllocator);
+
+                *inputStorage = new DataInputStorage(patch);
+            }
+        }
+
         [BurstCompile]
         unsafe struct CopyDirtyRendererDataJob : IJobParallelFor
         {
@@ -523,15 +552,19 @@ namespace Unity.DataFlowGraph
                         var index = nodeCache.Vertex.Versioned.Index;
                         ref var node = ref Nodes[index];
                         ref var traits = ref node.TraitsHandle.Resolve();
+
+                        if ((node.RunState & KernelNode.Flags.WillRun) > 0)
+                        {
 #if DFG_PER_NODE_PROFILING
-                    traits.VTable.KernelMarker.Begin();
+                            traits.VTable.KernelMarker.Begin();
 #endif
 
-                        traits.VTable.KernelFunction.Invoke(new RenderContext(nodeCache.Vertex, Shared.SafetyManager), node.Instance);
+                            traits.VTable.KernelFunction.Invoke(new RenderContext(nodeCache.Vertex, Shared.SafetyManager), node.Instance);
 
 #if DFG_PER_NODE_PROFILING
-                    traits.VTable.KernelMarker.End();
+                            traits.VTable.KernelMarker.End();
 #endif
+                        }
                     }
                 }
             }
@@ -550,23 +583,27 @@ namespace Unity.DataFlowGraph
                 {
                     var index = nodeCache.Vertex.Versioned.Index;
                     ref var node = ref Nodes[index];
-                    ref var traits = ref node.TraitsHandle.Resolve();
+
+                    if((node.RunState & KernelNode.Flags.WillRun) > 0)
+                    {
+                        ref var traits = ref node.TraitsHandle.Resolve();
 
 #if DFG_PER_NODE_PROFILING
-                    traits.VTable.KernelMarker.Begin();
+                        traits.VTable.KernelMarker.Begin();
 #endif
 
-                    traits.VTable.KernelFunction.Invoke(new RenderContext(nodeCache.Vertex, Shared.SafetyManager), node.Instance);
+                        traits.VTable.KernelFunction.Invoke(new RenderContext(nodeCache.Vertex, Shared.SafetyManager), node.Instance);
 
 #if DFG_PER_NODE_PROFILING
-                    traits.VTable.KernelMarker.End();
+                        traits.VTable.KernelMarker.End();
 #endif
+                    }
                 }
             }
         }
 
         [BurstCompile]
-        internal unsafe struct AnalyseLiveNodes : IJob
+        internal struct AnalyseLiveNodes : IJob
         {
             public NativeList<ValidatedHandle> ChangedNodes;
             public Topology.Database Filter;
@@ -595,6 +632,241 @@ namespace Unity.DataFlowGraph
                 }
 
                 Marker.End();
+            }
+        }
+
+        [BurstCompile]
+        unsafe struct ComputeCullableIslandCandidates : IJob
+        {
+            public enum TopologyMode
+            {
+                Incremental, AllGroups
+            }
+            public Topology.TraversalCache Cache;
+            public BlitList<GraphDiff.GraphValueObservationTuple> ChangedGraphValuesFromDiff;
+            public BlitList<KernelNode> KernelNodes;
+            public NativeList<int> ResultIslands;
+            public FlatTopologyMap Map;
+            public ProfilerMarker Marker;
+            public TopologyMode Mode;
+
+            public void Execute()
+            {
+                Marker.Begin();
+
+                ResultIslands.Clear();
+
+                if(Mode == TopologyMode.AllGroups)
+                {
+                    for (int i = 0; i < Cache.Groups.Length; ++i)
+                    {
+                        ResultIslands.Add(i);
+                    }
+                }
+                else if (Mode == TopologyMode.Incremental)
+                {
+                    // Start with new islands, which is always a unique list
+                    ResultIslands.AddRange(Cache.NewGroups);
+                }
+                // Only recompute islands where new graph values were created
+                for(int i = 0; i < ChangedGraphValuesFromDiff.Count; ++i)
+                {
+                    var change = ChangedGraphValuesFromDiff[i];
+                    var targetNode = change.SourceNode;
+                    if (!StillExists(ref KernelNodes, targetNode))
+                        continue;
+
+                    KernelNodes[targetNode.Versioned.Index].ApplyObservation(change);
+                    AddCandidateIfNotAlreadyThere(Map[targetNode].GroupID);
+                }
+
+                Marker.End();
+            }
+
+            void AddCandidateIfNotAlreadyThere(int index)
+            {
+                // Could also always add, sort, then remove duplicates at the end
+                // (or use a set)
+                if (!ResultIslands.Contains(index))
+                    ResultIslands.Add(index);
+            }
+        }
+
+        /// <summary>
+        /// This resets the transient "run state" of all the nodes
+        /// in the <see cref="IslandsToProcess"/>.
+        ///
+        /// Can be used to mark all nodes to run with <see cref="ORFlags"/>
+        /// equal to <see cref="KernelNode.Flags.Enabled"/>, or use
+        /// <see cref="ANDFlags"/> together with <see cref="KernelNode.Flags.ClearTransientMask"/>
+        /// for disabling all nodes (and probably subsequently enabling some again in a culling pass).
+        /// </summary>
+        [BurstCompile]
+        unsafe struct SweepGraphWithActiveState : IJobParallelForDefer
+        {
+            public Topology.TraversalCache Cache;
+            public BlitList<KernelNode> Nodes;
+            public ProfilerMarker Marker;
+            [ReadOnly] public NativeList<int> IslandsToProcess;
+            public KernelNode.Flags ORFlags;
+            public KernelNode.Flags ANDFlags;
+
+            public void Execute(int index)
+            {
+                Marker.Begin();
+
+                var groupIndex = IslandsToProcess[index];
+
+                foreach (var nodeCache in new Topology.GroupWalker(Cache.Groups[groupIndex]))
+                {
+                    var current = Nodes[nodeCache.Vertex.Versioned.Index].RunState;
+                    Nodes[nodeCache.Vertex.Versioned.Index].RunState = (current & ANDFlags) | ORFlags;
+                }
+
+                Marker.End();
+            }
+        }
+
+        [BurstCompile]
+        unsafe struct BackpropagateObservabilityPass : IJobParallelForDefer
+        {
+            public Topology.TraversalCache Cache;
+            public BlitList<KernelNode> Nodes;
+            public ProfilerMarker IterativeMarker;
+            [ReadOnly] public NativeList<int> IslandsToProcess;
+
+            BlitList<Frame> m_Stack;
+            uint m_AlternateFilter;
+
+            public void Execute(int newIsland)
+            {
+                var groupIndex = IslandsToProcess[newIsland];
+                var group = Cache.Groups[groupIndex];
+
+                var worstCaseDepth = math.min(group.TraversalCount, group.ParentCount + group.ChildCount);
+                m_AlternateFilter = Cache.GetMask(Topology.TraversalCache.Hierarchy.Alternate);
+
+                m_Stack = new BlitList<Frame>(0, Allocator.Temp);
+                m_Stack.Reserve((int)math.sqrt(worstCaseDepth));
+
+                foreach (var nodeCache in new Topology.RootCacheWalker(group))
+                {
+                    IterativeMarker.Begin();
+                    SweepAndMarkIteratively(nodeCache, group, KernelNode.Flags.Visited);
+                    IterativeMarker.End();
+                }
+
+                m_Stack.Dispose();
+            }
+
+            /// <returns>true if traversal should be continued.</returns>
+            bool VisitNode(ValidatedHandle handle, ref KernelNode.Flags pathFlags)
+            {
+                //Debug.Log($"Visiting {handle.Versioned} with {pathFlags}");
+                ref var nodeKernel = ref Nodes[handle.Versioned.Index];
+
+                // DFS ensures if we hit a node that already runs, we don't have to resweep any parents
+                if ((nodeKernel.RunState & KernelNode.Flags.Enabled) != 0)
+                    return false;
+
+                var currentShouldRun = (nodeKernel.RunState & KernelNode.Flags.Observable) != 0;
+                var alreadyVisited = (nodeKernel.RunState & KernelNode.Flags.Visited) != 0;
+
+                pathFlags |= currentShouldRun ? KernelNode.Flags.Enabled : default;
+
+                // Don't keep traversing this branch if we already went here,
+                // and we're not painting anyway.
+                if (alreadyVisited && (pathFlags & KernelNode.Flags.Enabled) == 0)
+                    return false;
+
+                // TODO: Could maybe not run any nodes that don't have any inputs.
+                // eg. component nodes.
+                nodeKernel.RunState |= pathFlags;
+
+                return true;
+            }
+
+            struct Frame
+            {
+                public int TraversalSlot;
+                public int CurrentParentIndex;
+                public KernelNode.Flags Flags;
+                public bool HasBeenVisited;
+
+                public static Frame Visit(int traversalSlot, KernelNode.Flags flags)
+                {
+                    Frame f;
+                    f.TraversalSlot = traversalSlot;
+                    f.Flags = flags;
+                    f.CurrentParentIndex = 0;
+                    f.HasBeenVisited = false;
+
+                    return f;
+                }
+
+                public bool MoveNextParent(ref Topology.TraversalCache.Group g, uint filter)
+                {
+                    ref var slot = ref g.IndexTraversal(TraversalSlot);
+
+                    for(; CurrentParentIndex < slot.ParentCount;)
+                    {
+                        ref readonly var connection = ref g.IndexParent(slot.ParentTableIndex + CurrentParentIndex);
+
+                        CurrentParentIndex++;
+
+                        if ((connection.TraversalFlags & filter) == 0)
+                            continue;
+
+                        return true;
+                    }
+
+                    return false;
+                }
+
+                public ValidatedHandle Translate(ref Topology.TraversalCache.Group g)
+                    => g.IndexTraversal(TraversalSlot).Vertex;
+
+                public Frame CreateFrameForVisitingCurrentParent(ref Topology.TraversalCache.Group g)
+                {
+                    ref var slot = ref g.IndexTraversal(TraversalSlot);
+                    ref readonly var parent = ref g.IndexParent(slot.ParentTableIndex + CurrentParentIndex - 1 /* because we already "moved" */);
+
+                    return Visit(parent.TraversalIndex, Flags);
+                }
+            }
+
+            void SweepAndMarkIteratively(Topology.VertexCache nodeCache, Topology.TraversalCache.Group g, KernelNode.Flags pathFlags)
+            {
+                m_Stack.Add(Frame.Visit(nodeCache.CacheIndex, pathFlags)); 
+
+                while(m_Stack.Count != 0)
+                {
+                    ref var frame = ref m_Stack[m_Stack.Count - 1];
+
+                    if(!frame.HasBeenVisited)
+                    {
+                        if (!VisitNode(frame.Translate(ref g), ref frame.Flags))
+                        {
+                            // Don't continue down this path
+                            m_Stack.PopBack();
+                            continue;
+                        }
+
+                        frame.HasBeenVisited = true;
+                    }
+
+                    if (frame.MoveNextParent(ref g, m_AlternateFilter))
+                    {
+                        m_Stack.Add(frame.CreateFrameForVisitingCurrentParent(ref g));
+                    }
+                    else
+                    {
+                        // Cannot traverse any further
+                        m_Stack.PopBack();
+                        continue;
+                    }
+                }
+
             }
         }
     }

@@ -29,6 +29,23 @@ namespace Unity.DataFlowGraph.CodeGen
     }
 #endif
 
+    public struct InstantiatedField
+    {
+        public FieldDefinition Definition;
+        public FieldReference Instantiated;
+        /// <summary>
+        /// Be aware of importing this "discovered" type, if it is being used in code gen.
+        /// </summary>
+        public TypeReference SubstitutedType;
+
+        public GenericInstanceType GenericType => (GenericInstanceType)SubstitutedType;
+
+        public static implicit operator InstantiatedField((FieldDefinition Definition, FieldReference Instantiated, TypeReference SubstitutedType) _)
+        {
+            return new InstantiatedField { Definition = _.Definition, Instantiated = _.Instantiated, SubstitutedType = _.SubstitutedType };
+        }
+    }
+
     static partial class HelperExtensions
     {
         /// <summary>
@@ -256,7 +273,7 @@ namespace Unity.DataFlowGraph.CodeGen
             }
         }
 
-        public static IEnumerable<(FieldDefinition Definition, FieldReference Instantiated, TypeReference SubstitutedType)> InstantiatedFields(this TypeReference declaringType)
+        public static IEnumerable<InstantiatedField> InstantiatedFields(this TypeReference declaringType)
         {
             var resolvedClass = declaringType.Resolve();
 
@@ -329,6 +346,14 @@ namespace Unity.DataFlowGraph.CodeGen
                 return type.Name;
             var unmangledName = type.Name.Substring(0, type.Name.IndexOf("`"));
             return unmangledName + "<" + String.Join(",", gType.GenericArguments.Select(PrettyName)) + ">";
+        }
+
+        /// <summary>
+        /// The type stripped of its generic parameterization.
+        /// </summary>
+        public static TypeReference Open(this TypeReference type)
+        {
+            return type.IsGenericInstance ? type.GetElementType() : type;
         }
     }
 }

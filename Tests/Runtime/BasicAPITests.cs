@@ -380,7 +380,7 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        public class NewStyleDestroyHandler : SimulationNodeDefinition<NewStyleDestroyHandler.MyPorts>
+        public class DestroyHandler : SimulationNodeDefinition<DestroyHandler.MyPorts>
         {
             public struct MyPorts : ISimulationPortDefinition { }
 
@@ -396,19 +396,19 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void CanCallNewStyle_CodeGenerated_DestroyHandler()
+        public void CanCall_CodeGenerated_DestroyHandler()
         {
-            NewStyleDestroyHandler.NodeData.Called = false;
+            DestroyHandler.NodeData.Called = false;
 
             using (var set = new NodeSet())
             {
-                var node = set.Create<NewStyleDestroyHandler>();
-                Assert.False(NewStyleDestroyHandler.NodeData.Called);
+                var node = set.Create<DestroyHandler>();
+                Assert.False(DestroyHandler.NodeData.Called);
                 set.Destroy(node);
-                Assert.True(NewStyleDestroyHandler.NodeData.Called);
+                Assert.True(DestroyHandler.NodeData.Called);
             }
 
-            NewStyleDestroyHandler.NodeData.Called = false;
+            DestroyHandler.NodeData.Called = false;
         }
 
         public class CommonContextTestNode : SimulationKernelNodeDefinition<CommonContextTestNode.SimPorts, CommonContextTestNode.KernelDefs>
@@ -424,10 +424,10 @@ namespace Unity.DataFlowGraph.Tests
 
             struct Node : INodeData, IMsgHandler<int>, IUpdate
             {
-                public void Update(in UpdateContext context)
+                public void Update(UpdateContext ctx)
                     => throw new System.NotImplementedException();
 
-                public void HandleMessage(in MessageContext ctx, in int msg)
+                public void HandleMessage(MessageContext ctx, in int msg)
                     => throw new NotImplementedException();
             }
 
@@ -435,7 +435,7 @@ namespace Unity.DataFlowGraph.Tests
 
             internal struct Kernel : IGraphKernel<EmptyKernelData, KernelDefs>
             {
-                public void Execute(RenderContext context, EmptyKernelData data, ref KernelDefs ports) { }
+                public void Execute(RenderContext ctx, in EmptyKernelData data, ref KernelDefs ports) { }
             }
         }
 

@@ -54,10 +54,7 @@ namespace Unity.DataFlowGraph.CodeGen
             if (!Kind.HasValue)
                 return;
 
-            if (Kind.Value.IsScaffolded())
-                TraverseOldStyle(d);
-            else
-                TraverseNewStyle(d, root);
+            Traverse(d, root);
         }
 
         bool DoesDefinitionRootHaveAccessTo(TypeReference node, TypeDefinition declaration)
@@ -68,7 +65,7 @@ namespace Unity.DataFlowGraph.CodeGen
             return false;
         }
 
-        void TraverseNewStyle(Diag d, TypeReference vertex)
+        void Traverse(Diag d, TypeReference vertex)
         {
             void Scan()
             {
@@ -99,7 +96,7 @@ namespace Unity.DataFlowGraph.CodeGen
 
                 // TODO: Warn the user about declaring inaccessible aspects?
                 if (DoesDefinitionRootHaveAccessTo(vertex, nested.Definition))
-                    TraverseNewStyle(d, nested.Instantiated);
+                    Traverse(d, nested.Instantiated);
             }
 
             // Short-circuit base class recursion if we trivially are looking at:
@@ -121,44 +118,7 @@ namespace Unity.DataFlowGraph.CodeGen
             if (baseClass.RefersToSame(m_BaseNodeDefinitionReference))
                 return;
 
-            TraverseNewStyle(d, baseClass);
-        }
-
-        void TraverseOldStyle(Diag d)
-        {
-            var genericArgumentList = ((GenericInstanceType)m_BaseNodeDefinitionReference).GenericArguments;
-
-            switch (Kind.Value)
-            {
-                case DFGLibrary.NodeDefinitionKind.Scaffold_1:
-                    SimulationPortImplementation = genericArgumentList[0];
-                    break;
-                case DFGLibrary.NodeDefinitionKind.Scaffold_2:
-                    NodeDataImplementation = genericArgumentList[0];
-                    SimulationPortImplementation = genericArgumentList[1];
-                    break;
-                case DFGLibrary.NodeDefinitionKind.Scaffold_3:
-                    KernelDataImplementation = genericArgumentList[0];
-                    KernelPortImplementation = genericArgumentList[1];
-                    GraphKernelImplementation = genericArgumentList[2];
-                    break;
-                case DFGLibrary.NodeDefinitionKind.Scaffold_4:
-                    NodeDataImplementation = genericArgumentList[0];
-                    KernelDataImplementation = genericArgumentList[1];
-                    KernelPortImplementation = genericArgumentList[2];
-                    GraphKernelImplementation = genericArgumentList[3];
-                    break;
-                case DFGLibrary.NodeDefinitionKind.Scaffold_5:
-                    NodeDataImplementation = genericArgumentList[0];
-                    SimulationPortImplementation = genericArgumentList[1];
-                    KernelDataImplementation = genericArgumentList[2];
-                    KernelPortImplementation = genericArgumentList[3];
-                    GraphKernelImplementation = genericArgumentList[4];
-                    break;
-
-                default:
-                    throw new ArgumentOutOfRangeException(nameof(Kind));
-            }
+            Traverse(d, baseClass);
         }
     }
 

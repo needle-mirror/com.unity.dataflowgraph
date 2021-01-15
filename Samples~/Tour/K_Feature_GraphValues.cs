@@ -38,7 +38,7 @@ namespace Unity.DataFlowGraph.Tour
             [BurstCompile]
             struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
             {
-                public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, in KernelData data, ref KernelDefs ports)
                 {
                     var inputA = ctx.Resolve(ports.InputA);
                     var inputB = ctx.Resolve(ports.InputB);

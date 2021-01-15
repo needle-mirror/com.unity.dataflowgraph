@@ -31,7 +31,7 @@ namespace Unity.DataFlowGraph.Tour
 
             struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
             {
-                public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, in KernelData data, ref KernelDefs ports)
                 {
                     /*
                      * Here we can see the syntax for using the rendering context to resolve data I/O ports into usable

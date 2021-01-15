@@ -5,7 +5,7 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
 {
     public class InternalErrorTests
     {
-        [Test] 
+        [Test]
         public void DFG_IE_01_IsPresent_OnFaked_DFGLibrary()
         {
             using (var cecilAssembly = AssemblyManager.LoadThisTestAssemblyAgain())
@@ -26,17 +26,15 @@ namespace Unity.DataFlowGraph.CodeGen.Tests
             }
         }
 
-        class NodeWithPortDefinitionWithInitializerImplemented : NodeDefinition<NodeWithPortDefinitionWithInitializerImplemented.PortDefinition>
+        class NodeWithPortDefinitionWithInitializerImplemented : SimulationNodeDefinition<NodeWithPortDefinitionWithInitializerImplemented.PortDefinition>
         {
             internal struct PortDefinition : ISimulationPortDefinition, IPortDefinitionInitializer
             {
-                public void DFG_CG_Initialize(ushort uniqueInputPort, ushort uniqueOutputPort) => throw new System.NotImplementedException();
-                public ushort DFG_CG_GetInputPortCount() => throw new System.NotImplementedException();
-                public ushort DFG_CG_GetOutputPortCount() => throw new System.NotImplementedException();
+                public void DFG_CG_Initialize() => throw new System.NotImplementedException();
             }
         }
 
-        [Test] 
+        [Test]
         public void DFG_IE_05_UnexpectedInterfaceImplementation()
         {
             using (var fixture = new DefinitionFixture(typeof(NodeWithPortDefinitionWithInitializerImplemented)))

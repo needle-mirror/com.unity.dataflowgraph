@@ -5,7 +5,6 @@ using Unity.Burst;
 using Unity.Collections;
 using Unity.Jobs;
 using Unity.Jobs.LowLevel.Unsafe;
-using static Unity.DataFlowGraph.Tests.AtomicSafetyManagerTests;
 using static Unity.DataFlowGraph.Tests.GraphValueTests;
 
 namespace Unity.DataFlowGraph.Tests
@@ -26,7 +25,7 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void CanUseGraphValueResolver_ToResolveValues_InAJob([Values] NodeSet.RenderExecutionModel computeType, [Values] KernelUpdateMode updateMode)
+        public void CanUseGraphValueResolver_ToResolveValues_InAJob([Values] NodeSet.RenderExecutionModel computeType)
         {
             using (var results = new NativeArray<float>(1, Allocator.Persistent))
             using (var set = new RenderGraphTests.PotentiallyJobifiedNodeSet(computeType))
@@ -37,7 +36,7 @@ namespace Unity.DataFlowGraph.Tests
 
                 for (int i = 0; i < 100; ++i)
                 {
-                    set.SendMessage(root, RenderPipe.SimulationPorts.Input, new FloatButWithMode { Value = i, Mode = updateMode });
+                    set.SendMessage(root, RenderPipe.SimulationPorts.Input, i);
 
                     set.Update();
 
@@ -68,22 +67,21 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         public class RenderPipeAggregate
-            : NodeDefinition<RenderPipeAggregate.KernelData, RenderPipeAggregate.Ports, RenderPipeAggregate.Kernel>
+            : KernelNodeDefinition<RenderPipeAggregate.Ports>
         {
             public struct Ports : IKernelPortDefinition
             {
                 public DataInput<RenderPipeAggregate, int> Input;
                 public DataOutput<RenderPipeAggregate, Aggregate> Output;
+                public PortArray<DataOutput<RenderPipeAggregate, Aggregate>> OutputArray;
             }
 
-            public struct KernelData : IKernelData
-            {
-            }
+            struct KernelData : IKernelData { }
 
             [BurstCompile(CompileSynchronously = true)]
-            public struct Kernel : IGraphKernel<KernelData, Ports>
+            struct Kernel : IGraphKernel<KernelData, Ports>
             {
-                public void Execute(RenderContext ctx, KernelData data, ref Ports ports)
+                public void Execute(RenderContext ctx, in KernelData data, ref Ports ports)
                 {
                     var input = ctx.Resolve(ports.Input);
                     ctx.Resolve(ref ports.Output).OriginalInput = input;
@@ -246,7 +244,7 @@ namespace Unity.DataFlowGraph.Tests
             {
                 var root = set.Create<RenderPipeAggregate>();
 
-                GraphValue<Aggregate> rootValue = set.CreateGraphValue(root, RenderPipeAggregate.KernelPorts.Output);
+                var rootValue = set.CreateGraphValue(root, RenderPipeAggregate.KernelPorts.Output);
 
                 Aggregate aggr = default;
                 aggr.InputPlusOneI = Buffer<int>.SizeRequest(1);
@@ -271,19 +269,79 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
+        struct CheckReadOnlyNess_OfResolvedGraphValueArray : IJob
+        {
+            public GraphValueResolver Resolver;
+            public NativeArray<int> Result;
+            public GraphValueArray<Aggregate> Value;
+
+            public void Execute()
+            {
+                var array = Resolver.Resolve(Value);
+
+                Result[0] = 0;
+
+                try
+                {
+                    array[0] = new Aggregate();
+                }
+                catch (IndexOutOfRangeException)
+                {
+                }
+                catch
+                {
+                    Result[0] = 1;
+                }
+            }
+        }
+
+        [Test]
+        public void ResolvedGraphValueArrays_AreReadOnly()
+        {
+            using (var results = new NativeArray<int>(1, Allocator.Persistent))
+            using (var set = new RenderGraphTests.PotentiallyJobifiedNodeSet(NodeSet.RenderExecutionModel.MaximallyParallel))
+            {
+                var root = set.Create<RenderPipeAggregate>();
+
+                var rootValue = set.CreateGraphValueArray(root, RenderPipeAggregate.KernelPorts.OutputArray);
+
+                set.SetPortArraySize(root, RenderPipeAggregate.KernelPorts.OutputArray, 1);
+
+                set.Update();
+
+                CheckReadOnlyNess_OfResolvedGraphValueArray job;
+
+                job.Value = rootValue;
+                job.Result = results;
+                job.Resolver = set.GetGraphValueResolver(out var valueResolverDependency);
+
+                set.InjectDependencyFromConsumer(job.Schedule(valueResolverDependency));
+
+                set.Update();
+
+                Assert.AreEqual(1, results[0]);
+
+                set.Destroy(root);
+                set.ReleaseGraphValueArray(rootValue);
+            }
+        }
+
         [Test]
         public void CanResolveGraphValues_OnMainThread_AfterFencing_ResolverDependencies()
         {
-            const int k_BufferSize = 5;
+            const int k_Size = 5;
 
             using (var set = new RenderGraphTests.PotentiallyJobifiedNodeSet(NodeSet.RenderExecutionModel.MaximallyParallel))
             {
                 var root = set.Create<RenderPipeAggregate>();
 
-                GraphValue<Aggregate> rootValue = set.CreateGraphValue(root, RenderPipeAggregate.KernelPorts.Output);
+                var portArrayValue = set.CreateGraphValueArray(root, RenderPipeAggregate.KernelPorts.OutputArray);
+                set.SetPortArraySize(root, RenderPipeAggregate.KernelPorts.OutputArray, k_Size);
+
+                var rootValue = set.CreateGraphValue(root, RenderPipeAggregate.KernelPorts.Output);
 
                 Aggregate aggr = default;
-                aggr.InputPlusOneI = Buffer<int>.SizeRequest(k_BufferSize);
+                aggr.InputPlusOneI = Buffer<int>.SizeRequest(k_Size);
                 set.SetBufferSize(root, RenderPipeAggregate.KernelPorts.Output, aggr);
 
                 set.Update();
@@ -294,60 +352,43 @@ namespace Unity.DataFlowGraph.Tests
                 var renderGraphAggr = /* ref readonly */ resolver.Resolve(rootValue);
                 var array = renderGraphAggr.InputPlusOneI.ToNative(resolver);
 
-                Assert.AreEqual(k_BufferSize, array.Length);
+                Assert.AreEqual(k_Size, array.Length);
                 int readback = 0;
-                Assert.DoesNotThrow(() => readback = array[k_BufferSize - 1]);
+                Assert.DoesNotThrow(() => readback = array[k_Size - 1]);
+
+                var renderPortArray = resolver.Resolve(portArrayValue);
+                Assert.AreEqual(k_Size, renderPortArray.Length);
+                Assert.DoesNotThrow(() => aggr = renderPortArray[k_Size - 1]);
 
                 // After this, secondary invalidation should make all operations impossible on current resolver
                 // and anything that has been resolved from it
                 set.Update();
 
+                UtilityAssert.ThrowsEither<InvalidOperationException, ObjectDisposedException>(() => resolver.Resolve(portArrayValue));
+                UtilityAssert.ThrowsEither<InvalidOperationException, ObjectDisposedException>(() => aggr = renderPortArray[k_Size - 1]);
+
                 UtilityAssert.ThrowsEither<InvalidOperationException, ObjectDisposedException>(() => resolver.Resolve(rootValue));
-                UtilityAssert.ThrowsEither<InvalidOperationException, ObjectDisposedException>(() => readback = array[k_BufferSize - 1]);
+                UtilityAssert.ThrowsEither<InvalidOperationException, ObjectDisposedException>(() => renderGraphAggr.InputPlusOneI.ToNative(resolver));
+                UtilityAssert.ThrowsEither<InvalidOperationException, ObjectDisposedException>(() => readback = array[k_Size - 1]);
 
                 set.Destroy(root);
                 set.ReleaseGraphValue(rootValue);
-            }
-        }
-
-        public class StallingAggregateNode
-            : NodeDefinition<StallingAggregateNode.KernelData, StallingAggregateNode.Ports, StallingAggregateNode.Kernel>
-        {
-            public static bool Wait { get => WaitingStaticFlagStructure.Wait; set => WaitingStaticFlagStructure.Wait = value; }
-            public static bool Done { get => WaitingStaticFlagStructure.Done; set => WaitingStaticFlagStructure.Done = value; }
-            public static void Reset() => WaitingStaticFlagStructure.Reset();
-
-            public struct Ports : IKernelPortDefinition
-            {
-                public DataOutput<StallingAggregateNode, Aggregate> Output;
-            }
-
-            public struct KernelData : IKernelData { }
-
-            public struct Kernel : IGraphKernel<KernelData, Ports>
-            {
-                public void Execute(RenderContext ctx, KernelData data, ref Ports ports)
-                {
-                    WaitingStaticFlagStructure.Execute();
-                }
+                set.ReleaseGraphValueArray(portArrayValue);
             }
         }
 
         [Test]
         public void CanResolveMultipleGraphValues_InSameNodeSetUpdate()
         {
-            StallingAggregateNode.Reset();
-
             using (var set = new RenderGraphTests.PotentiallyJobifiedNodeSet(NodeSet.RenderExecutionModel.MaximallyParallel))
             {
-                var node1 = set.Create<StallingAggregateNode>();
-                var node2 = set.Create<StallingAggregateNode>();
+                var node1 = set.Create<RenderPipeAggregate>();
+                var node2 = set.Create<RenderPipeAggregate>();
 
-                GraphValue<Aggregate> gv1 = set.CreateGraphValue(node1, StallingAggregateNode.KernelPorts.Output);
-                GraphValue<Aggregate> gv2 = set.CreateGraphValue(node1, StallingAggregateNode.KernelPorts.Output);
+                GraphValue<Aggregate> gv1 = set.CreateGraphValue(node1, RenderPipeAggregate.KernelPorts.Output);
+                GraphValue<Aggregate> gv2 = set.CreateGraphValue(node2, RenderPipeAggregate.KernelPorts.Output);
 
                 set.Update();
-                Assume.That(StallingAggregateNode.Done, Is.False);
 
                 var job1 =
                     new NullJob { Resolver = set.GetGraphValueResolver(out var valueResolverDependency1) }
@@ -359,9 +400,7 @@ namespace Unity.DataFlowGraph.Tests
                         .Schedule(valueResolverDependency2);
                 set.InjectDependencyFromConsumer(job2);
 
-                StallingAggregateNode.Wait = false;
                 set.Update();
-                Assert.True(StallingAggregateNode.Done);
 
                 set.Destroy(node1);
                 set.Destroy(node2);
@@ -372,8 +411,7 @@ namespace Unity.DataFlowGraph.Tests
 
         public enum GraphValueResolverCreation
         {
-            // Indeterministic: See issue #477
-            // ImmediateAcquireAndReadOnMainThread,
+            ImmediateAcquireAndReadOnMainThread,
             OneFrameStale,
             NonInitialized
         }
@@ -381,39 +419,35 @@ namespace Unity.DataFlowGraph.Tests
         [Test]
         public void CannotResolveCreatedGraphValue_UsingGraphValueResolver_InEdgeCases([Values] GraphValueResolverCreation creationMode)
         {
-            StallingAggregateNode.Reset();
-
             using (var set = new RenderGraphTests.PotentiallyJobifiedNodeSet(NodeSet.RenderExecutionModel.MaximallyParallel))
             {
-                var root = set.Create<StallingAggregateNode>();
-                GraphValue<Aggregate> rootValue = set.CreateGraphValue(root, StallingAggregateNode.KernelPorts.Output);
+                var root = set.Create<RenderPipeAggregate>();
+                GraphValue<Aggregate> rootValue = set.CreateGraphValue(root, RenderPipeAggregate.KernelPorts.Output);
 
                 set.Update();
-                Assume.That(StallingAggregateNode.Done, Is.False);
 
                 switch (creationMode)
                 {
-                    /* Indeterministic: See issue #477
-                     *
-                     * case GraphValueResolverCreation.ImmediateAcquireAndReadOnMainThread:
+                    case GraphValueResolverCreation.ImmediateAcquireAndReadOnMainThread:
                     {
                         var resolver = set.GetGraphValueResolver(out var valueResolverDependency);
 
                         Assert.Throws<InvalidOperationException>(
                             () =>
                             {
-                                // The previously scheduled job AtomicSafetyManager:ProtectOutputBuffersFromDataFlowGraph writes to the NativeArray ProtectOutputBuffersFromDataFlowGraph.WritableDataFlowGraphScope.
-                                // You must call JobHandle.Complete() on the job AtomicSafetyManager:ProtectOutputBuffersFromDataFlowGraph, before you can read from the NativeArray safely.
+                                /*
+                                 * System.InvalidOperationException : The previously scheduled job AtomicSafetyManager:ProtectOutputBuffersFromDataFlowGraph writes to the UNKNOWN_OBJECT_TYPE ProtectOutputBuffersFromDataFlowGraph.WritableDataFlowGraphScope.
+                                 * You must call JobHandle.Complete() on the job AtomicSafetyManager:ProtectOutputBuffersFromDataFlowGraph, before you can read from the UNKNOWN_OBJECT_TYPE safely.
+                                 */
                                 var portContents = resolver.Resolve(rootValue);
                             }
                         );
                         break;
-                    }*/
+                    }
 
                     case GraphValueResolverCreation.OneFrameStale:
                     {
                         var resolver = set.GetGraphValueResolver(out var valueResolverDependency);
-                        StallingAggregateNode.Wait = false;
                         set.Update();
                         // This particular step fences on AtomicSafetyManager:ProtectOutputBuffersFromDataFlowGraph,
                         // leaving access to the resolver technically fine on the main thread (from the job system's point of view),
@@ -424,9 +458,9 @@ namespace Unity.DataFlowGraph.Tests
                         UtilityAssert.ThrowsEither<InvalidOperationException, ObjectDisposedException>(
                             () =>
                             {
-                            /**
-                                * System.InvalidOperationException: The NativeArray has been deallocated, it is not allowed to access it
-                                * */
+                                /*
+                                 * System.InvalidOperationException : The UNKNOWN_OBJECT_TYPE has been deallocated, it is not allowed to access it
+                                 */
                                 var portContents = resolver.Resolve(rootValue);
                             }
                         );
@@ -438,9 +472,10 @@ namespace Unity.DataFlowGraph.Tests
                         Assert.Throws<ObjectDisposedException>(
                             () =>
                             {
-                            /**
-                                * ObjectDisposedException: GraphValueResolver.BufferProtectionScope is not initialized
-                                * */
+                                /*
+                                 * System.ObjectDisposedException : Cannot access a disposed object.
+                                 * Object name: 'BufferProtectionScope not initialized'.
+                                 */
                                 var portContents = new GraphValueResolver().Resolve(rootValue);
                             }
                         );
@@ -452,67 +487,7 @@ namespace Unity.DataFlowGraph.Tests
                         throw new ArgumentOutOfRangeException();
                 }
 
-                StallingAggregateNode.Wait = false;
                 set.Update();
-                Assert.True(StallingAggregateNode.Done);
-
-                set.Destroy(root);
-                set.ReleaseGraphValue(rootValue);
-            }
-        }
-
-        struct StallJob : IJob
-        {
-            public static bool Wait { get => WaitingStaticFlagStructure.Wait; set => WaitingStaticFlagStructure.Wait = value; }
-            public static bool Done { get => WaitingStaticFlagStructure.Done; set => WaitingStaticFlagStructure.Done = value; }
-            public static void Reset() => WaitingStaticFlagStructure.Reset();
-
-            public GraphValueResolver Resolver;
-
-            public void Execute()
-            {
-                WaitingStaticFlagStructure.Execute();
-            }
-        }
-
-        [Test]
-        public void ForgettingToPassJobHandle_BackIntoNodeSet_ThrowsDeferredException()
-        {
-            if (!JobsUtility.JobDebuggerEnabled)
-                Assert.Ignore("JobsDebugger is disabled");
-
-            StallJob.Reset();
-
-            using (var set = new RenderGraphTests.PotentiallyJobifiedNodeSet(NodeSet.RenderExecutionModel.MaximallyParallel))
-            {
-                var root = set.Create<RenderPipeAggregate>();
-
-                // Since this is created after an update, it won't be valid in a graph value resolver until next update.
-                GraphValue<Aggregate> rootValue = set.CreateGraphValue(root, RenderPipeAggregate.KernelPorts.Output);
-
-                set.Update();
-
-                StallJob job;
-
-                job.Resolver = set.GetGraphValueResolver(out var valueResolverDependency);
-
-                var dependency = job.Schedule(valueResolverDependency);
-
-                // (Intended usage:)
-                // set.InjectDependencyFromConsumer(job.Schedule(valueResolverDependency));
-                Assume.That(StallJob.Done, Is.False);
-
-                /*
-                 * System.InvalidOperationException : The previously scheduled job GraphValueResolverTests:StallJob reads from the NativeArray StallJob.Resolver.Values.
-                 * You must call JobHandle.Complete() on the job GraphValueResolverTests:StallJob, before you can write to the NativeArray safely.
-                 */
-                Assert.Throws<InvalidOperationException>(() => set.Update());
-
-                StallJob.Wait = false;
-
-                set.InjectDependencyFromConsumer(dependency);
-                set.Update();
-                Assert.True(StallJob.Done);
 
                 set.Destroy(root);
                 set.ReleaseGraphValue(rootValue);
@@ -529,41 +504,72 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         [Test]
-        public void ForgettingToPassJobHandle_IntoScheduledGraphResolverJob_ThrowsImmediateException()
+        public void ForgettingToPassJobHandle_BackIntoNodeSet_ThrowsDeferredException()
         {
             if (!JobsUtility.JobDebuggerEnabled)
                 Assert.Ignore("JobsDebugger is disabled");
 
-            StallingAggregateNode.Reset();
-
             using (var set = new RenderGraphTests.PotentiallyJobifiedNodeSet(NodeSet.RenderExecutionModel.MaximallyParallel))
             {
-                var root = set.Create<StallingAggregateNode>();
+                var root = set.Create<RenderPipeAggregate>();
 
-                GraphValue<Aggregate> rootValue = set.CreateGraphValue(root, StallingAggregateNode.KernelPorts.Output);
+                // Since this is created after an update, it won't be valid in a graph value resolver until next update.
+                GraphValue<Aggregate> rootValue = set.CreateGraphValue(root, RenderPipeAggregate.KernelPorts.Output);
 
                 set.Update();
-                Assume.That(StallingAggregateNode.Done, Is.False);
 
                 NullJob job;
 
                 job.Resolver = set.GetGraphValueResolver(out var valueResolverDependency);
 
-                // (Intended usage:)
-                // job.Schedule(valueResolverDependency).Complete()
+                var dependency = job.Schedule(valueResolverDependency);
+
                 /*
-                 * System.InvalidOperationException : The previously scheduled job AtomicSafetyManager:ProtectOutputBuffersFromDataFlowGraph writes to the NativeArray ProtectOutputBuffersFromDataFlowGraph.WritableDataFlowGraphScope.
-                 * You are trying to schedule a new job GraphValueResolverTests:NullJob, which reads from the same NativeArray (via StallJob.Resolver.ReadBuffersScope).
-                 * To guarantee safety, you must include AtomicSafetyManager:ProtectOutputBuffersFromDataFlowGraph as a dependency of the newly scheduled job.
+                 * System.InvalidOperationException : The previously scheduled job GraphValueResolverTests:NullJob reads from the Unity.Collections.NativeList`1[Unity.DataFlowGraph.DataOutputValue] NullJob.Resolver.Values.
+                 * You must call JobHandle.Complete() on the job GraphValueResolverTests:NullJob, before you can write to the Unity.Collections.NativeList`1[Unity.DataFlowGraph.DataOutputValue] safely.
                  */
-                Assert.Throws<InvalidOperationException>(() => job.Schedule().Complete());
-                StallingAggregateNode.Wait = false;
+                Assert.Throws<InvalidOperationException>(() => set.Update());
+
+                // Intended usage
+                Assert.DoesNotThrow(() => set.InjectDependencyFromConsumer(dependency));
+                set.Update();
 
                 set.Destroy(root);
                 set.ReleaseGraphValue(rootValue);
             }
+        }
 
-            Assert.True(StallingAggregateNode.Done);
+        [Test]
+        public void ForgettingToPassJobHandle_IntoScheduledGraphResolverJob_ThrowsImmediateException()
+        {
+            if (!JobsUtility.JobDebuggerEnabled)
+                Assert.Ignore("JobsDebugger is disabled");
+
+            using (var set = new RenderGraphTests.PotentiallyJobifiedNodeSet(NodeSet.RenderExecutionModel.MaximallyParallel))
+            {
+                var root = set.Create<RenderPipeAggregate>();
+
+                GraphValue<Aggregate> rootValue = set.CreateGraphValue(root, RenderPipeAggregate.KernelPorts.Output);
+
+                set.Update();
+
+                NullJob job;
+
+                job.Resolver = set.GetGraphValueResolver(out var valueResolverDependency);
+
+                /*
+                 * System.InvalidOperationException : The previously scheduled job AtomicSafetyManager:ProtectOutputBuffersFromDataFlowGraph writes to the UNKNOWN_OBJECT_TYPE ProtectOutputBuffersFromDataFlowGraph.WritableDataFlowGraphScope.
+                 * You are trying to schedule a new job GraphValueResolverTests:NullJob, which reads from the same UNKNOWN_OBJECT_TYPE (via NullJob.Resolver.ReadBuffersScope).
+                 * To guarantee safety, you must include AtomicSafetyManager:ProtectOutputBuffersFromDataFlowGraph as a dependency of the newly scheduled job.
+                 */
+                Assert.Throws<InvalidOperationException>(() => job.Schedule());
+
+                // Intended usage
+                Assert.DoesNotThrow(() => job.Schedule(valueResolverDependency).Complete());
+
+                set.Destroy(root);
+                set.ReleaseGraphValue(rootValue);
+            }
         }
 
 #endif
@@ -573,7 +579,7 @@ namespace Unity.DataFlowGraph.Tests
             NotExecuted = 0,
             ExecutedNoError,
             ExecutedCaughtDisposedException,
-            ExecutedCaughtArgumentException,
+            ExecutedCaughtIndexOutOfRangeException,
             ExecutedCaughtUnexpectedException
         }
 
@@ -595,9 +601,32 @@ namespace Unity.DataFlowGraph.Tests
                 {
                     Result[0] = InvalidGraphValueResult.ExecutedCaughtDisposedException;
                 }
-                catch (ArgumentException)
+                catch
                 {
-                    Result[0] = InvalidGraphValueResult.ExecutedCaughtArgumentException;
+                    Result[0] = InvalidGraphValueResult.ExecutedCaughtUnexpectedException;
+                }
+            }
+        }
+
+        struct CheckGraphValueArrayValidity : IJob
+        {
+            public GraphValueResolver Resolver;
+            public NativeArray<int> SizeResult;
+            public NativeArray<InvalidGraphValueResult> Result;
+            public GraphValueArray<Aggregate> Value;
+
+            public void Execute()
+            {
+                Result[0] = InvalidGraphValueResult.ExecutedNoError;
+
+                try
+                {
+                    SizeResult[0] = Resolver.Resolve(Value).Length;
+                    var aggr = Resolver.Resolve(Value)[0];
+                }
+                catch (IndexOutOfRangeException)
+                {
+                    Result[0] = InvalidGraphValueResult.ExecutedCaughtIndexOutOfRangeException;
                 }
                 catch
                 {
@@ -633,6 +662,72 @@ namespace Unity.DataFlowGraph.Tests
 
                 set.Destroy(root);
                 set.ReleaseGraphValue(rootValue);
+            }
+        }
+
+        [Test]
+        public void GraphValueArrayResolver_ReturnType_HasCorrectSize()
+        {
+            using (var results = new NativeArray<InvalidGraphValueResult>(1, Allocator.Persistent))
+            using (var sizeResult = new NativeArray<int>(1, Allocator.Persistent))
+            using (var set = new RenderGraphTests.PotentiallyJobifiedNodeSet(NodeSet.RenderExecutionModel.MaximallyParallel))
+            {
+                var root = set.Create<RenderPipeAggregate>();
+
+                set.SetPortArraySize(root, RenderPipeAggregate.KernelPorts.OutputArray, 1);
+                var rootValue = set.CreateGraphValueArray(root, RenderPipeAggregate.KernelPorts.OutputArray);
+
+                set.Update();
+
+                CheckGraphValueArrayValidity job;
+
+                job.Value = rootValue;
+                job.Result = results;
+                job.SizeResult = sizeResult;
+                job.Resolver = set.GetGraphValueResolver(out var valueResolverDependency);
+
+                set.InjectDependencyFromConsumer(job.Schedule(valueResolverDependency));
+
+#if ENABLE_UNITY_COLLECTIONS_CHECKS // We rely on bounds checking for these tests
+                set.SetPortArraySize(root, RenderPipeAggregate.KernelPorts.OutputArray, 0);
+#endif
+
+                // Fences injected dependencies, so we can read result directly
+                set.Update();
+
+                Assert.AreEqual(1, sizeResult[0]);
+                Assert.AreEqual(InvalidGraphValueResult.ExecutedNoError, results[0]);
+
+#if ENABLE_UNITY_COLLECTIONS_CHECKS
+                job.Value = rootValue;
+                job.Result = results;
+                job.Resolver = set.GetGraphValueResolver(out var secondResolverDependency);
+
+                set.InjectDependencyFromConsumer(job.Schedule(secondResolverDependency));
+
+                set.SetPortArraySize(root, RenderPipeAggregate.KernelPorts.OutputArray, 1);
+
+                // Fences injected dependencies, so we can read result directly
+                set.Update();
+
+                Assert.AreEqual(0, sizeResult[0]);
+                Assert.AreEqual(InvalidGraphValueResult.ExecutedCaughtIndexOutOfRangeException, results[0]);
+
+                job.Value = rootValue;
+                job.Result = results;
+                job.Resolver = set.GetGraphValueResolver(out var thirdResolverDependency);
+
+                set.InjectDependencyFromConsumer(job.Schedule(thirdResolverDependency));
+
+                // Fences injected dependencies, so we can read result directly
+                set.Update();
+
+                Assert.AreEqual(1, sizeResult[0]);
+                Assert.AreEqual(InvalidGraphValueResult.ExecutedNoError, results[0]);
+#endif
+
+                set.Destroy(root);
+                set.ReleaseGraphValueArray(rootValue);
             }
         }
 

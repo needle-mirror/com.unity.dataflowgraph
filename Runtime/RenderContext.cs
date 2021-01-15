@@ -9,7 +9,7 @@ namespace Unity.DataFlowGraph
     /// Helper which is strictly only available inside a node's <see cref="IGraphKernel{TKernelData,TKernelPortDefinition}.Execute"/>
     /// implementation allowing it to resolve its data ports to actual instance data.
     /// </summary>
-    public readonly struct RenderContext
+    public readonly partial struct RenderContext
     {
         [NativeDisableUnsafePtrRestriction]
         internal readonly unsafe AtomicSafetyManager* m_SafetyManager;
@@ -95,8 +95,8 @@ namespace Unity.DataFlowGraph
         /// <see cref="RenderContext.Resolve{TNodeDefinition,TType}(ref Unity.DataFlowGraph.DataOutput{TNodeDefinition,TType})"/>).
         /// </summary>
         [DebuggerDisplay("Length = {Length}")]
-        [DebuggerTypeProxy(typeof(ResolvedPortArrayDebugView<,>))]
-        public readonly struct ResolvedPortArray<TDefinition, TType>
+        [DebuggerTypeProxy(typeof(ResolvedInputPortArrayDebugView<,>))]
+        public readonly struct ResolvedInputPortArray<TDefinition, TType>
             where TType : struct
             where TDefinition : NodeDefinition
         {
@@ -123,32 +123,9 @@ namespace Unity.DataFlowGraph
 
             readonly PortArray<DataInput<TDefinition, TType>> PortArray;
 
-            internal ResolvedPortArray(in PortArray<DataInput<TDefinition, TType>> portArray)
+            internal ResolvedInputPortArray(in PortArray<DataInput<TDefinition, TType>> portArray)
             {
                 PortArray = portArray;
-            }
-        }
-
-        internal sealed class ResolvedPortArrayDebugView<TDefinition, TType>
-            where TType : struct
-            where TDefinition : NodeDefinition
-        {
-            private ResolvedPortArray<TDefinition, TType> m_Array;
-
-            public ResolvedPortArrayDebugView(ResolvedPortArray<TDefinition, TType> array)
-            {
-                m_Array = array;
-            }
-
-            public TType[] Items
-            {
-                get
-                {
-                    var ret = new TType[m_Array.Length];
-                    for (int i = 0; i < m_Array.Length; ++i)
-                        ret[i] = m_Array[i];
-                    return ret;
-                }
             }
         }
 
@@ -156,12 +133,27 @@ namespace Unity.DataFlowGraph
         /// Resolves a <see cref="PortArray{TPort}"/> of data inputs so that individual items in the array may be
         /// accessed.
         /// </summary>
-        public ResolvedPortArray<TDefinition, TType> Resolve<TDefinition, TType>(in PortArray<DataInput<TDefinition, TType>> input)
+        public ResolvedInputPortArray<TDefinition, TType> Resolve<TDefinition, TType>(in PortArray<DataInput<TDefinition, TType>> input)
             where TType : struct
             where TDefinition : NodeDefinition
         {
             ThrowIfEmpty();
-            return new ResolvedPortArray<TDefinition, TType>(input);
+            return new ResolvedInputPortArray<TDefinition, TType>(input);
+        }
+
+        /// <summary>
+        /// Resolves a <see cref="PortArray{TPort}"/> of data outputs so that individual items in the array may be
+        /// accessed.
+        /// </summary>
+        public unsafe NativeSlice<TType> Resolve<TDefinition, TType>(ref PortArray<DataOutput<TDefinition, TType>> output)
+            where TType : struct
+            where TDefinition : NodeDefinition
+        {
+            ThrowIfEmpty();
+
+            var ret = NativeSliceUnsafeUtility.ConvertExistingDataToNativeSlice<TType>(output.Ptr, output.GetElementType().Size, output.Size);
+            m_SafetyManager->MarkNativeSliceAsReadWrite(ref ret);
+            return ret;
         }
 
         unsafe void ThrowIfEmpty()

@@ -32,7 +32,7 @@ namespace Unity.DataFlowGraph.PolynomialCubeRotatorExample
             [BurstCompile]
             struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
             {
-                public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, in KernelData data, ref KernelDefs ports)
                 {
                     var a = ctx.Resolve(ports.A);
                     var b = ctx.Resolve(ports.B);
@@ -66,7 +66,7 @@ namespace Unity.DataFlowGraph.PolynomialCubeRotatorExample
             [BurstCompile]
             struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
             {
-                public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, in KernelData data, ref KernelDefs ports)
                 {
                     /*
                      * Sum[a0 + a1*x^1 .. + aN*x^N]
@@ -115,7 +115,7 @@ namespace Unity.DataFlowGraph.PolynomialCubeRotatorExample
             [BurstCompile]
             struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
             {
-                public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, in KernelData data, ref KernelDefs ports)
                 {
                     /*
                      * Expand[Rng[-2^x, 2^x], N]
@@ -151,7 +151,7 @@ namespace Unity.DataFlowGraph.PolynomialCubeRotatorExample
                     ctx.RegisterForUpdate();
                 }
 
-                public void HandleMessage(in MessageContext ctx, in float msg)
+                public void HandleMessage(MessageContext ctx, in float msg)
                 {
                     if (ctx.Port == SimulationPorts.Time)
                         m_Time = msg;
@@ -159,7 +159,7 @@ namespace Unity.DataFlowGraph.PolynomialCubeRotatorExample
                         m_TimeScale = msg;
                 }
 
-                public void Update(in UpdateContext ctx)
+                public void Update(UpdateContext ctx)
                 {
                     m_Time += Time.deltaTime * m_TimeScale;
                     ctx.UpdateKernelData ( new KernelData { Time = m_Time });
@@ -179,7 +179,7 @@ namespace Unity.DataFlowGraph.PolynomialCubeRotatorExample
             [BurstCompile]
             struct GraphKernel : IGraphKernel<KernelData, KernelDefs>
             {
-                public void Execute(RenderContext ctx, KernelData data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, in KernelData data, ref KernelDefs ports)
                     => ctx.Resolve(ref ports.X) = math.sin(data.Time);
             }
 

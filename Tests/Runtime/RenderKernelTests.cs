@@ -11,7 +11,7 @@ namespace Unity.DataFlowGraph.Tests
         [BurstCompile(CompileSynchronously = true)]
         struct DummyKernel : IGraphKernel<DummyData, DummyPorts>
         {
-            public void Execute(RenderContext ctx, DummyData data, ref DummyPorts ports) { }
+            public void Execute(RenderContext ctx, in DummyData data, ref DummyPorts ports) { }
         }
 
         // TODO: Uncomment once issue #229 is fixed
@@ -62,28 +62,21 @@ namespace Unity.DataFlowGraph.Tests
             }
         } */
 
-        public class BurstedNode : NodeDefinition
-            <
-                BurstedNode.Data,
-                BurstedNode.SimPorts,
-                BurstedNode.KData,
-                BurstedNode.KernelDefs,
-                BurstedNode.Kernel
-            >
+        public class BurstedNode : SimulationKernelNodeDefinition<BurstedNode.SimPorts, BurstedNode.KernelDefs>
         {
             public struct SimPorts : ISimulationPortDefinition { }
-            public struct Data : INodeData { }
-            public struct KData : IKernelData { }
 
             public struct KernelDefs : IKernelPortDefinition
             {
                 public DataOutput<BurstedNode, bool> Result;
             }
 
+            struct KData : IKernelData { }
+
             [BurstCompile(CompileSynchronously = true)]
-            public struct Kernel : IGraphKernel<KData, KernelDefs>
+            struct Kernel : IGraphKernel<KData, KernelDefs>
             {
-                public void Execute(RenderContext ctx, KData data, ref KernelDefs ports)
+                public void Execute(RenderContext ctx, in KData data, ref KernelDefs ports)
                 {
                     ctx.Resolve(ref ports.Result) =
                         BurstConfig.DetectExecutionEngine() == BurstConfig.ExecutionResult.InsideBurst;

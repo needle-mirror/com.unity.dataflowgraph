@@ -1,4 +1,5 @@
 using System;
+using System.ComponentModel;
 using Unity.Collections;
 using Unity.Jobs;
 
@@ -7,7 +8,7 @@ namespace Unity.DataFlowGraph
     /// <summary>
     /// A context provided to a node's <see cref="NodeDefinition.OnUpdate"/> implementation.
     /// </summary>
-    public readonly partial struct UpdateContext
+    public readonly struct UpdateContext : Detail.IContext<UpdateContext>
     {
         readonly CommonContext m_Ctx;
 
@@ -25,88 +26,6 @@ namespace Unity.DataFlowGraph
         /// Conversion operator for common API shared with other contexts.
         /// </summary>
         public static implicit operator CommonContext(in UpdateContext ctx) => ctx.m_Ctx;
-
-        /// <summary>
-        /// Emit a message from yourself on a port. Everything connected to it
-        /// will receive your message.
-        /// </summary>
-        public void EmitMessage<T, TNodeDefinition>(MessageOutput<TNodeDefinition, T> port, in T msg)
-            where TNodeDefinition : NodeDefinition
-        {
-            Set.EmitMessage(InternalHandle, new OutputPortArrayID(port.Port), msg);
-        }
-
-        /// <summary>
-        /// Emit a message from yourself on a port array. Everything connected to it
-        /// will receive your message.
-        /// </summary>
-        /// <exception cref="IndexOutOfRangeException">Thrown if the index is out of range with respect to the port array.</exception>
-        public void EmitMessage<T, TNodeDefinition>(PortArray<MessageOutput<TNodeDefinition, T>> port, int arrayIndex, in T msg)
-            where TNodeDefinition : NodeDefinition
-        {
-            Set.EmitMessage(InternalHandle, new OutputPortArrayID(port.GetPortID(), arrayIndex), msg);
-        }
-
-        /// <summary>
-        /// Updates the contents of <see cref="Buffer{T}"/>s appearing in this node's <see cref="IGraphKernel{TKernelData,TKernelPortDefinition}"/>.
-        /// Pass an instance of the node's <see cref="IGraphKernel{TKernelData,TKernelPortDefinition}"/> as the <paramref name="requestedContents"/>
-        /// parameter with <see cref="Buffer{T}"/> instances within it having been set using <see cref="UploadRequest"/>, or
-        /// <see cref="Buffer{T}.SizeRequest(int)"/>.
-        /// Any <see cref="Buffer{T}"/> instances within the given struct that have default values will be unaffected by the call.
-        /// </summary>
-        public void UpdateKernelBuffers<TGraphKernel>(in TGraphKernel kernel)
-            where TGraphKernel : struct, IGraphKernel
-        {
-            Set.UpdateKernelBuffers(InternalHandle, kernel);
-        }
-
-        /// <summary>
-        /// The return value should be used together with <see cref="UpdateKernelBuffers"/> to change the contents
-        /// of a kernel buffer living on a <see cref="IGraphKernel{TKernelData, TKernelPortDefinition}"/>.
-        /// </summary>
-        /// <remarks>
-        /// This will resize the affected buffer to the same size as <paramref name="inputMemory"/>.
-        /// Failing to include the return value in a call to <see cref="UpdateKernelBuffers"/> is an error and will result in a memory leak.
-        /// </remarks>
-        public Buffer<T> UploadRequest<T>(NativeArray<T> inputMemory, BufferUploadMethod method = BufferUploadMethod.Copy)
-            where T : struct
-                => Set.UploadRequest(InternalHandle, inputMemory, method);
-
-        /// <summary>
-        /// Updates the associated <typeparamref name="TKernelData"/> asynchronously,
-        /// to be available in a <see cref="IGraphKernel"/> in the next render.
-        /// </summary>
-        public void UpdateKernelData<TKernelData>(in TKernelData data)
-            where TKernelData : struct, IKernelData
-        {
-            Set.UpdateKernelData(InternalHandle, data);
-        }
-
-        /// <summary>
-        /// Registers <see cref="Handle"/> for regular updates every time <see cref="NodeSet.Update"/> is called.
-        /// This only takes effect after the next <see cref="NodeSet.Update"/>.
-        /// <seealso cref="IUpdate.Update(in UpdateContext)"/>
-        /// <seealso cref="RemoveFromUpdate()"/>
-        /// </summary>
-        /// <remarks>
-        /// A node will automatically be removed from the update list when it is destroyed.
-        /// </remarks>
-        /// <exception cref="InvalidOperationException">
-        /// Thrown if <see cref="Handle"/> is already registered for updating.
-        /// </exception>
-        public void RegisterForUpdate() => Set.RegisterForUpdate(InternalHandle);
-
-        /// <summary>
-        /// Deregisters <see cref="Handle"/> from updating every time <see cref="NodeSet.Update"/> is called.
-        /// This only takes effect after the next <see cref="NodeSet.Update"/>.
-        /// <seealso cref="RegisterForUpdate()"/>
-        /// </summary>
-        /// <exception cref="InvalidOperationException">
-        /// Thrown if <see cref="Handle"/> is not registered for updating.
-        /// </exception>
-        public void RemoveFromUpdate() => Set.RemoveFromUpdate(InternalHandle);
-
-        internal ValidatedHandle InternalHandle => m_Ctx.InternalHandle;
 
         internal UpdateContext(NodeSetAPI set, in ValidatedHandle handle)
         {
@@ -172,9 +91,6 @@ namespace Unity.DataFlowGraph
         {
             ref var nodeData = ref Nodes[handle];
 
-            if (m_Traits[nodeData.TraitsIndex].Resolve().SimulationStorage.IsScaffolded)
-                throw new InvalidNodeDefinitionException($"Old-style node definitions cannot register for updates");
-
             if (m_NodeDefinitions[nodeData.TraitsIndex].VirtualTable.UpdateHandler == null)
                 throw new InvalidNodeDefinitionException($"Node definition does not implement {typeof(IUpdate)}");
 
@@ -189,9 +105,6 @@ namespace Unity.DataFlowGraph
         internal void RemoveFromUpdate(ValidatedHandle handle)
         {
             ref var nodeData = ref Nodes[handle];
-
-            if (m_Traits[nodeData.TraitsIndex].Resolve().SimulationStorage.IsScaffolded)
-                throw new InvalidNodeDefinitionException($"Old-style node definitions cannot be removed from updates");
 
             if (nodeData.UpdateIndex == (int)UpdateState.InvalidUpdateIndex)
                 throw new InvalidOperationException($"Node {handle} is not registered for updating");
@@ -272,7 +185,7 @@ namespace Unity.DataFlowGraph
                 ref readonly var request = ref m_PendingBufferUploads[i];
                 Debug.LogWarning(
                     $"Node {request.OwnerNode} requested a memory upload of size {request.Size} " +
-                    $"that was not committed through {nameof(InitContext.UploadRequest)} " +
+                    $"that was not committed through {nameof(CommonContextAPI.UploadRequest)} " +
                     $"in the same {nameof(Update)} - this is potentially a memory leak"
                 );
             }
@@ -288,32 +201,20 @@ namespace Unity.DataFlowGraph
 
             m_SimulateProfilerMarker.Begin();
 
-            // Old style node defs
-            for (int i = VersionedList<InternalNodeData>.ValidOffset; i < Nodes.UnvalidatedCount; ++i)
-            {
-                ref var node = ref Nodes.UnvalidatedItemAt(i);
-
-                if (node.Valid && m_Traits[node.TraitsIndex].Resolve().SimulationStorage.IsScaffolded)
-                    m_NodeDefinitions[node.TraitsIndex].UpdateInternal(new UpdateContext(this, node.Handle));
-            }
-
-            // new-style node definition updates
             for (int i = (int)UpdateState.ValidUpdateOffset; i < m_UpdateIndices.UncheckedCount; ++i)
             {
                 var handle = m_UpdateIndices[i];
-
                 if (!Nodes.StillExists(handle))
                     continue;
 
                 ref var node = ref Nodes[handle];
-
                 m_NodeDefinitions[node.TraitsIndex].UpdateInternal(new UpdateContext(this, node.Handle));
             }
 
             m_SimulateProfilerMarker.End();
 
             m_CopyWorldsProfilerMarker.Begin();
-            m_RenderGraph.CopyWorlds(m_Diff, inputDependencies, InternalRendererModel, m_GraphValues);
+            m_RenderGraph.CopyWorlds(m_Diff, inputDependencies, InternalRendererModel, InternalRendererOptimizations);
             m_Diff = new GraphDiff(Allocator.Persistent); // TODO: Could be temp?
             m_CopyWorldsProfilerMarker.End();
 
@@ -353,6 +254,6 @@ namespace Unity.DataFlowGraph
         /// <remarks>
         /// It is undefined behaviour to throw an exception from this method.
         /// </remarks>
-        void Update(in UpdateContext context);
+        void Update(UpdateContext ctx);
     }
 }

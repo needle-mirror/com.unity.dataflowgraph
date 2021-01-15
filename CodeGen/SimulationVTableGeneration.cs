@@ -19,16 +19,12 @@ namespace Unity.DataFlowGraph.CodeGen
         PresentSingularCallbacks m_PresentCallbacks;
 
         /// <summary>
-        /// List of <see cref="IMsgHandler{TMsg}"/> and <see cref="IMsgHandlerGeneric{TMsg}"/> implemented in <see cref="DefinitionProcessor.InstantiatedDefinition"/>
-        /// </summary>
-        List<GenericInstanceType> m_OldMessageHandlers = new List<GenericInstanceType>();
-        /// <summary>
         /// List of <see cref="IMsgHandler{TMsg}"/> and <see cref="IMsgHandlerGeneric{TMsg}"/> implemented on a <see cref="INodeData"/>
         /// </summary>
-        List<GenericInstanceType> m_NodeDataMessageHandlers = new List<GenericInstanceType>();
+        List<GenericInstanceType> m_MessageHandlers = new List<GenericInstanceType>();
         /// <summary>
         /// Pair of message type and the connected field (being of <see cref="MessageInput{TDefinition, TMsg}"/> with tmsg = MessageType)
-        /// for each of the matching handlers in <see cref="m_NodeDataMessageHandlers"/>
+        /// for each of the matching handlers in <see cref="m_MessageHandlers"/>
         /// </summary>
         List<(TypeReference MessageType, FieldReference ClosedField)> m_DeclaredInputMessagePorts = new List<(TypeReference, FieldReference)>();
 
@@ -37,15 +33,14 @@ namespace Unity.DataFlowGraph.CodeGen
             if (innerType is GenericInstanceType instantiatedPort &&
                 substitutedInnerType is GenericInstanceType instantiatedSubstitutedInnerType)
             {
-                // TODO: Use .Unqualified() in the future.
-                var open = innerType.Resolve();
+                var open = innerType.Open();
 
                 if (open.RefersToSame(m_Lib.PortArrayType))
                 {
                     ParsePotentialMessageInput(root, instantiatedPort.GenericArguments[0], instantiatedSubstitutedInnerType.GenericArguments[0]);
                     return;
                 }
-                else if (open.RefersToSame(m_Lib.MessageInputType))
+                else if (open.RefersToSame(m_Lib.GetPort(DFGLibrary.PortClass.MessageInput).Type))
                 {
                     m_DeclaredInputMessagePorts.Add((instantiatedSubstitutedInnerType.GenericArguments[1], root));
                 }
@@ -61,17 +56,7 @@ namespace Unity.DataFlowGraph.CodeGen
                 ParsePotentialMessageInput(field.Instantiated, field.Definition.FieldType, field.SubstitutedType);
         }
 
-        void ParseOldStyleCallbacks()
-        {
-            foreach (var iface in InstantiatedDefinition.InstantiatedInterfaces())
-            {
-                if ((iface.Definition.RefersToSame(m_Lib.IMessageHandlerInterface) || iface.Definition.RefersToSame(m_Lib.IMessageHandlerGenericInterface)) &&
-                    iface.Instantiated is GenericInstanceType messageHandler)
-                    m_OldMessageHandlers.Add(messageHandler);
-            }
-        }
-
-        void ParseNewStyleCallbacks()
+        void ParseCallbacks()
         {
             if (NodeDataImplementation == null)
                 return;
@@ -80,7 +65,7 @@ namespace Unity.DataFlowGraph.CodeGen
             {
                 if ((iface.Definition.RefersToSame(m_Lib.IMessageHandlerInterface) || iface.Definition.RefersToSame(m_Lib.IMessageHandlerGenericInterface)) &&
                     iface.Instantiated is GenericInstanceType messageHandler)
-                    m_NodeDataMessageHandlers.Add(messageHandler);
+                    m_MessageHandlers.Add(messageHandler);
                 else if (iface.Definition.RefersToSame(m_Lib.IInitInterface))
                     m_PresentCallbacks |= PresentSingularCallbacks.Init;
                 else if (iface.Definition.RefersToSame(m_Lib.IDestroyInterface))
@@ -120,7 +105,7 @@ namespace Unity.DataFlowGraph.CodeGen
 
         void InsertMessageHandlers(MethodDefinition handlerMethod, Diag d)
         {
-            if (StaticSimulationPort == null || m_NodeDataMessageHandlers.Count == 0)
+            if (StaticSimulationPort == null || m_MessageHandlers.Count == 0)
                 return;
 
             //  // Where Field... : MessageInput<TNodeDefinition, T>
@@ -129,9 +114,7 @@ namespace Unity.DataFlowGraph.CodeGen
 
             foreach (var fieldInfo in m_DeclaredInputMessagePorts)
             {
-                var messageHandler =
-                    (m_NodeDataMessageHandlers.Count > 0 ? m_NodeDataMessageHandlers : m_OldMessageHandlers)
-                    .Single(h => h.GenericArguments[0].RefersToSame(fieldInfo.MessageType));
+                var messageHandler = m_MessageHandlers.Single(h => h.GenericArguments[0].RefersToSame(fieldInfo.MessageType));
 
                 var vTableMessageInstaller = m_Lib.GetVTableMessageInstallerForHandler(messageHandler, fieldInfo.ClosedField.FieldType);
 

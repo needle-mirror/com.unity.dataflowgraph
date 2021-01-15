@@ -10,30 +10,6 @@ namespace Unity.DataFlowGraph.Tests
 {
     public unsafe class AtomicSafetyManagerTests
     {
-        internal struct WaitingStaticFlagStructure
-        {
-            public static bool Wait { get => Interlocked.Read(ref s_StartFlag) == 0; set => Interlocked.Exchange(ref s_StartFlag, !value ? 1 : 0); }
-            public static bool Done { get => Interlocked.Read(ref s_DoneFlag) > 0; set => Interlocked.Exchange(ref s_DoneFlag, value ? 1 : 0); }
-
-            static long s_StartFlag;
-            static long s_DoneFlag;
-
-            static public void Execute()
-            {
-                // Avoid potential deadlocks.
-                for (int i = 0; i < 1000 && Wait; ++i)
-                    Thread.Sleep(10);
-
-                Done = true;
-            }
-
-            static public void Reset()
-            {
-                Wait = true;
-                Done = false;
-            }
-        }
-
         [Test]
         public void CanAllocateAndDispose_AtomicSafetyManager_OnTheStack()
         {
@@ -182,20 +158,6 @@ namespace Unity.DataFlowGraph.Tests
             }
         }
 
-        struct JobThatProducesNativeArray : IJob
-        {
-            public NativeArray<int> array;
-
-            public static bool Wait { get => WaitingStaticFlagStructure.Wait; set => WaitingStaticFlagStructure.Wait = value; }
-            public static bool Done { get => WaitingStaticFlagStructure.Done; set => WaitingStaticFlagStructure.Done = value; }
-            public static void Reset() => WaitingStaticFlagStructure.Reset();
-
-            public void Execute()
-            {
-                WaitingStaticFlagStructure.Execute();
-            }
-        }
-
         struct JobThatUsesNativeArray : IJob
         {
             public NativeArray<int> array;
@@ -217,16 +179,13 @@ namespace Unity.DataFlowGraph.Tests
             if (!JobsUtility.JobDebuggerEnabled)
                 Assert.Ignore("JobsDebugger is disabled");
 
-            JobThatProducesNativeArray.Reset();
-
             var handleContainer = new NativeArray<AtomicSafetyHandleContainer>(1, Allocator.TempJob);
 
             try
             {
                 using (NativeArray<int> array = new NativeArray<int>(1, Allocator.TempJob))
                 {
-
-                    JobThatProducesNativeArray producer;
+                    JobThatUsesNativeArray producer;
                     producer.array = array;
 
                     var dependency = producer.Schedule();
@@ -241,22 +200,16 @@ namespace Unity.DataFlowGraph.Tests
                     JobThatUsesNativeArray consumer;
                     consumer.array = array;
 
-                    Assert.True(JobThatProducesNativeArray.Wait);
-
                     try
                     {
                         JobHandle missingDependencyFromDataFlowGraph = default;
 
-                        Assume.That(JobThatProducesNativeArray.Done, Is.False);
                         Assert.Throws<InvalidOperationException>(() => consumer.Schedule(missingDependencyFromDataFlowGraph));
-                        JobThatProducesNativeArray.Wait = false;
 
                         Assert.DoesNotThrow(() => consumer.Schedule(protectedDependency).Complete());
-                        Assert.True(JobThatProducesNativeArray.Done);
                     }
                     finally
                     {
-                        JobThatProducesNativeArray.Wait = false;
                         protectedDependency.Complete();
                     }
                 }
@@ -274,12 +227,9 @@ namespace Unity.DataFlowGraph.Tests
             if (!JobsUtility.JobDebuggerEnabled)
                 Assert.Ignore("JobsDebugger is disabled");
 
-            JobThatProducesNativeArray.Reset();
-
             using (NativeArray<int> array = new NativeArray<int>(1, Allocator.TempJob))
             {
-
-                JobThatProducesNativeArray producer;
+                JobThatUsesNativeArray producer;
                 producer.array = array;
 
                 var dependency = producer.Schedule();
@@ -289,22 +239,16 @@ namespace Unity.DataFlowGraph.Tests
                 JobThatUsesNativeArray consumer;
                 consumer.array = array;
 
-                Assert.True(JobThatProducesNativeArray.Wait);
-
                 try
                 {
                     JobHandle missingDependencyFromDataFlowGraph = default;
 
-                    Assume.That(JobThatProducesNativeArray.Done, Is.False);
                     Assert.Throws<InvalidOperationException>(() => consumer.Schedule(missingDependencyFromDataFlowGraph));
-                    JobThatProducesNativeArray.Wait = false;
 
                     Assert.DoesNotThrow(() => consumer.Schedule(protectedDependency).Complete());
-                    Assert.True(JobThatProducesNativeArray.Done);
                 }
                 finally
                 {
-                    JobThatProducesNativeArray.Wait = false;
                     protectedDependency.Complete();
                 }
             }
@@ -318,16 +262,13 @@ namespace Unity.DataFlowGraph.Tests
             if (!JobsUtility.JobDebuggerEnabled)
                 Assert.Ignore("JobsDebugger is disabled");
 
-            JobThatProducesNativeArray.Reset();
-
             var handleContainer = new NativeArray<AtomicSafetyHandleContainer>(1, Allocator.TempJob);
 
             try
             {
                 using (NativeArray<int> array = new NativeArray<int>(1, Allocator.TempJob))
                 {
-
-                    JobThatProducesNativeArray producer;
+                    JobThatUsesNativeArray producer;
                     producer.array = array;
 
                     var dependency = producer.Schedule();
@@ -346,16 +287,12 @@ namespace Unity.DataFlowGraph.Tests
                             () => AtomicSafetyManager.MarkHandlesAsUsed(invalidDependency, (AtomicSafetyHandleContainer*)handleContainer.GetUnsafePtr(), handleContainer.Length)
                         );
 
-                        Assume.That(JobThatProducesNativeArray.Done, Is.False);
-                        JobThatProducesNativeArray.Wait = false;
-
                         Assert.DoesNotThrow(
                             () => AtomicSafetyManager.MarkHandlesAsUsed(dependency, (AtomicSafetyHandleContainer*)handleContainer.GetUnsafePtr(), handleContainer.Length).Complete()
                         );
                     }
                     finally
                     {
-                        JobThatProducesNativeArray.Wait = false;
                         dependency.Complete();
                     }
 

@@ -317,7 +317,7 @@ namespace Unity.DataFlowGraph.Tests
 
             struct Node : INodeData, IMsgHandler<float>
             {
-                public void HandleMessage(in MessageContext ctx, in float msg) { }
+                public void HandleMessage(MessageContext ctx, in float msg) { }
             }
         }
 

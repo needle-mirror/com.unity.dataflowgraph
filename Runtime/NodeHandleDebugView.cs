@@ -1,15 +1,28 @@
-using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Reflection;
+using System.Linq;
 using Unity.Collections;
 
 namespace Unity.DataFlowGraph
 {
+    using Topology = TopologyAPI<ValidatedHandle, InputPortArrayID, OutputPortArrayID>;
+
     class NodeHandleDebugView
     {
+
+        [DebuggerDisplay("Count = {Array.Length}")]
+        public struct Collection<TType>
+        {
+            [DebuggerBrowsable(DebuggerBrowsableState.RootHidden)]
+            public TType[] Array;
+        }
+
+        static Collection<T> Collect<T>(IEnumerable<T> items) => new Collection<T> { Array = items.ToArray() };
+
+        static Collection<T> Collect<T>(List<T> items) => new Collection<T> { Array = items.ToArray() };
+
         public static string DebugDisplay(NodeHandle handle) =>
-            $"{handle.ToString()}, Node: {GetNodeSet(handle)?.GetDefinition(handle).GetType().Name ?? "<INVALID>"}";
+            $"{GetNodeSet(handle)?.GetDefinition(handle).GetType().Name ?? "<INVALID>"}: {handle.ToString()}";
 
         public static object GetDebugInfo(NodeHandle handle)
         {
@@ -18,14 +31,18 @@ namespace Unity.DataFlowGraph
             if (set != null)
             {
                 var def = set.GetDefinition(handle);
+                var forwarded = GetForwardedPorts(set, def, handle);
+
                 return new FullDebugInfo
                 {
                     VHandle = handle.VHandle,
                     Set = set,
                     Definition = def,
                     Traits = set.GetNodeTraits(handle),
-                    InputPorts = GetInputs(set, def, handle).ToArray(),
-                    OutputPorts = GetOutputs(set, def, handle).ToArray()
+                    InputPorts = GetInputs(set, def, handle),
+                    OutputPorts = GetOutputs(set, def, handle),
+                    ForwardedInputs = forwarded.Inputs,
+                    ForwardedOutputs = forwarded.Outputs
                 };
             }
             else
@@ -51,7 +68,7 @@ namespace Unity.DataFlowGraph
         [DebuggerBrowsable(DebuggerBrowsableState.RootHidden)]
         public object DebugInfo;
 
-        struct FullDebugInfo
+        public struct FullDebugInfo
         {
             [DebuggerBrowsable(DebuggerBrowsableState.Never)]
             public VersionedHandle VHandle;
@@ -60,136 +77,211 @@ namespace Unity.DataFlowGraph
             public LowLevelNodeTraits Traits;
             public INodeData NodeData => Definition?.BaseTraits.DebugGetNodeData(Set, new NodeHandle(VHandle));
             public IKernelData KernelData => Definition?.BaseTraits.DebugGetKernelData(Set, new NodeHandle(VHandle));
-            public InputPort[] InputPorts;
-            public OutputPort[] OutputPorts;
+            public Collection<InputPort> InputPorts;
+            public Collection<OutputPort> OutputPorts;
+            public Collection<Forward<PortDescription.InputPort>> ForwardedInputs;
+            public Collection<Forward<PortDescription.OutputPort>> ForwardedOutputs;
+
         }
 
-        struct InvalidNodeHandleDebugInfo
+        public struct InvalidNodeHandleDebugInfo
         {
             public VersionedHandle VHandle;
             public ushort NodeSetID => VHandle.ContainerID;
         }
 
         [DebuggerDisplay("{DebugDisplay(), nq}")]
-        [DebuggerTypeProxy(typeof(InputConnectionDebugView))]
-        class InputConnection
+        public class InputConnection
         {
+            [DebuggerBrowsable(DebuggerBrowsableState.Never)]
             public PortDescription.OutputPort Description;
+            [DebuggerBrowsable(DebuggerBrowsableState.RootHidden)]
             public NodeHandle Node;
 
             string DebugDisplay() =>
                 $"{NodeHandleDebugView.DebugDisplay(Node)}, {Description.Category}: \"{Description.Name}\"";
         }
 
-        class InputConnectionDebugView
+        [DebuggerDisplay("{DebugDisplay(), nq}")]
+        public class InputPort
         {
             [DebuggerBrowsable(DebuggerBrowsableState.RootHidden)]
-            public NodeHandle Node;
-            public InputConnectionDebugView(InputConnection connection)
-            {
-                Node = connection.Node;
-            }
-        }
-
-        [DebuggerDisplay("{DebugDisplay(), nq}")]
-        [DebuggerTypeProxy(typeof(InputPortDebugView))]
-        class InputPort
-        {
+            public Collection<InputConnection> Connections;
             public PortDescription.InputPort Description;
-            public InputConnection[] Connections;
 
             string DebugDisplay() =>
-                $"{Description.Category}: \"{Description.Name}\", Type: {Description.Type}, Connections: {Connections.Length}";
+                $"{Description.Category}: \"{Description.Name}\", Type: {Description.Type}, Connections: {Connections.Array.Length}";
         }
 
-        class InputPortDebugView
-        {
-            [DebuggerBrowsable(DebuggerBrowsableState.RootHidden)]
-            public InputConnection[] Connections;
-            public InputPortDebugView(InputPort inputPort)
-            {
-                Connections = inputPort.Connections;
-            }
-        }
 
         [DebuggerDisplay("{DebugDisplay(), nq}")]
-        [DebuggerTypeProxy(typeof(OutputConnectionDebugView))]
-        class OutputConnection
+        public class OutputConnection
         {
+            [DebuggerBrowsable(DebuggerBrowsableState.Never)]
             public PortDescription.InputPort Description;
+            [DebuggerBrowsable(DebuggerBrowsableState.RootHidden)]
             public NodeHandle Node;
 
             string DebugDisplay() =>
                 $"{NodeHandleDebugView.DebugDisplay(Node)}, {Description.Category}: \"{Description.Name}\"";
         }
 
-        class OutputConnectionDebugView
+        [DebuggerDisplay("{DebugDisplay(), nq}")]
+        public struct OutputPort
         {
             [DebuggerBrowsable(DebuggerBrowsableState.RootHidden)]
-            public NodeHandle Node;
-            public OutputConnectionDebugView(OutputConnection connection)
-            {
-                Node = connection.Node;
-            }
+            public Collection<OutputConnection> Connections;
+            public PortDescription.OutputPort Description;
+
+            string DebugDisplay() =>
+                $"{Description.Category}: \"{Description.Name}\", Type: {Description.Type}, Connections: {Connections.Array.Length}";
         }
 
         [DebuggerDisplay("{DebugDisplay(), nq}")]
-        [DebuggerTypeProxy(typeof(OutputPortDebugView))]
-        struct OutputPort
+        public struct Forward<TPort>
+            where TPort : PortDescription.IPort
         {
-            public PortDescription.OutputPort Description;
-            public OutputConnection[] Connections;
+            public NodeHandle Replacement;
+            public TPort OriginPort;
+            public TPort ReplacementPort;
 
-            string DebugDisplay() =>
-                $"{Description.Category}: \"{Description.Name}\", Type: {Description.Type}, Connections: {Connections.Length}";
-        }
-
-        class OutputPortDebugView
-        {
-            [DebuggerBrowsable(DebuggerBrowsableState.RootHidden)]
-            public OutputConnection[] Connections;
-            public OutputPortDebugView(OutputPort outputPort)
+            internal string DebugDisplay()
             {
-                Connections = outputPort.Connections;
+                var replacedName = ReplacementPort.Name ?? $"?({ReplacementPort.Type.Name})";
+                var originName = OriginPort.Name ?? $"?({OriginPort.Type.Name})";
+
+                var set = GetNodeSet(Replacement);
+                return $"{originName} -> {set.GetDefinition(Replacement)}.{replacedName}";
             }
         }
 
-        static List<InputPort> GetInputs(NodeSetAPI set, NodeDefinition def, NodeHandle handle)
+        static (Collection<Forward<PortDescription.InputPort>> Inputs, Collection<Forward<PortDescription.OutputPort>> Outputs) GetForwardedPorts(NodeSetAPI set, NodeDefinition self, NodeHandle origin)
         {
-            var ret = new List<InputPort>();
+            var inputs = new List<Forward<PortDescription.InputPort>>();
+            var outputs = new List<Forward<PortDescription.OutputPort>>();
 
-            foreach (var port in def.GetPortDescription(handle).Inputs)
+            var table = set.GetForwardingTable();
+
+            var validated = set.Nodes.Validate(origin.VHandle);
+
+            for (var fP = set.Nodes[validated].ForwardedPortHead; fP != ForwardPortHandle.Invalid; fP = table[fP].NextIndex)
             {
-                var cons = new List<InputConnection>();
-                foreach (var con in set.GetInputs(set.Nodes.Validate(handle.VHandle)))
-                    if (con.DestinationInputPort.PortID == (InputPortID)port)
-                        cons.Add(new InputConnection {
-                            Node = con.Source.ToPublicHandle(),
-                            Description = set.GetDefinitionInternal(con.Source).GetVirtualOutput(con.Source, con.SourceOutputPort)
-                        });
-                ret.Add(new InputPort {Description = port, Connections = cons.ToArray()});
+                ref var forward = ref table[fP];
+
+                if (forward.IsInput)
+                {
+                    Forward<PortDescription.InputPort> input;
+                    input.Replacement = forward.Replacement.ToPublicHandle();
+                    input.OriginPort = self.GetFormalInput(validated, new InputPortArrayID(forward.GetOriginInputPortID()));
+                    input.ReplacementPort = set.GetVirtualPort(new InputPair(set, forward.Replacement.ToPublicHandle(), new InputPortArrayID(forward.GetReplacedInputPortID())));
+                    inputs.Add(input);
+                }
+                else
+                {
+                    Forward<PortDescription.OutputPort> output;
+                    output.Replacement = forward.Replacement.ToPublicHandle();
+                    output.OriginPort = self.GetFormalOutput(validated, new OutputPortArrayID(forward.GetOriginOutputPortID()));
+                    output.ReplacementPort = set.GetVirtualPort(
+                        new OutputPair(set, forward.Replacement.ToPublicHandle(), new OutputPortArrayID(forward.GetReplacedOutputPortID()))
+                    );
+                    outputs.Add(output);
+                }
             }
 
-            return ret;
+            return (Collect(inputs), Collect(outputs));
         }
 
-        static List<OutputPort> GetOutputs(NodeSetAPI set, NodeDefinition def, NodeHandle handle)
+        static Collection<InputPort> GetInputs(NodeSetAPI set, NodeDefinition def, NodeHandle handle)
         {
-            var ret = new List<OutputPort>();
+            var validated = set.Nodes.Validate(handle.VHandle);
+            var ret = new Dictionary<InputPortID, List<Topology.Connection>>();
 
-            foreach (var port in def.GetPortDescription(handle).Outputs)
+            // Add all known ports to the table
+            foreach (var port in def.AutoPorts.Inputs)
             {
-                var cons = new List<OutputConnection>();
-                foreach (var con in set.GetOutputs(set.Nodes.Validate(handle.VHandle)))
-                    if (con.SourceOutputPort.PortID == (OutputPortID)port)
-                        cons.Add(new OutputConnection {
-                            Node = con.Destination.ToPublicHandle(),
-                            Description = set.GetDefinitionInternal(con.Destination).GetVirtualInput(con.Destination, con.DestinationInputPort)
-                        });
-                ret.Add(new OutputPort {Description = port, Connections = cons.ToArray()});
+                ret.Add(port, new List<Topology.Connection>());
             }
 
-            return ret;
+            // Add all existing connections
+            foreach (var con in set.GetInputs(validated))
+            {
+                var port = con.DestinationInputPort.PortID;
+                // This can happen for eg. component nodes that do not report "ports" in the auto ports
+                if (!ret.ContainsKey(port))
+                {
+                    ret.Add(port, new List<Topology.Connection>());
+                }
+
+                ret[port].Add(con);
+            }
+
+            var aggr = ret.Select(
+                kv => new InputPort
+                {
+                    Description = def.GetVirtualInput(validated, new InputPortArrayID(kv.Key)),
+                    Connections = Collect(
+                        kv.Value.Select(
+                            c => new InputConnection
+                            {
+                                Description = set.GetDefinitionInternal(c.Source).GetVirtualOutput(c.Source, c.SourceOutputPort),
+                                Node = c.Source.ToPublicHandle()
+                            }
+                        )
+                    )
+                }
+            ).ToList();
+
+            // Ensure ports are listed in declaration order (which port IDs are)
+            aggr.Sort((a, b) => (int)a.Description.PortID.Port.CategoryCounter - (int)b.Description.PortID.Port.CategoryCounter);
+
+            return Collect(aggr);
+
+        }
+
+        static Collection<OutputPort> GetOutputs(NodeSetAPI set, NodeDefinition def, NodeHandle handle)
+        {
+            var validated = set.Nodes.Validate(handle.VHandle);
+            var ret = new Dictionary<OutputPortID, List<Topology.Connection>>();
+
+            // Add all known ports to the table
+            foreach (var port in def.AutoPorts.Outputs)
+            {
+                ret.Add(port, new List<Topology.Connection>());
+            }
+
+            // Add all existing connections
+            foreach (var con in set.GetOutputs(validated))
+            {
+                var port = con.SourceOutputPort.PortID;
+                // This can happen for eg. component nodes that do not report "ports" in the auto ports
+                if (!ret.ContainsKey(port))
+                {
+                    ret.Add(port, new List<Topology.Connection>());
+                }
+
+                ret[port].Add(con);
+            }
+
+            var aggr = ret.Select(
+                kv => new OutputPort
+                {
+                    Description = def.GetVirtualOutput(validated, new OutputPortArrayID(kv.Key)),
+                    Connections = Collect(
+                        kv.Value.Select(
+                            c => new OutputConnection
+                            {
+                                Description = set.GetDefinitionInternal(c.Destination).GetVirtualInput(c.Destination, c.DestinationInputPort),
+                                Node = c.Destination.ToPublicHandle()
+                            }
+                        )
+                    )
+                }
+            ).ToList();
+
+            // Ensure ports are listed in declaration order (which port IDs are)
+            aggr.Sort((a, b) => (int)a.Description.PortID.Port.CategoryCounter - (int)b.Description.PortID.Port.CategoryCounter);
+
+            return Collect(aggr);
         }
     }
 

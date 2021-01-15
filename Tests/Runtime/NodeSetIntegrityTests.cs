@@ -17,26 +17,28 @@ namespace Unity.DataFlowGraph.Tests
             Kernel
         }
 
-        public struct Data : IKernelData
-        {
-            public int Contents;
-        }
-
-        class NonKernelNode : NodeDefinition<NonKernelNode.EmptyPorts>
+        class NonKernelNode : SimulationNodeDefinition<NonKernelNode.EmptyPorts>
         {
             public struct EmptyPorts : ISimulationPortDefinition { }
         }
 
-        class KernelNode : NodeDefinition<Data, KernelNode.KernelDefs, KernelNode.Kernel>
+        class KernelNode : KernelNodeDefinition<KernelNode.KernelDefs>
         {
             public struct KernelDefs : IKernelPortDefinition
             {
             }
 
-            [BurstCompile(CompileSynchronously = true)]
-            public struct Kernel : IGraphKernel<Data, KernelDefs>
+            struct Data : IKernelData
             {
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports)
+#pragma warning disable 649
+                public int Contents;
+#pragma warning restore 649
+            }
+
+            [BurstCompile(CompileSynchronously = true)]
+            struct Kernel : IGraphKernel<Data, KernelDefs>
+            {
+                public void Execute(RenderContext ctx, in Data data, ref KernelDefs ports)
                 {
 
                 }

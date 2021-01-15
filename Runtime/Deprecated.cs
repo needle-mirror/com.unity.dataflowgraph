@@ -1,6 +1,4 @@
 using System;
-using Unity.Collections;
-using Unity.Entities;
 
 namespace Unity.DataFlowGraph
 {
@@ -92,47 +90,49 @@ namespace Unity.DataFlowGraph
 
         [Obsolete("GetDSLHandler() should not be used within InitContext, DestroyContext, UpdateContext, or MessageContext. You should not rely on DSLHandler polymorphism in these contexts. (RemovedAfter 2020-10-27)")]
         public static TDSLHandler GetDSLHandler<TDSLHandler>(this NodeSetAPI set)
-            where TDSLHandler : class, IDSLHandler
-                => (TDSLHandler)set.GetDSLHandler(typeof(TDSLHandler));
+            where TDSLHandler : class, IDSLHandler, new()
+                => (TDSLHandler)set.GetDSLHandler(DSLTypeMap.RegisterDSL<TDSLHandler>());
     }
 
-    public partial struct InitContext
+    public static partial class CommonContextAPI
     {
         [Obsolete("Renamed to UpdateKernelBuffers (RemovedAfter 2021-01-19)")]
-        public void SetKernelBufferSize<TGraphKernel>(in TGraphKernel requestedSize)
+        public static void SetKernelBufferSize<TContext, TGraphKernel>(ref this TContext self, in TGraphKernel requestedSize)
+            where TContext : struct, Detail.IContext<TContext>
             where TGraphKernel : struct, IGraphKernel
-        {
-            Set.UpdateKernelBuffers(InternalHandle, requestedSize);
-        }
+                => self.Set.UpdateKernelBuffers(self.InternalHandle(), requestedSize);
     }
 
-    public partial struct MessageContext
-    {
-        [Obsolete("Renamed to UpdateKernelBuffers (RemovedAfter 2021-01-19)")]
-        public void SetKernelBufferSize<TGraphKernel>(in TGraphKernel requestedSize)
-            where TGraphKernel : struct, IGraphKernel
-        {
-            Set.UpdateKernelBuffers(InternalHandle, requestedSize);
-        }
-    }
+    [Obsolete("Derive from SimulationNodeDefinition<TSimulationPortDefinition> instead. Move any implementations of Init(), Destroy(), OnUpdate(), and HandleMessage() into an INodeData struct declared as a nested type within the class declaration (the struct is automatically discovered) to fill out the IInit, IDestroy, IUpdate, and IMsgHandler interfaces as appropriate. (RemovedAfter 2020-10-27)", true)]
+    public abstract class NodeDefinition<TSimulationPortDefinition> { }
 
-    public partial struct UpdateContext
-    {
-        [Obsolete("Renamed to UpdateKernelBuffers (RemovedAfter 2021-01-19)")]
-        public void SetKernelBufferSize<TGraphKernel>(in TGraphKernel requestedSize)
-            where TGraphKernel : struct, IGraphKernel
-        {
-            Set.UpdateKernelBuffers(InternalHandle, requestedSize);
-        }
-    }
+    [Obsolete("Derive from SimulationNodeDefinition<TSimulationPortDefinition> instead and ensure that your INodeData is declared as a nested type within the class declaration so that it is automatically discovered. Also move any implementations of Init(), Destroy(), OnUpdate(), and HandleMessage() into that INodeData struct to fill out the IInit, IDestroy, IUpdate, and IMsgHandler interfaces as appropriate. (RemovedAfter 2020-10-27)", true)]
+    public abstract class NodeDefinition<TNodeData, TSimulationPortDefinition> { }
 
-    public partial struct CommonContext
+    [Obsolete("Derive from KernelNodeDefinition<TKernelPortDefinition> instead and ensure that your IKernelData and IGraphKernel are declared as nested types within the class declaration so that they are automatically discovered. Also move any implementations of Init(), Destroy(), OnUpdate(), and HandleMessage() into an INodeData struct declared as a nested type within the class declaration (also automatically discovered) to fill out the IInit, IDestroy, IUpdate, and IMsgHandler interfaces as appropriate. (RemovedAfter 2020-10-27)", true)]
+    public abstract class NodeDefinition<TKernelData, TKernelPortDefinition, TKernel> { }
+
+    [Obsolete("Derive from SimulationKernelNodeDefinition<TSimulationPortDefinition,TKernelPortDefinition> instead and ensure that your INodeData, IKernelData, and IGraphKernel are declared as nested types within the class declaration so that they are automatically discovered. Also move any implementations of Init(), Destroy(), OnUpdate(), and HandleMessage() into that INodeData struct to fill out the IInit, IDestroy, IUpdate, and IMsgHandler interfaces as appropriate. (RemovedAfter 2020-10-27)", true)]
+    public abstract class NodeDefinition<TNodeData, TSimulationPortDefinition, TKernelData, TKernelPortDefinition, TKernel> { }
+
+    [Obsolete("Derive from KernelNodeDefinition<TKernelPortDefinition> instead and ensure that your INodeData, IKernelData, and IGraphKernel are declared as nested types within the class declaration so that they are automatically discovered. Also move any implementations of Init(), Destroy(), OnUpdate(), and HandleMessage() into that INodeData struct to fill out the IInit, IDestroy, IUpdate, and IMsgHandler interfaces as appropriate. (RemovedAfter 2020-10-27)", true)]
+    public abstract class NodeDefinition<TNodeData, TKernelData, TKernelPortDefinition, TKernel> { }
+
+    public partial struct RenderContext
     {
-        [Obsolete("Renamed to UpdateKernelBuffers (RemovedAfter 2021-01-19)")]
-        public void SetKernelBufferSize<TGraphKernel>(in TGraphKernel requestedSize)
-            where TGraphKernel : struct, IGraphKernel
+        [Obsolete("Renamed ResolvedInputPortArray (RemovedAfter 2021-03-14)")]
+        public readonly struct ResolvedPortArray<TDefinition, TType>
+            where TType : struct
+            where TDefinition : NodeDefinition
         {
-            Set.UpdateKernelBuffers(InternalHandle, requestedSize);
+            readonly ResolvedInputPortArray<TDefinition, TType> m_Resolved;
+
+            public ResolvedPortArray(ResolvedInputPortArray<TDefinition, TType> v) => m_Resolved = v;
+            public static implicit operator ResolvedPortArray<TDefinition, TType>(ResolvedInputPortArray<TDefinition, TType> v)
+                => new ResolvedPortArray<TDefinition, TType>(v);
+
+            public ushort Length => m_Resolved.Length;
+            public TType this[int i] => m_Resolved[i];
         }
     }
 }

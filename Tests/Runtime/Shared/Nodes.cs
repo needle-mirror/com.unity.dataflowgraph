@@ -55,14 +55,16 @@ namespace Unity.DataFlowGraph.Tests
             public DataInput<NodeWithAllTypesOfPorts, Buffer<int>> InputBuffer;
             public PortArray<DataInput<NodeWithAllTypesOfPorts, Buffer<int>>> InputArrayBuffer;
             public DataOutput<NodeWithAllTypesOfPorts, Buffer<int>> OutputBuffer;
+            public PortArray<DataOutput<NodeWithAllTypesOfPorts, Buffer<int>>> OutputArrayBuffer;
             public DataInput<NodeWithAllTypesOfPorts, int> InputScalar;
             public PortArray<DataInput<NodeWithAllTypesOfPorts, int>> InputArrayScalar;
             public DataOutput<NodeWithAllTypesOfPorts, int> OutputScalar;
+            public PortArray<DataOutput<NodeWithAllTypesOfPorts, int>> OutputArrayScalar;
         }
 
         struct Node : INodeData, IMsgHandler<int>
         {
-            public void HandleMessage(in MessageContext ctx, in int msg) { }
+            public void HandleMessage(MessageContext ctx, in int msg) { }
         }
 
         struct EmptyKernelData : IKernelData { }
@@ -70,7 +72,7 @@ namespace Unity.DataFlowGraph.Tests
         [BurstCompile(CompileSynchronously = true)]
         struct Kernel : IGraphKernel<EmptyKernelData, KernelDefs>
         {
-            public void Execute(RenderContext context, EmptyKernelData data, ref KernelDefs ports) { }
+            public void Execute(RenderContext ctx, in EmptyKernelData data, ref KernelDefs ports) { }
         }
     }
 
@@ -95,7 +97,7 @@ namespace Unity.DataFlowGraph.Tests
 
         struct Node : INodeData, IMsgHandler<T>
         {
-            public void HandleMessage(in MessageContext ctx, in T msg) { }
+            public void HandleMessage(MessageContext ctx, in T msg) { }
         }
 
         struct EmptyKernelData : IKernelData { }
@@ -104,7 +106,7 @@ namespace Unity.DataFlowGraph.Tests
         // [BurstCompile(CompileSynchronously = true)]
         struct Kernel : IGraphKernel<EmptyKernelData, KernelDefs>
         {
-            public void Execute(RenderContext ctx, EmptyKernelData data, ref KernelDefs ports) { }
+            public void Execute(RenderContext ctx, in EmptyKernelData data, ref KernelDefs ports) { }
         }
     }
 
@@ -121,7 +123,7 @@ namespace Unity.DataFlowGraph.Tests
         [BurstCompile(CompileSynchronously = true)]
         struct Kernel : IGraphKernel<EmptyKernelData, KernelDefs>
         {
-            public void Execute(RenderContext ctx, EmptyKernelData data, ref KernelDefs ports)
+            public void Execute(RenderContext ctx, in EmptyKernelData data, ref KernelDefs ports)
             {
                 ctx.Resolve(ref ports.Output) = ctx.Resolve(ports.Input) + 1;
             }
@@ -141,13 +143,34 @@ namespace Unity.DataFlowGraph.Tests
         [BurstCompile(CompileSynchronously = true)]
         struct Kernel : IGraphKernel<EmptyKernelData, KernelDefs>
         {
-            public void Execute(RenderContext ctx, EmptyKernelData data, ref KernelDefs ports)
+            public void Execute(RenderContext ctx, in EmptyKernelData data, ref KernelDefs ports)
             {
                 ref var sum = ref ctx.Resolve(ref ports.Output);
                 sum = 0;
                 var inputs = ctx.Resolve(ports.Inputs);
                 for (int i = 0; i < inputs.Length; ++i)
                     sum += inputs[i];
+            }
+        }
+    }
+
+    public class KernelArrayOutputNode : KernelNodeDefinition<KernelArrayOutputNode.KernelDefs>
+    {
+        public struct KernelDefs : IKernelPortDefinition
+        {
+            public PortArray<DataOutput<KernelArrayOutputNode, ECSInt>> Outputs;
+        }
+
+        struct EmptyKernelData : IKernelData { }
+
+        [BurstCompile(CompileSynchronously = true)]
+        struct Kernel : IGraphKernel<EmptyKernelData, KernelDefs>
+        {
+            public void Execute(RenderContext ctx, in EmptyKernelData data, ref KernelDefs ports)
+            {
+                var outputs = ctx.Resolve(ref ports.Outputs);
+                for (int i = 0; i < outputs.Length; ++i)
+                    outputs[i] = i + outputs.Length;
             }
         }
     }
@@ -172,7 +195,7 @@ namespace Unity.DataFlowGraph.Tests
         {
             public T LastReceivedMsg;
 
-            public void HandleMessage(in MessageContext ctx, in T msg)
+            public void HandleMessage(MessageContext ctx, in T msg)
             {
                 Assert.That(ctx.Port == SimulationPorts.Input);
                 LastReceivedMsg = msg;
@@ -184,7 +207,7 @@ namespace Unity.DataFlowGraph.Tests
 
         struct Kernel : IGraphKernel<EmptyKernelData, KernelDefs>
         {
-            public void Execute(RenderContext ctx, EmptyKernelData data, ref KernelDefs ports)
+            public void Execute(RenderContext ctx, in EmptyKernelData data, ref KernelDefs ports)
             {
                 ctx.Resolve(ref ports.Output) = ctx.Resolve(ports.Input);
             }
@@ -200,8 +223,8 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         public delegate void InitHandler(InitContext ctx);
-        public delegate void MessageHandler(in MessageContext ctx, in Message msg);
-        public delegate void UpdateHandler(in UpdateContext ctx);
+        public delegate void MessageHandler(MessageContext ctx, in Message msg);
+        public delegate void UpdateHandler(UpdateContext ctx);
         public delegate void DestroyHandler(DestroyContext ctx);
 
         struct Handlers
@@ -230,8 +253,8 @@ namespace Unity.DataFlowGraph.Tests
                 m_Handlers.Init?.Invoke(ctx);
             }
 
-            public void HandleMessage(in MessageContext ctx, in Message msg) => m_Handlers.Message?.Invoke(ctx, msg);
-            public void Update(in UpdateContext ctx) => m_Handlers.Update(ctx);
+            public void HandleMessage(MessageContext ctx, in Message msg) => m_Handlers.Message?.Invoke(ctx, msg);
+            public void Update(UpdateContext ctx) => m_Handlers.Update(ctx);
             public void Destroy(DestroyContext ctx) => m_Handlers.Destroy?.Invoke(ctx);
         }
 
@@ -260,8 +283,8 @@ namespace Unity.DataFlowGraph.Tests
         }
 
         public delegate void InitHandler(InitContext ctx, ref TNodeData data);
-        public delegate void MessageHandler(in MessageContext ctx, in Message msg, ref TNodeData data);
-        public delegate void UpdateHandler(in UpdateContext ctx, ref TNodeData data);
+        public delegate void MessageHandler(MessageContext ctx, in Message msg, ref TNodeData data);
+        public delegate void UpdateHandler(UpdateContext ctx, ref TNodeData data);
         public delegate void DestroyHandler(DestroyContext ctx, ref TNodeData data);
 
         struct Handlers
@@ -291,8 +314,8 @@ namespace Unity.DataFlowGraph.Tests
                 m_Handlers.Init?.Invoke(ctx, ref CustomNodeData);
             }
 
-            public void HandleMessage(in MessageContext ctx, in Message msg) => m_Handlers.Message?.Invoke(ctx, msg, ref CustomNodeData);
-            public void Update(in UpdateContext ctx) => m_Handlers.Update(ctx, ref CustomNodeData);
+            public void HandleMessage(MessageContext ctx, in Message msg) => m_Handlers.Message?.Invoke(ctx, msg, ref CustomNodeData);
+            public void Update(UpdateContext ctx) => m_Handlers.Update(ctx, ref CustomNodeData);
             public void Destroy(DestroyContext ctx) => m_Handlers.Destroy?.Invoke(ctx, ref CustomNodeData);
         }
 

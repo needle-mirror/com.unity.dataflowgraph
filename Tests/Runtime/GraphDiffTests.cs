@@ -29,7 +29,7 @@ namespace Unity.DataFlowGraph.Tests
             [BurstCompile(CompileSynchronously = true)]
             struct Kernel : IGraphKernel<Data, KernelDefs>
             {
-                public void Execute(RenderContext ctx, Data data, ref KernelDefs ports) { }
+                public void Execute(RenderContext ctx, in Data data, ref KernelDefs ports) { }
             }
         }
 
@@ -122,13 +122,43 @@ namespace Unity.DataFlowGraph.Tests
                 else
                     gv = set.CreateGraphValue<int>(node, (OutputPortID)NodeWithAllTypesOfPorts.KernelPorts.OutputScalar);
 
-                Assert.AreEqual(1, set.GetCurrentGraphDiff().CreatedGraphValues.Count);
-                Assert.AreEqual(gv.Handle, set.GetCurrentGraphDiff().CreatedGraphValues[0].Versioned);
+                Assert.AreEqual(1, set.GetCurrentGraphDiff().ChangedGraphValues.Count);
+
+                var change = set.GetCurrentGraphDiff().ChangedGraphValues[0];
+
+                Assert.True(change.IsCreation);
 
                 set.ReleaseGraphValue(gv);
                 set.Destroy(node);
             }
         }
 
+
+        [Test]
+        public void DestroyingGraphValue_AddsEntryInGraphDiff_WithValidHandles_ButIsNotValid([Values] bool strong)
+        {
+            using (var set = new NodeSet())
+            {
+                var node = set.Create<NodeWithAllTypesOfPorts>();
+                GraphValue<int> gv;
+
+                if (strong)
+                    gv = set.CreateGraphValue(node, NodeWithAllTypesOfPorts.KernelPorts.OutputScalar);
+                else
+                    gv = set.CreateGraphValue<int>(node, (OutputPortID)NodeWithAllTypesOfPorts.KernelPorts.OutputScalar);
+
+                set.Update();
+
+                set.ReleaseGraphValue(gv);
+
+                Assert.AreEqual(1, set.GetCurrentGraphDiff().ChangedGraphValues.Count);
+                var item = set.GetCurrentGraphDiff().ChangedGraphValues[0];
+
+                Assert.AreEqual(node.VHandle, item.SourceNode.Versioned);
+                Assert.False(item.IsCreation);
+                
+                set.Destroy(node);
+            }
+        }
     }
 }
